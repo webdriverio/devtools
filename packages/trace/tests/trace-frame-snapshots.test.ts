@@ -1,15 +1,31 @@
 import { describe, it, expect } from 'vitest'
+import { strFromU8, unzipSync } from 'fflate'
 import {
   buildActionEvents,
   buildImageFrameSnapshots,
+  buildScreenshotResourceSnapshots,
+  exportTraceZip,
   FrameSnapshotIndex,
+  screenshotUrl,
   type AfterEvent,
-  type FrameSnapshotRef
+  type FrameSnapshotEvent,
+  type FrameSnapshotRef,
+  type ScreenshotResourceEvent
 } from '@wdio/devtools-trace'
-import type { ActionSnapshot, CommandLog } from '@wdio/devtools-shared'
+import { parseTraceZip } from '../src/trace-reader.js'
+import {
+  TraceType,
+  type ActionSnapshot,
+  type CommandLog
+} from '@wdio/devtools-shared'
 
 function snap(overrides: Partial<ActionSnapshot> = {}): ActionSnapshot {
-  return { timestamp: 2000, command: 'click', screenshot: 'AAAA', ...overrides }
+  return {
+    timestamp: 2000,
+    command: 'click',
+    screenshot: 'AAAA',
+    ...overrides
+  }
 }
 
 describe('FrameSnapshotIndex', () => {
@@ -211,7 +227,7 @@ describe('buildImageFrameSnapshots', () => {
     )
   })
 
-  it('encodes the screenshot as an image document in node-array format', () => {
+  it('references the stored screenshot from an image document in node-array format', () => {
     const [event] = buildImageFrameSnapshots(
       [ref({ url: 'https://example.test/login' })],
       pageId,
@@ -228,7 +244,7 @@ describe('buildImageFrameSnapshots', () => {
         [
           'IMG',
           {
-            src: 'data:image/jpeg;base64,AAAA',
+            src: 'https://screenshot.wdio-devtools.invalid/action.jpeg',
             style: 'display:block;width:100vw;height:100vh;object-fit:contain'
           }
         ]
@@ -253,11 +269,16 @@ describe('buildImageFrameSnapshots', () => {
     expect(s.timestamp).toBe(1000)
     expect(s.wallTime).toBe(2000)
     expect(s.collectionTime).toBe(0)
-    expect(s.resourceOverrides).toEqual([])
+    expect(s.resourceOverrides).toEqual([
+      {
+        url: 'https://screenshot.wdio-devtools.invalid/action.jpeg',
+        sha1: 'page@abc123-2000.jpeg'
+      }
+    ])
     expect(s.isMainFrame).toBe(true)
   })
 
-  it('sniffs a png data uri from the base64 magic', () => {
+  it('gives a png screenshot its own url, sniffed from the base64 magic', () => {
     const [event] = buildImageFrameSnapshots(
       [ref({ screenshot: 'iVBORw0KGgo' })],
       pageId,
@@ -265,7 +286,24 @@ describe('buildImageFrameSnapshots', () => {
       viewport
     )
     const html = JSON.stringify(event!.snapshot.html)
-    expect(html).toContain('data:image/png;base64,iVBORw0KGgo')
+    expect(html).toContain(
+      'https://screenshot.wdio-devtools.invalid/action.png'
+    )
+    expect(event!.snapshot.resourceOverrides[0]!.url).toBe(
+      'https://screenshot.wdio-devtools.invalid/action.png'
+    )
+  })
+
+  it('never inlines the screenshot bytes', () => {
+    const [event] = buildImageFrameSnapshots(
+      [ref({ screenshot: 'iVBORw0KGgoAAAANSUhEUg' })],
+      pageId,
+      wallTime,
+      viewport
+    )
+    const json = JSON.stringify(event)
+    expect(json).not.toContain('data:')
+    expect(json).not.toContain('iVBORw0KGgoAAAANSUhEUg')
   })
 
   it('falls back to about:blank when the snapshot has no url', () => {
@@ -287,5 +325,159 @@ describe('buildImageFrameSnapshots', () => {
     )
     expect(event!.snapshot.timestamp).toBe(0)
     expect(event!.snapshot.wallTime).toBe(500)
+  })
+})
+
+describe('buildScreenshotResourceSnapshots', () => {
+  const pageId = 'page@abc123'
+
+  function ref(callId: string, snapshot: ActionSnapshot): FrameSnapshotRef {
+    return { callId, snapshotName: `after@${callId}`, snapshot }
+  }
+
+  it('records one response per screenshot url, served from the first stored screenshot', () => {
+    const events = buildScreenshotResourceSnapshots(
+      [
+        ref('call@1', snap({ timestamp: 2000, screenshot: 'iVBORw0KGgo1' })),
+        ref('call@2', snap({ timestamp: 3000, screenshot: 'iVBORw0KGgo2' })),
+        ref('call@3', snap({ timestamp: 4000, screenshot: '/9j/4AAQ' }))
+      ],
+      pageId
+    )
+    expect(
+      events.map((e) => [
+        e.snapshot.request.url,
+        e.snapshot.response.content.mimeType,
+        e.snapshot.response.content._sha1
+      ])
+    ).toEqual([
+      [
+        'https://screenshot.wdio-devtools.invalid/action.png',
+        'image/png',
+        'page@abc123-2000.jpeg'
+      ],
+      [
+        'https://screenshot.wdio-devtools.invalid/action.jpeg',
+        'image/jpeg',
+        'page@abc123-4000.jpeg'
+      ]
+    ])
+  })
+
+  it('is a GET recorded before any snapshot, in the snapshot frame', () => {
+    // The viewer serves only a GET whose time precedes the snapshot, and the
+    // first snapshot of a trace is commonly at time 0.
+    const [event] = buildScreenshotResourceSnapshots(
+      [ref('call@1', snap())],
+      pageId
+    )
+    expect(event!.type).toBe('resource-snapshot')
+    expect(event!.snapshot.request.method).toBe('GET')
+    expect(event!.snapshot.response.status).toBe(200)
+    expect(event!.snapshot._monotonicTime).toBeLessThan(0)
+    expect(event!.snapshot._frameref).toBe('frame@abc123')
+    expect(event!.snapshot.pageref).toBe(pageId)
+  })
+
+  it('records nothing when no screenshot is referenced', () => {
+    expect(buildScreenshotResourceSnapshots([], pageId)).toEqual([])
+  })
+})
+
+describe('a written trace stores each screenshot once', () => {
+  const PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  const JPEG =
+    '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGBwkI'
+
+  async function written() {
+    const zip = await exportTraceZip(
+      {
+        mutations: [],
+        logs: [],
+        consoleLogs: [],
+        networkRequests: [],
+        metadata: { type: TraceType.Standalone },
+        commands: [
+          { command: 'url', args: ['https://example.test'], timestamp: 1000 },
+          { command: 'click', args: ['#go'], timestamp: 2000 },
+          { command: 'getText', args: ['#out'], timestamp: 3000 }
+        ],
+        sources: {},
+        actionSnapshots: [
+          { timestamp: 1000, command: 'url', screenshot: PNG },
+          {
+            timestamp: 2000,
+            command: 'click',
+            screenshot: JPEG,
+            snapshotText: '- button "Go"'
+          }
+        ]
+      },
+      { sessionId: 'abc12345' }
+    )
+    const files = unzipSync(zip)
+    const events = strFromU8(files['trace.trace']!)
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as { type: string })
+    return { zip, files, events }
+  }
+
+  it('writes no image bytes into the frame-snapshot events', async () => {
+    const { events } = await written()
+    const frameSnapshots = events.filter((e) => e.type === 'frame-snapshot')
+    expect(frameSnapshots).toHaveLength(3)
+    const json = JSON.stringify(frameSnapshots)
+    expect(json).not.toContain('data:image')
+    expect(json).not.toContain(PNG)
+    expect(json).not.toContain(JPEG)
+  })
+
+  it('points every override at a stored resource the src and a recorded response both name', async () => {
+    const { files, events } = await written()
+    const responses = events.filter(
+      (e) => e.type === 'resource-snapshot'
+    ) as ScreenshotResourceEvent[]
+    const responseUrls = responses.map((r) => r.snapshot.request.url)
+    for (const response of responses) {
+      expect(
+        files[`resources/${response.snapshot.response.content._sha1}`]
+      ).toBeDefined()
+    }
+    const frameSnapshots = events.filter(
+      (e) => e.type === 'frame-snapshot'
+    ) as FrameSnapshotEvent[]
+    for (const { snapshot } of frameSnapshots) {
+      const [override] = snapshot.resourceOverrides
+      expect(snapshot.resourceOverrides).toHaveLength(1)
+      expect(files[`resources/${override!.sha1}`]).toBeDefined()
+      expect(JSON.stringify(snapshot.html)).toContain(
+        `"src":"${override!.url}"`
+      )
+      expect(responseUrls).toContain(override!.url)
+    }
+    // The getText row inherits the click's capture, and so its stored file.
+    expect(
+      frameSnapshots.map((e) => e.snapshot.resourceOverrides[0]!.sha1)
+    ).toEqual([
+      'page@abc12345-1000.jpeg',
+      'page@abc12345-2000.jpeg',
+      'page@abc12345-2000.jpeg'
+    ])
+    expect(responseUrls).toEqual([screenshotUrl(PNG), screenshotUrl(JPEG)])
+  })
+
+  it('reads back unchanged, with the screenshot responses kept out of the network rows', async () => {
+    const { zip } = await written()
+    const data = parseTraceZip(zip)
+    expect(data.trace.networkRequests).toEqual([])
+    expect(data.trace.commands.map((c) => c.command)).toEqual([
+      'url',
+      'click',
+      'getText'
+    ])
+    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
+    expect(data.trace.commands[1]!.snapshotText).toBe('- button "Go"')
   })
 })
