@@ -126,14 +126,21 @@ async function elementRead(name: string, result: unknown, user = true) {
   })
 }
 
-/** An element wait as WDIO runs it: its own doubled hooks, a `waitUntil` polling `isExisting`, then a re-validation. */
-async function elementWait(polls: boolean[], error?: Error) {
+/**
+ * An element wait as WDIO runs it: its own doubled hooks, a `waitUntil` polling `isExisting`, then a re-validation.
+ * WDIO's first poll runs inside the spec's own call, so it can carry the spec frame; every later one runs from a timer.
+ */
+async function elementWait(
+  polls: boolean[],
+  error?: Error,
+  firstPollFromSpec = false
+) {
   await before('waitForExist', [], true)
   await before('waitForExist', [{ timeout: 300 }], false)
   await before('waitUntil', [], true)
   await before('waitUntil', [null, { timeout: 300 }], false)
-  for (const found of polls) {
-    await elementRead('isExisting', found, false)
+  for (const [i, found] of polls.entries()) {
+    await elementRead('isExisting', found, firstPollFromSpec && i === 0)
   }
   await after('waitUntil', [], undefined, error)
   await after('waitUntil', [null, { timeout: 300 }], undefined, error)
@@ -204,6 +211,21 @@ describe('a wait is one row holding what it issued', () => {
       result: true,
       parentId: wait.id
     })
+  })
+
+  // Regression: the first poll carried the spec's call site and the timer-driven ones none, so they split into two rows.
+  it("folds an element wait's later polls into its first, which keeps the spec's call site", async () => {
+    await command('$', ['#missing'], { 'element-6066': 'el-1' })
+    await elementWait(
+      [false, false, false],
+      new Error('element ("#missing") still not existing after 300ms'),
+      true
+    )
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    const polls = rows().filter((r) => r.parentId === wait.id)
+    expect(polls).toHaveLength(1)
+    expect(polls[0].callSource).toContain('login.spec.ts')
   })
 
   it("carries a timed-out wait's error on its row", async () => {

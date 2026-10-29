@@ -22,19 +22,23 @@ export class WaitRows {
     this.#channel = channel
   }
 
-  /** Sends a wait's running row, or a row a wait issued: under one parent, a call it repeats replaces its first row. */
+  /**
+   * Sends a wait's running row, or a row a wait issued: under one parent, a call it repeats replaces its first row. A
+   * repeat with no call site is a poll a timer issued, the same call as the first poll, which ran with the spec's frame.
+   */
   send(entry: Row): number {
     const sig = RetryTracker.signature(
       entry.command,
       entry.args,
       entry.callSource
     )
+    const anySource = RetryTracker.signature(entry.command, entry.args)
     const { parentId } = entry
     const rows =
       parentId === undefined
         ? undefined
         : (this.#issued.get(parentId) ?? new Map<string, number>())
-    const at = this.#indexOf(rows?.get(sig))
+    const at = this.#indexOf(rows?.get(entry.callSource ? sig : anySource))
     if (at !== -1) {
       this.#replaceAt(at, entry)
       return entry.id!
@@ -44,7 +48,7 @@ export class WaitRows {
     this.#channel.log().push(entry)
     this.#channel.sendCommand(entry)
     if (rows) {
-      this.#issued.set(parentId!, rows.set(sig, id))
+      this.#issued.set(parentId!, rows.set(sig, id).set(anySource, id))
     }
     return id
   }
@@ -79,6 +83,7 @@ export class WaitRows {
     const log = this.#channel.log()
     const previous = log[at]!
     entry.id = entry._id = previous.id
+    entry.callSource ||= previous.callSource
     log[at] = entry
     this.#channel.sendReplaceCommand(previous.timestamp, entry)
   }
