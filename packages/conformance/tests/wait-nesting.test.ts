@@ -292,6 +292,21 @@ describe('checkWaitNesting', () => {
     ])
   })
 
+  // Regression: a first row carrying a result passed as running whenever its timestamp equalled its start.
+  it('flags a wait whose first row already carries a result', () => {
+    const frames = nestedRun().map((frame) =>
+      frame.scope === 'commands' && (frame.data as CommandLog[])[0]?.id === 4
+        ? {
+            ...frame,
+            data: [{ ...(frame.data as CommandLog[])[0], result: false }]
+          }
+        : frame
+    )
+    expect(check(frames)).toEqual([
+      'Browser.waitForFunction is first sent once it has ended, so a live list cannot nest what it issues while it runs'
+    ])
+  })
+
   it('flags a wait first sent once it had ended', () => {
     const frames = nestedRun().map((frame) =>
       frame.scope === 'commands' && (frame.data as CommandLog[])[0]?.id === 4

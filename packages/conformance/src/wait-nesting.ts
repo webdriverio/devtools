@@ -69,6 +69,10 @@ function scenarioWaits(
   })
 }
 
+// Python has no undefined and writes a missing result as null, so only a value other than null is a result.
+const hasResult = (row: CommandLog) =>
+  row.result !== undefined && row.result !== null
+
 // A wait is first sent running, at its start, so the rows it issues have a row to nest under while it runs.
 function waitIdentity(
   wait: CommandLog,
@@ -81,7 +85,10 @@ function waitIdentity(
   const first = typeof wait.id === 'number' ? firstSent.get(wait.id) : undefined
   const message = lacks.length
     ? `${waitKey(wait)} has no ${lacks.join(' or ')}, so the rows it issued cannot be nested under it`
-    : first && (first.row.error || first.row.timestamp !== wait.startTime)
+    : first &&
+        (first.row.error ||
+          hasResult(first.row) ||
+          first.row.timestamp !== wait.startTime)
       ? `${waitKey(wait)} is first sent once it has ended, so a live list cannot nest what it issues while it runs`
       : undefined
   return message
