@@ -81,11 +81,11 @@ Some helpers are framework-agnostic by nature but used in only one adapter today
 
 ### Trace-format transforms live in `trace`, one layer below `core`
 
-`packages/trace` holds the pure transforms that turn captured events into trace-zip content — the zip writer, action events, group paths, frame snapshots, mutations, HAR, sources, transcript. `core` keeps the adapter-side *orchestration and policy* that calls them: `trace-finalizer`, `spec-trace-helpers`, `trace-retention`.
+`packages/trace` holds the pure transforms that turn captured events into trace-zip content — the zip writer, action events, group paths, frame snapshots, mutations, HAR, sources, transcript — and the reader that turns a zip back into a player payload (`trace-reader.ts`), so the format has one owner in both directions. `core` keeps the adapter-side *orchestration and policy* that calls them: `trace-finalizer`, `spec-trace-helpers`, `trace-retention`.
 
 The split is not aesthetic. **`backend` may not import `core`** (it would pull framework-adapter logic into the server), but it does need to build a trace on behalf of an adapter that can't — the Python adapter ships no Node. `trace` is the layer both can reach, so it may import `shared` and nothing else; a single import of `core` from it re-creates the cycle the split exists to remove, and ESLint enforces that.
 
-The test for a new helper: *would the backend ever need this to build a zip?* If yes, `trace`. If it needs a driver, a framework hook, or a capture session, `core`.
+The test for a new helper: *would the backend ever need this to build or read a zip?* If yes, `trace`. If it needs a driver, a framework hook, or a capture session, `core`.
 
 ### One DOM snapshot per action, taken before it
 

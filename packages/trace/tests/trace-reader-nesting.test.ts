@@ -5,7 +5,7 @@ import {
   type CommandLog,
   type TraceActionChild
 } from '@wdio/devtools-shared'
-import { buildActionEvents } from '@wdio/devtools-trace/trace-action-events'
+import { buildActionEvents } from '../src/trace-action-events.js'
 
 import { parseTraceZip } from '../src/trace-reader.js'
 

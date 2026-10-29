@@ -2,7 +2,7 @@
 // No I/O — the reader pipeline (trace-reader.ts) composes these.
 
 import { strFromU8 } from 'fflate'
-import { sourceResourceName } from '@wdio/devtools-trace/trace-sources'
+import { sourceResourceName } from './trace-sources.js'
 import {
   isDeviceInfo,
   isRequestType,

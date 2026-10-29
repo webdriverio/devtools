@@ -38,8 +38,8 @@ const IMG3 = Buffer.from('frame-three').toString('base64')
 const toNdjson = (events: object[]): Uint8Array =>
   strToU8(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
 
-// Build a trace.zip matching the writer's format (core/trace-exporter.ts)
-// directly, so the reader is exercised without importing core (CLAUDE.md §2.2).
+// Build a trace.zip matching the writer's format (trace-exporter.ts)
+// by hand, so the reader is tested against the format rather than the writer.
 function fixtureZip(): Uint8Array {
   const events = [
     {

@@ -1,16 +1,4 @@
-// The trace.zip file layout — the one definition of how a trace is packaged.
-//
-// `core` writes these entries and `backend` reads them, and the two packages
-// cannot import each other (backend depends on shared only). Before this module
-// both sides carried their own copies of these strings, so a rename in the
-// writer left every reader test green and the mismatch only surfaced when
-// someone opened a real trace. Import from here on both sides instead.
-//
-// The *event interfaces* deliberately stay separate: `core`'s are strict (the
-// writer always emits `pageId`, `apiName`, `params`, `title`) while the reader's
-// are permissive, because it also parses traces this repo did not write — see
-// `backend/src/trace-reader-types.ts`. Strict producer, lenient consumer; only
-// the names below have to agree.
+// The trace.zip entry names, shared by the writer and the reader; their event types stay separate because the reader also parses foreign zips.
 
 /** Entry names inside a trace.zip, and the directory prefix for blobs. Also the
  *  filenames used by the unpacked `ndjson-directory` format. */

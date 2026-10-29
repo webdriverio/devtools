@@ -330,7 +330,7 @@ module.exports = [
             {
               group: ['@wdio/devtools-trace', '@wdio/devtools-trace/*'],
               message:
-                'App must not import from trace (CLAUDE.md §2.2). trace WRITES the zip; the app reads one the backend has already parsed for it.'
+                'App must not import from trace (CLAUDE.md §2.2). The backend writes and parses zips with it; the app receives a parsed trace over HTTP.'
             }
           ]
         }
