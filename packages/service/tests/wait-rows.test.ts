@@ -8,6 +8,7 @@ import { replaceCommand, type CommandLog } from '@wdio/devtools-shared'
 
 import DevToolsHookService from '../src/index.js'
 import { SessionCapturer } from '../src/session.js'
+import { WaitRows } from '../src/wait-rows.js'
 
 // A command issued from the spec carries a user frame on its stack; one WDIO issues internally does not.
 const stack = vi.hoisted(() => {
@@ -408,5 +409,54 @@ describe('a wait is one row holding what it issued', () => {
 
     const read = rows().find((r) => r.command === 'getText')
     expect(read?.parentId).toBe(rows()[0].id)
+  })
+})
+
+/** A run-long log already holding `earlier` rows, counting every element a lookup reads. */
+function channel(earlier: number) {
+  const rows: CommandLog[] = Array.from({ length: earlier }, (_, i) => ({
+    command: 'click',
+    args: [],
+    timestamp: i
+  }))
+  let reads = 0
+  const log = new Proxy(rows, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string' && /^\d+$/.test(prop)) {
+        reads++
+      }
+      return Reflect.get(target, prop, receiver)
+    }
+  })
+  let next = 1
+  const waitRows = new WaitRows({
+    log: () => log,
+    nextId: () => next++,
+    sendCommand: (row) => row.id!,
+    sendReplaceCommand: () => {}
+  })
+  return { waitRows, rows, reads: () => reads }
+}
+
+const logRow = (command: string, extra: Partial<CommandLog> = {}) =>
+  ({ command, args: ['#flash'], timestamp: 1, ...extra }) as CommandLog
+
+describe('WaitRows lookups', () => {
+  it("finds a poll's row without reading the rows logged before its wait", () => {
+    const { waitRows, rows, reads } = channel(10_000)
+    const id = waitRows.send(logRow('waitUntil', { args: [] }))
+    const before = reads()
+    for (let poll = 0; poll < 20; poll++) {
+      waitRows.send(
+        logRow('getText', { parentId: id, callSource: 'spec.ts:3' })
+      )
+    }
+    waitRows.close(logRow('waitUntil', { args: [], result: true }), id)
+
+    expect(reads() - before).toBeLessThan(200)
+    expect(rows.slice(-2).map((r) => [r.command, r.id])).toEqual([
+      ['getText', 2],
+      ['waitUntil', id]
+    ])
   })
 })

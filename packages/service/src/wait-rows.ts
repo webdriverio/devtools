@@ -18,6 +18,8 @@ export class WaitRows {
   #channel: RowChannel
   /** Per wait, the row each distinct call it issued folds into (signature → id). */
   #issued = new Map<number, Map<string, number>>()
+  /** The logged row of every id sent here, so a poll finds its row without scanning the run-long log. */
+  #rows = new Map<number, Row>()
 
   constructor(channel: RowChannel) {
     this.#channel = channel
@@ -47,6 +49,7 @@ export class WaitRows {
     const id = this.#channel.nextId()
     entry.id = entry._id = id
     this.#channel.log().push(entry)
+    this.#rows.set(id, entry)
     this.#channel.sendCommand(entry)
     if (rows) {
       this.#issued.set(parentId!, rows.set(sig, id).set(anySource, id))
@@ -67,18 +70,21 @@ export class WaitRows {
       entry
     )
     if (entry.parentId === undefined) {
-      this.#issued.clear()
+      this.reset()
+    } else {
+      this.#rows.set(id, entry)
     }
   }
 
   reset(): void {
     this.#issued.clear()
+    this.#rows.clear()
   }
 
+  /** Searched from the end: the row is the open wait's or one it issued, logged after it started. */
   #indexOf(id: number | undefined): number {
-    return id === undefined
-      ? -1
-      : this.#channel.log().findIndex((row) => row.id === id)
+    const row = id === undefined ? undefined : this.#rows.get(id)
+    return row ? this.#channel.log().lastIndexOf(row) : -1
   }
 
   #replaceAt(at: number, entry: Row): void {
@@ -91,6 +97,7 @@ export class WaitRows {
       entry.startTime = previous.startTime ?? entry.startTime
     }
     log[at] = entry
+    this.#rows.set(entry.id!, entry)
     this.#channel.sendReplaceCommand(previous.timestamp, entry)
   }
 }
