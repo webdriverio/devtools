@@ -233,7 +233,7 @@ def _tracked(
         except BaseException as exc:
             _conclude(capturer, self, scope, exc)
             raise
-        _conclude(capturer, self, scope, None)
+        _conclude(capturer, self, scope, None, result)
         return result
 
     wait.__wrapped__ = original  # type: ignore[attr-defined]
@@ -315,9 +315,13 @@ def _send_running(
 
 
 def _conclude(
-    capturer: Any, wait: Any, scope: WaitScope, exc: Optional[BaseException]
+    capturer: Any,
+    wait: Any,
+    scope: WaitScope,
+    exc: Optional[BaseException],
+    result: Any = None,
 ) -> None:
-    """Replace the running row by id once the wait has returned or raised."""
+    """Replace the running row by id once the wait has returned (carrying what it returned) or raised."""
     row = scope.row
     if row is None:
         return
@@ -332,6 +336,7 @@ def _conclude(
         scope.row = capturer.capture_command(
             command=row["command"],
             args=row["args"],
+            result=result,
             error=error,
             start_time=row["startTime"],
             call_source=row.get("callSource"),

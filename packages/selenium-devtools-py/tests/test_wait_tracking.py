@@ -161,6 +161,18 @@ class TestWaitRows(unittest.TestCase):
         self.assertEqual([find["parentId"], text["parentId"]], [wait["id"], wait["id"]])
         self.assertNotIn("error", find)  # the last poll's outcome stands
 
+    def test_a_passing_wait_carries_the_value_it_returned_as_its_result(self):
+        returned = WebDriverWait(PollingDriver(), 1).until(lambda d: {"count": 2})
+        wait = self._rows()[0]
+        self.assertEqual(returned, {"count": 2})
+        self.assertEqual(wait["result"], {"count": 2})
+
+    def test_an_element_wait_s_result_is_its_element_as_other_results_serialize_it(self):
+        element = WebDriverWait(PollingDriver(appears_after=1), 1).until(
+            EC.presence_of_element_located((By.ID, "late"))
+        )
+        self.assertEqual(self._rows()[0]["result"], str(element))
+
     def test_until_not_names_the_negated_condition(self):
         with self.assertRaises(TimeoutException):
             WebDriverWait(PollingDriver(appears_after=1), 0.1, poll_frequency=0.02).until_not(
