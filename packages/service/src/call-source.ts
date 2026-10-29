@@ -4,11 +4,7 @@ import { SPEC_FRAME_SEARCH_DEPTH } from './constants.js'
 
 type StackFrame = ReturnType<typeof parse>[number]
 
-/**
- * The outermost frame `isSpec` accepts among the frames below the innermost call of `hook`. Read from below the hook
- * so the service's own frames around it never count against the stack limit, which they did once the hooks gained a
- * wrapper: an expect matcher's read lost its spec line, and with it its row.
- */
+/** The outermost spec frame below `hook`, read from below it so the service's own wrapper frames never use up the stack limit. */
 export function specFrameBelow(
   hook: (...args: never[]) => unknown,
   isSpec: (file: string | null) => boolean

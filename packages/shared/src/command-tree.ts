@@ -6,10 +6,7 @@ export interface CommandNode<T extends CommandLog = CommandLog> {
   children: CommandNode<T>[]
 }
 
-/**
- * Nests a flat row list under each row's `parentId`. A row whose parent is not in the list stays at the top level, so a
- * list rebuilt on every update re-nests it once the parent arrives; a row whose ancestry loops back to itself is a root.
- */
+/** Nests rows under their `parentId`; a row whose parent is absent stays a root until it arrives, and a loop is rooted. */
 export function nestCommands<T extends CommandLog>(
   commands: readonly T[]
 ): CommandNode<T>[] {

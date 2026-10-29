@@ -1,18 +1,4 @@
-"""WebDriverWait tracking: a wait is one row, and what its condition issued
-nests under it.
-
-``WebDriverWait.until`` is a client-side loop, so the ``execute`` chokepoint
-sees only its polls and no trace of the wait or of the ``TimeoutException`` it
-raised. This patches ``until``/``until_not`` to send the wait's own row before
-the first poll, running (a ``startTime``, no result or error), and to replace
-it by ``id`` when the wait returns or raises, stamped at completion and
-carrying the timeout as its error. Every command the condition issues names
-that row as ``parentId``, and each poll's repeat of a call folds into the row
-the first poll made. An element-locator condition is named after the element
-wait it is (``waitForElementLocated`` on its selector); any other is ``wait``,
-named after the condition. That is the Selenium Node.js adapter's
-``wait-tracking.ts``, so the two Selenium adapters show a wait the same way.
-"""
+"""WebDriverWait is a client-side loop ``execute`` never sees, so ``until``/``until_not`` send the wait as one row its condition's commands nest under, as the Node.js adapter's ``wait-tracking.ts`` does."""
 
 from __future__ import annotations
 

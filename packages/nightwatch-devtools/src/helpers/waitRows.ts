@@ -1,15 +1,4 @@
-/**
- * A wait as one row, sent running at invocation and ended by `id`, and which
- * open wait issued a command, read from the async context of the call.
- *
- * Nightwatch runs a `waitUntil` condition from its own queue, so nothing on a
- * command the condition issues says a wait issued it, and the queue tree that
- * knows is not reachable from a plugin. The condition is the one piece of user
- * code a wait calls, so running it inside an `AsyncLocalStorage` scope marks
- * exactly the commands it invokes, across its own awaits; a condition that
- * calls another wait opens a scope inside the first. A `waitForElement*` polls
- * through the transport, never through `browser`, so its row has no children.
- */
+// A wait's row, and which open wait issued a command: Nightwatch's queue hides that, so the condition runs in an AsyncLocalStorage scope.
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { commandFailure, mapCommandToAction } from '@wdio/devtools-shared'
@@ -25,12 +14,7 @@ export class WaitRows {
 
   constructor(private readonly capturer: SessionCapturer) {}
 
-  /**
-   * The innermost wait still open whose condition is making this call. An async
-   * context outlives the call that created it (a timer or promise started inside
-   * the condition keeps it after the wait has ended), so a closed wait hands the
-   * call to the wait it was itself issued inside.
-   */
+  /** The innermost open wait making this call; a scope outlives its wait, so a closed one defers to its own parent. */
   enclosing(): OpenWait | undefined {
     let wait = this.#scope.getStore()
     while (wait?.closed) {
