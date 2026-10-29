@@ -33,4 +33,8 @@ describe('the hosted player CSP', () => {
     expect(directive('script-src')).toEqual(["'self'"])
     expect(directive('connect-src')).toEqual(["'self'"])
   })
+
+  it('keeps the year-long asset cache off index.html and every other path', () => {
+    expect(hostingHeaders()['Cache-Control']).toBeUndefined()
+  })
 })
