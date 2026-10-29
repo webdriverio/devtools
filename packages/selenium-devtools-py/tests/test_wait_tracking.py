@@ -183,6 +183,13 @@ class TestWaitRows(unittest.TestCase):
         self.assertEqual(wait["args"][0], "not presence_of_element_located(('id', 'late'))")
         self.assertNotIn("selector", wait)
 
+    def test_a_passing_until_not_is_not_read_as_a_wait_that_resolved_false(self):
+        returned = WebDriverWait(PollingDriver(), 1).until_not(lambda d: False)
+        self.assertIs(returned, False)
+        wait = self._rows()[0]
+        self.assertNotIn("error", wait)
+        self.assertNotEqual(wait["result"], False)
+
     def test_commands_outside_a_wait_stay_rows_of_their_own(self):
         driver = PollingDriver(appears_after=1)
         driver.find_element(By.ID, "late")

@@ -219,7 +219,8 @@ def _tracked(
         except BaseException as exc:
             _conclude(capturer, self, scope, exc)
             raise
-        _conclude(capturer, self, scope, None, result)
+        # until_not returns a falsy value, which the shared rule reads on a wait as a timeout.
+        _conclude(capturer, self, scope, None, None if negated else result)
         return result
 
     wait.__wrapped__ = original  # type: ignore[attr-defined]
