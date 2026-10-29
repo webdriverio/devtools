@@ -1,8 +1,7 @@
 {
-  "$comment": "Cases for logic that exists in both TypeScript and Python, because the Python adapter cannot import core. packages/selenium-devtools/tests/mirror-vectors.test.ts runs every section against the TypeScript implementation, except one notCovered names as having no TypeScript side yet, and packages/selenium-devtools-py/tests/test_mirror_vectors.py against the Python one, so a case added here checks both and a one-sided change fails the other language's run. Both runners refuse a section they do not know. Test data only: nothing under src imports it, and the package is private.",
+  "$comment": "Cases for logic that exists in both TypeScript and Python, because the Python adapter cannot import core. packages/selenium-devtools/tests/mirror-vectors.test.ts runs every section against the TypeScript implementation and packages/selenium-devtools-py/tests/test_mirror_vectors.py against the Python one, so a case added here checks both and a one-sided change fails the other language's run. Both runners refuse a section they do not know. Test data only: nothing under src imports it, and the package is private.",
   "notCovered": {
-    "screencastBufferThinning": "Deliberately different algorithms. core's ScreencastRecorderBase halves its buffer keeping first and last; the Python push recorder (screencast.py) also thins incoming frames by its decimation stride and holds the newest skipped frame for the tail, because halving alone drifts toward the end of a pushed stream (CLAUDE.md, the pushed-screencast entry). There is no shared output to state.",
-    "waitRowNaming": "Python only for now. The Selenium Node.js adapter names its wait row inside wait-tracking.ts, which on this base exposes no pure naming function (its own change for #464 lands in parallel), so there is no TypeScript side to run the section against yet. mirror-vectors.test.ts skips exactly the sections listed here; once the TypeScript side exposes the naming, run the section there and drop this entry."
+    "screencastBufferThinning": "Deliberately different algorithms. core's ScreencastRecorderBase halves its buffer keeping first and last; the Python push recorder (screencast.py) also thins incoming frames by its decimation stride and holds the newest skipped frame for the tail, because halving alone drifts toward the end of a pushed stream (CLAUDE.md, the pushed-screencast entry). There is no shared output to state."
   },
   "sections": {
     "assertionTarget": {
@@ -552,8 +551,11 @@
       ]
     },
     "waitRowNaming": {
-      "mirrors": { "py": "wait_tracking.py wait_row_name" },
-      "notes": "condition.factory is language neutral: elementLocated is EC.presence_of_element_located (until.elementLocated), elementVisible is EC.visibility_of_element_located, titleIs is EC.title_is (until.titleIs), function is a plain function of the driver. locator.using is the strategy the test wrote, before the binding converts it; expect.selector is the selector the adapter stamps on the element rows the wait's polls make, null where the strategy has none. A negated wait (until_not) waits on no element, so it is a wait on its condition.",
+      "mirrors": {
+        "ts": "selenium-devtools/src/wait-tracking.ts waitRowName",
+        "py": "wait_tracking.py wait_row_name"
+      },
+      "notes": "condition.factory is language neutral: elementLocated is EC.presence_of_element_located (until.elementLocated), elementVisible is EC.visibility_of_element_located, titleIs is EC.title_is (until.titleIs), function is a plain function of the driver. locator.using is the strategy the test wrote, before the binding converts it; expect.selector is the selector the adapter stamps on the element rows the wait's polls make, null where the strategy has none. A negated wait (until_not) waits on no element, so it is a wait on its condition; selenium-webdriver has no negated wait, so the TypeScript runner skips that case.",
       "cases": [
         {
           "name": "a presence wait is an element wait on its CSS selector",

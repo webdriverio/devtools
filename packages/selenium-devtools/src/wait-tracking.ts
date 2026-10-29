@@ -164,6 +164,21 @@ function elementSelectorOf(condition: unknown): string | undefined {
     : undefined
 }
 
+/** What a wait's row is named: an element condition after its element and its selector, any other condition `wait`. */
+export function waitRowName(condition: unknown): {
+  command: string
+  selector: string | undefined
+} {
+  const element =
+    condition && typeof condition === 'object'
+      ? elementConditions.get(condition)
+      : undefined
+  return {
+    command: element?.command ?? 'wait',
+    selector: elementSelectorOf(condition)
+  }
+}
+
 /** Emits the wait's running row, stamped when this call started and spanning from the wait's first, and returns what replaces it once the wait settles. */
 function openWaitRow(
   emit: (cmd: CapturedCommand) => void,
@@ -211,14 +226,10 @@ function waitRow(
   timeout: unknown,
   startTime: number
 ): CapturedCommand {
-  const element =
-    condition && typeof condition === 'object'
-      ? elementConditions.get(condition)
-      : undefined
-  const selector = elementSelectorOf(condition)
+  const { command, selector } = waitRowName(condition)
   const subject = selector ?? conditionLabel(condition)
   return {
-    command: element?.command ?? 'wait',
+    command,
     args: timeout === undefined ? [subject] : [subject, timeout],
     result: undefined,
     error: undefined,

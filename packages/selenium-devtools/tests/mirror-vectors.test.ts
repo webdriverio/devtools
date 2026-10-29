@@ -21,7 +21,14 @@ import {
   SessionCapturerBase,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
-import { trackWaits, waitPollOf } from '../src/wait-tracking.js'
+import * as sw from 'selenium-webdriver'
+import { rememberElementLocator } from '../src/helpers/element-locators.js'
+import {
+  tagElementConditions,
+  trackWaits,
+  waitPollOf,
+  waitRowName
+} from '../src/wait-tracking.js'
 import type { Patchable, WaitScope } from '../src/types.js'
 
 const randomDraw = vi.hoisted(() => ({ value: 0, bounds: [] as number[] }))
@@ -64,22 +71,12 @@ const RUNNERS = [
   'commandRowId',
   'waitPollKeys',
   'nestedWaitIdentity',
-  'performancePayload'
+  'performancePayload',
+  'waitRowNaming'
 ]
 
-/** Sections with no TypeScript side yet; each must say why in `notCovered`. */
-const PYTHON_ONLY = ['waitRowNaming']
-
 it('runs every section the vectors file declares', () => {
-  expect(Object.keys(vectors.sections).sort()).toEqual(
-    [...RUNNERS, ...PYTHON_ONLY].sort()
-  )
-})
-
-it('skips only the sections notCovered explains', () => {
-  for (const name of PYTHON_ONLY) {
-    expect(vectors.notCovered[name], name).toEqual(expect.any(String))
-  }
+  expect(Object.keys(vectors.sections).sort()).toEqual([...RUNNERS].sort())
 })
 
 /** Groups must partition the observed values the same way: equal names exactly where values are equal. */
@@ -361,6 +358,49 @@ describe('performancePayload', () => {
         c.navigatedUrl ?? undefined
       )
       expect({ applied, row: withoutNulls(row) }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('waitRowNaming', () => {
+  type Locator = { using: string; value: string }
+  type Condition = { factory: string; locator?: Locator; negated?: boolean }
+  const BY: Record<string, (value: string) => sw.By> = {
+    'css selector': (v) => sw.By.css(v),
+    id: (v) => sw.By.id(v),
+    name: (v) => sw.By.name(v),
+    xpath: (v) => sw.By.xpath(v),
+    'link text': (v) => sw.By.linkText(v)
+  }
+  const by = ({ using, value }: Locator) => BY[using](value)
+
+  const conditionOf = ({ factory, locator }: Condition): unknown => {
+    if (factory === 'elementLocated') {
+      return sw.until.elementLocated(by(locator!))
+    }
+    if (factory === 'elementVisible') {
+      // The element a find returned, with the locator the adapter recorded for it.
+      const element = new sw.WebElement({} as sw.WebDriver, 'el-1')
+      rememberElementLocator(element, by(locator!))
+      return sw.until.elementIsVisible(element)
+    }
+    if (factory === 'titleIs') {
+      return sw.until.titleIs('Secure Area')
+    }
+    return () => true
+  }
+
+  tagElementConditions(sw.until as unknown as Patchable)
+  for (const c of section<
+    Named & {
+      condition: Condition
+      expect: { command: string; selector: string | null }
+    }
+  >('waitRowNaming').cases) {
+    // selenium-webdriver has no negated wait (Python's `until_not`), so that case has nothing to run here.
+    it.skipIf(c.condition.negated)(c.name, () => {
+      const { command, selector } = waitRowName(conditionOf(c.condition))
+      expect({ command, selector: selector ?? null }).toEqual(c.expect)
     })
   }
 })

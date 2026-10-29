@@ -42,7 +42,8 @@ describe('locatorToSelector', () => {
 
   it('reads By.className / By.name through their compiled css', () => {
     expect(locatorToSelector(By.className('radius'))).toBe('.radius')
-    expect(locatorToSelector(By.name('q'))).toBe('*[name="q"]')
+    // The same form as the shorthand `{ name: 'q' }` and as the Python adapter's rows.
+    expect(locatorToSelector(By.name('q'))).toBe('[name="q"]')
   })
 
   it('accepts a bare {using, value} pair and a raw selector string', () => {

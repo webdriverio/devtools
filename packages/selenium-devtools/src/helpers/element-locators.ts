@@ -8,6 +8,8 @@
 
 /** `By.id('x')` compiles to this CSS form. */
 const BY_ID_CSS_RE = /^\*\[id="([\w-]+)"\]$/
+/** `By.name('x')` compiles to this CSS form; the shorthand `{name: 'x'}` and Python's binding read it without the `*`. */
+const BY_NAME_CSS_RE = /^\*(\[name="[^"]*"\])$/
 
 // Keyed by handle identity rather than element id: `WebElement.id_` is a promise
 // in every supported version, so no id is readable when a command is invoked. A
@@ -36,7 +38,10 @@ function canonicalizeCss(value: string): string {
   // `#x` is the form the captured element records carry, and the input point
   // matches those records by exact string.
   const byId = BY_ID_CSS_RE.exec(value)
-  return byId ? `#${byId[1]}` : value
+  if (byId) {
+    return `#${byId[1]}`
+  }
+  return BY_NAME_CSS_RE.exec(value)?.[1] ?? value
 }
 
 /** A `By`, a `{using, value}` pair, a shorthand hash or a raw string, as the
