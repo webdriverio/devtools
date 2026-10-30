@@ -4,6 +4,10 @@ import type { ReactiveController, ReactiveControllerHost } from 'lit'
 
 import { TRACE_OPEN_EVENT } from '../src/controller/constants.js'
 import { TraceOpenController } from '../src/controller/trace-open.js'
+import type {
+  TraceOpenPhase,
+  TraceOpenProgress
+} from '../src/controller/trace-parse-protocol.js'
 
 class StubHost extends HTMLElement implements ReactiveControllerHost {
   readonly controllers: ReactiveController[] = []
@@ -25,7 +29,9 @@ class StubHost extends HTMLElement implements ReactiveControllerHost {
 }
 customElements.define('trace-open-stub-host', StubHost)
 
-function setup(load: (file: File) => Promise<void>) {
+function setup(
+  load: (file: File, onPhase: TraceOpenProgress) => Promise<void>
+) {
   const host = document.createElement('trace-open-stub-host') as StubHost
   const controller = new TraceOpenController(host, load)
   controller.hostConnected()
@@ -71,7 +77,9 @@ describe('TraceOpenController', () => {
     const { host } = setup(load)
 
     host.dispatchEvent(new CustomEvent(TRACE_OPEN_EVENT, { detail: trace }))
-    await vi.waitFor(() => expect(load).toHaveBeenCalledWith(trace))
+    await vi.waitFor(() =>
+      expect(load).toHaveBeenCalledWith(trace, expect.any(Function))
+    )
   })
 
   it('opens a file dropped anywhere and keeps the tab from navigating to it', async () => {
@@ -83,7 +91,26 @@ describe('TraceOpenController', () => {
     window.dispatchEvent(drop)
 
     expect(drop.defaultPrevented).toBe(true)
-    await vi.waitFor(() => expect(load).toHaveBeenCalledWith(trace))
+    await vi.waitFor(() =>
+      expect(load).toHaveBeenCalledWith(trace, expect.any(Function))
+    )
+  })
+
+  it('shows the phase the open is on and forgets it when the open ends', async () => {
+    const seen: (TraceOpenPhase | undefined)[] = []
+    const { host, controller } = setup(async (_file, onPhase) => {
+      onPhase('reading')
+      seen.push(controller.phase)
+      onPhase('building')
+      seen.push(controller.phase)
+    })
+    const updatesBefore = host.updates
+
+    await controller.open(trace)
+
+    expect(seen).toEqual(['reading', 'building'])
+    expect(host.updates - updatesBefore).toBe(4)
+    expect(controller.phase).toBeUndefined()
   })
 
   it('dismisses the error', async () => {

@@ -41,7 +41,8 @@ import type {
   HarSnapshot,
   MergedEvents,
   ScreencastFrameEvent,
-  StdioEvent
+  StdioEvent,
+  TraceZipEntries
 } from './trace-reader-types.js'
 import {
   buildActionTree,
@@ -154,7 +155,7 @@ function mergeStreams(streams: CategorizedEvents[]): MergedEvents {
 }
 
 function frameResource(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   sha1: string
 ): Uint8Array | undefined {
   for (const suffix of FRAME_RESOURCE_SUFFIXES) {
@@ -167,7 +168,7 @@ function frameResource(
 }
 
 function buildFrames(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   frameEvents: ScreencastFrameEvent[]
 ): { frames: TracePlayerFrame[]; maxTime: number } {
   const frames: TracePlayerFrame[] = []
@@ -257,7 +258,7 @@ function reconstructCommand(
  *  + original timestamp (wallTime), so this works regardless of whether the zip
  *  used the sparse or dense filmstrip. */
 function buildSnapshotTextByCallId(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   frameSnapshots: FrameSnapshotEvent[]
 ): Map<string, string> {
   const byCallId = new Map<string, string>()
@@ -274,7 +275,7 @@ function buildSnapshotTextByCallId(
 function buildCommands(
   events: MergedEvents,
   frames: TracePlayerFrame[],
-  files: Record<string, Uint8Array>
+  files: TraceZipEntries
 ): {
   commands: CommandLog[]
   maxTime: number
@@ -334,7 +335,7 @@ function linkIssuedRows(
 }
 
 function parseNetworkStreams(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   names: string[]
 ): NetworkRequest[] {
   return names
@@ -346,7 +347,7 @@ function parseNetworkStreams(
 }
 
 function parseMutationStreams(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   names: string[]
 ): TraceMutation[] {
   // The `.mutations` NDJSON is TraceMutation JSON, minus the trailing
@@ -363,7 +364,7 @@ function parseMutationStreams(
 /** Categorize + rebase every `.trace` action stream, merge them, and fold in
  *  any `.stacks` sidecars — the event-stream prelude for `parseTraceZip`. */
 function parseAndMergeEventStreams(
-  files: Record<string, Uint8Array>,
+  files: TraceZipEntries,
   names: string[]
 ): MergedEvents {
   const streams = names
@@ -387,9 +388,18 @@ function earliestWallTime(ctxs: ContextOptionsEvent[]): number {
   return wallTimes.length ? Math.min(...wallTimes) : 0
 }
 
+/** Unpack a trace.zip buffer into its entries, keyed by path. */
+export function unzipTraceZip(zip: Uint8Array): TraceZipEntries {
+  return unzipSync(zip)
+}
+
 /** Parse an in-memory trace.zip buffer into a player payload. Pure (no I/O). */
 export function parseTraceZip(zip: Uint8Array): TracePlayerData {
-  const files = unzipSync(zip)
+  return parseTraceEntries(unzipTraceZip(zip))
+}
+
+/** Build the player payload from a trace.zip's unpacked entries. */
+export function parseTraceEntries(files: TraceZipEntries): TracePlayerData {
   const names = Object.keys(files).sort()
   const entriesWith = (suffix: string) =>
     names.filter((name) => name.endsWith(suffix))
