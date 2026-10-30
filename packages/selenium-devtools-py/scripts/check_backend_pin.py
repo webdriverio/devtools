@@ -43,6 +43,7 @@ NETWORK_TIMEOUT_S = 60
 REQUIRED_BACKEND_NAMES = {
     "COLLECTOR_PATH": "serves the page collector — without it DOM replay is off",
     "ELEMENT_SCRIPTS_PATH": "serves the page-side element scripts",
+    "PAGE_SCRIPTS_PATH": "serves the page scripts every drain and snapshot runs",
     "SCOPE_TRACE_EXPORT": "builds the trace archive this adapter cannot build itself",
     "SCOPE_TRACE_EXPORTED": "answers the trace export request",
     "SCOPE_ACTION_SNAPSHOTS": "accumulates per-action DOM snapshots",
