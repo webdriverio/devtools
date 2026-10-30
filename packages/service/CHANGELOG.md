@@ -1,5 +1,28 @@
 # @wdio/devtools-service
 
+## 11.1.0
+
+### Minor Changes
+
+- 97e099f: Require Node.js 22.23.4, 24.22.1, 26.12.1 or a later release of these lines. These are the first releases with the updated CA store for the eMudhra intermediate CA compromise ("ca-cert (eMudhra Intermediate CA Compromise) on 26.x, 24.x, 22.x" in the [October 2026 security releases](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)). Older versions trust intermediates whose private keys are public. `engines` only warns, except with Yarn 1 or `npm --engine-strict`.
+
+### Patch Changes
+
+- 2d83d68: A `node:assert` row only names an element read in the same test (or Cucumber scenario). An assertion in a later test, such as `assert.ok(true)`, no longer boxes an element an earlier test read the same value from. With the WebdriverIO service, a `browser.getTitle()` issued while one of the service's own title reads is still pending keeps its row in the Actions list.
+- a12fcd9: A command's source location no longer points into the adapter's own sources when the run has source maps enabled (for example under `tsx`) inside the devtools workspace; it names the test file again. A command with no user call site now carries no `callSource` instead of the `unknown:0` placeholder, and a malformed stack frame can no longer throw out of call-site detection.
+- 0b4c91e: A test file sitting directly inside a `node_modules` folder no longer gets its video and trace written next to it; output falls back to the config or working directory, as it already did for a test file deeper inside `node_modules`. Capabilities given as an array are no longer read as a native mobile session.
+- 132a838: A navigation row's summary shows its load time in milliseconds to two decimals, such as `246.40 ms`. The full-precision timings stay in the row's performance data.
+- b6bed61: A command row can now name the row whose execution issued it (`parentId`), and the dashboard and the trace player nest such rows under that row, collapsed by default and open when it failed or holds the selected row. Selecting a nested row replays its page exactly as a top-level row does. This is how a wait shows the commands its condition issued. A command that failed under a wait that then passed is a poll the wait retried past: it renders neutral, with its error as the row's tooltip, stays out of the Errors tab and is not written as a failed action in the trace. Under a wait that timed out, its commands keep their errors. A trace recorded without nested rows reads back unchanged.
+- 2f7273e: Navigation rows carry their performance timings again. The script that reads them ran in the browser but never returned its result to the adapter, so every navigation row was left without load timings, cookies or document info.
+- e7dc8e0: A `node:assert` row names the element whose read produced the asserted value, and none for a page-level value: `assert.notEqual(await browser.getTitle(), 'Secure Area')` no longer boxes the last element the test resolved. The test's own `browser.getTitle()` is now a `Page.getTitle` row in the Actions list, as in the other adapters.
+- 14977b9: A wait (`waitUntil`, `waitForExist`, `waitForDisplayed`, `waitForEnabled`, `waitForClickable`) is one row that appears as soon as it starts and is updated when it ends, carrying the timeout error if it timed out. The commands it issued, the reads in a `waitUntil` condition or an element wait's polls, are listed under it, one row per distinct call, collapsed by default in the Actions list and the trace player. A wait inside a `waitUntil` condition nests the same way. Commands outside a wait are listed exactly as before.
+- Updated dependencies [0b4c91e]
+- Updated dependencies [b6bed61]
+- Updated dependencies [4b2f233]
+- Updated dependencies [97e099f]
+- Updated dependencies [0b6216a]
+  - @wdio/devtools-backend@2.1.0
+
 ## 11.0.0
 
 ### Major Changes

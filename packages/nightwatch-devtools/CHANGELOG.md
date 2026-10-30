@@ -1,5 +1,37 @@
 # @wdio/nightwatch-devtools
 
+## 2.1.0
+
+### Minor Changes
+
+- 97e099f: Require Node.js 22.23.4, 24.22.1, 26.12.1 or a later release of these lines. These are the first releases with the updated CA store for the eMudhra intermediate CA compromise ("ca-cert (eMudhra Intermediate CA Compromise) on 26.x, 24.x, 22.x" in the [October 2026 security releases](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)). Older versions trust intermediates whose private keys are public. `engines` only warns, except with Yarn 1 or `npm --engine-strict`.
+
+### Patch Changes
+
+- 7a2cac9: A `node:assert` row on a page-level value, such as `assert.notEqual(await driver.getTitle(), 'Welcome')`, names no element. It used to box an element whose earlier read returned the expected value.
+- 2d83d68: A `node:assert` row only names an element read in the same test (or Cucumber scenario). An assertion in a later test, such as `assert.ok(true)`, no longer boxes an element an earlier test read the same value from. With the WebdriverIO service, a `browser.getTitle()` issued while one of the service's own title reads is still pending keeps its row in the Actions list.
+- a12fcd9: A command's source location no longer points into the adapter's own sources when the run has source maps enabled (for example under `tsx`) inside the devtools workspace; it names the test file again. A command with no user call site now carries no `callSource` instead of the `unknown:0` placeholder, and a malformed stack frame can no longer throw out of call-site detection.
+- 0b4c91e: A test file sitting directly inside a `node_modules` folder no longer gets its video and trace written next to it; output falls back to the config or working directory, as it already did for a test file deeper inside `node_modules`. Capabilities given as an array are no longer read as a native mobile session.
+- 132a838: A navigation row's summary shows its load time in milliseconds to two decimals, such as `246.40 ms`. The full-precision timings stay in the row's performance data.
+- b6bed61: A command row can now name the row whose execution issued it (`parentId`), and the dashboard and the trace player nest such rows under that row, collapsed by default and open when it failed or holds the selected row. Selecting a nested row replays its page exactly as a top-level row does. This is how a wait shows the commands its condition issued. A command that failed under a wait that then passed is a poll the wait retried past: it renders neutral, with its error as the row's tooltip, stays out of the Errors tab and is not written as a failed action in the trace. Under a wait that timed out, its commands keep their errors. A trace recorded without nested rows reads back unchanged.
+- c535da2: A Nightwatch test that makes no Nightwatch assertion is reported as passed, and one with errors as failed.
+- 1eb3c5a: On a session without BiDi that requests Chrome's performance log, the plugin reads that log over the WebDriver HTTP transport rather than with `browser.getLog`, so the read no longer joins Nightwatch's command queue and cannot make a test command such as `setValue` or `click` resolve before it has finished.
+
+  Every read the plugin makes over that transport (the performance log, the collector drains, the snapshot probes and screenshots) now uses the connection Nightwatch itself is configured with: https when `webdriver.ssl` is set, or when it is unset and the port is 443, and basic auth from `webdriver.username` and `webdriver.access_key`. Against a remote grid on https or behind credentials, those reads previously went out as plain http without credentials and failed.
+
+- 543d1b0: Stop the plugin from cutting a test's command short. Half a second after a navigation the plugin reads the page's performance timings, and it did so through Nightwatch's command queue, which attached the read to whichever command the test was running at the time and let that command's `await` return before the command had finished. A login that awaited `setValue` on the password field could then click submit while the password was still being typed. The read now goes to the driver directly.
+- 5f5aaa7: A command's late screenshot now updates only that command's row. In Nightwatch, an assertion that finished in the same millisecond as the read before it could be overwritten by the read's screenshot, so the dashboard and the trace showed the read twice and lost the assertion. Every Nightwatch row now carries its own id, a retried command keeps the id of the row it replaces, and a screenshot that arrives after its row was retried is dropped. Row ids are also numbered apart per process in both adapters, so a rerun started from the dashboard, or a parallel worker, cannot update a row another process recorded.
+- 4b2f233: Enable Run all for Nightwatch, which the dashboard disabled although the backend could already run the whole config. Run all now replays the selection the run was launched with (spec paths, `--tag`, `--group`, `--env` and the like) rather than every spec in the config, and a rerun in between does not narrow it.
+- 75668b5: A `waitUntil` or `waitForElement*` is one row that shows as running while it waits, and the commands a `waitUntil` condition issues are nested under it, collapsed, in the live dashboard and the trace, with a wait inside a condition nested in turn. A timed-out `waitForElement*` row is marked failed while the test runs, not only in the trace.
+- 2f7273e: Navigation rows carry their performance timings again. The script that reads them ran in the browser but never returned its result to the adapter, so every navigation row was left without load timings, cookies or document info.
+- 0b6216a: The backend serves the page scripts that probe, inject and drain the DOM collector and read navigation timings at `/api/page-scripts`, so the Python adapter runs the same scripts as the JS adapters instead of its own copies. The Selenium and Nightwatch adapters now inject the collector with that same shared script.
+- Updated dependencies [0b4c91e]
+- Updated dependencies [b6bed61]
+- Updated dependencies [4b2f233]
+- Updated dependencies [97e099f]
+- Updated dependencies [0b6216a]
+  - @wdio/devtools-backend@2.1.0
+
 ## 2.0.0
 
 ### Major Changes

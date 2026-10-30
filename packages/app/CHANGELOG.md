@@ -1,5 +1,16 @@
 # @wdio/devtools-app
 
+## 1.12.0
+
+### Minor Changes
+
+- b6bed61: A command row can now name the row whose execution issued it (`parentId`), and the dashboard and the trace player nest such rows under that row, collapsed by default and open when it failed or holds the selected row. Selecting a nested row replays its page exactly as a top-level row does. This is how a wait shows the commands its condition issued. A command that failed under a wait that then passed is a poll the wait retried past: it renders neutral, with its error as the row's tooltip, stays out of the Errors tab and is not written as a failed action in the trace. Under a wait that timed out, its commands keep their errors. A trace recorded without nested rows reads back unchanged.
+
+### Patch Changes
+
+- 0b4c91e: A test file sitting directly inside a `node_modules` folder no longer gets its video and trace written next to it; output falls back to the config or working directory, as it already did for a test file deeper inside `node_modules`. Capabilities given as an array are no longer read as a native mobile session.
+- 4b2f233: Enable Run all for Nightwatch, which the dashboard disabled although the backend could already run the whole config. Run all now replays the selection the run was launched with (spec paths, `--tag`, `--group`, `--env` and the like) rather than every spec in the config, and a rerun in between does not narrow it.
+
 ## 1.11.3
 
 ### Patch Changes
