@@ -1,10 +1,17 @@
 import type { LogSource } from '@wdio/devtools-shared'
 
+import type { TraceOpenPhase } from './trace-parse-protocol.js'
+
 export const CACHE_ID = 'wdio-trace-cache'
 /** Built with `--mode hosted`: the static trace player, with no backend. */
 export const HOSTED_PLAYER = import.meta.env.MODE === 'hosted'
 export const TRACE_OPEN_EVENT = 'app-trace-open'
 export const TRACE_FILE_ACCEPT = '.zip,application/zip'
+export const TRACE_OPEN_PHASE_LABEL: Record<TraceOpenPhase, string> = {
+  reading: 'Reading the file…',
+  unpacking: 'Unpacking the archive…',
+  building: 'Building the timeline…'
+}
 export const SIDEBAR_MIN_WIDTH = 250
 export const DARK_MODE_KEY = 'darkMode'
 /**
