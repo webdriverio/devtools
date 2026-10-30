@@ -58,10 +58,12 @@ export class SessionCapturer extends SessionCapturerBase {
   /** True until the current test's first mapped command takes its capture. */
   awaitingInitialFrame = true
   initialFrameRetried = false
+  testCaptureGeneration = 0
 
   resetTestCapture(): void {
     this.awaitingInitialFrame = true
     this.initialFrameRetried = false
+    this.testCaptureGeneration++
   }
 
   #clientConnected = false

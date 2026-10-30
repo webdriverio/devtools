@@ -162,6 +162,45 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     cap.cleanup()
   })
 
+  it('takes no snapshot for a url() read, but one for a url() navigation', async () => {
+    vi.mocked(coreCapture).mockClear()
+    const cap = makeCapturer()
+    const at = (command: string, args: unknown[], timestamp: number) =>
+      cap.captureCommand(command, args, undefined, undefined, { timestamp })
+    await at('click', ['#btn'], 1)
+    await at('url', [() => undefined], 2)
+    await at('url', [], 3)
+    await at('url', ['http://example.test/next'], 4)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 4])
+    cap.cleanup()
+  })
+
+  it('does not re-arm the initial frame from a capture that resolves after the next test starts', async () => {
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    let resolveFirst!: (snap: Snap) => void
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snap>((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+    const cap = makeCapturer()
+    await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+      timestamp: 1
+    })
+    cap.resetTestCapture()
+    resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.initialFrameRetried).toBe(false)
+    expect(cap.awaitingInitialFrame).toBe(true)
+    cap.cleanup()
+  })
+
   it('does not capture outside trace mode', async () => {
     const cap = new SessionCapturer({}, makeMockBrowser())
     await cap.captureCommand('click', [], undefined, undefined, {

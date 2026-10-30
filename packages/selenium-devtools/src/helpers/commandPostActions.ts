@@ -375,6 +375,7 @@ function queueActionSnapshot(
   if (initialFrame) {
     capturer.awaitingInitialFrame = false
   }
+  const generation = capturer.testCaptureGeneration
   ctx.snapshotCaptures.push(
     captureActionSnapshot(
       ctx.driver,
@@ -385,7 +386,13 @@ function queueActionSnapshot(
       if (snap) {
         upsertRichestSnapshot(ctx.actionSnapshots, snap)
       }
-      if (initialFrame && !snap?.screenshot && !capturer.initialFrameRetried) {
+      // A capture resolving after resetTestCapture() belongs to the previous test.
+      if (
+        initialFrame &&
+        !snap?.screenshot &&
+        !capturer.initialFrameRetried &&
+        generation === capturer.testCaptureGeneration
+      ) {
         capturer.initialFrameRetried = true
         capturer.awaitingInitialFrame = true
       }

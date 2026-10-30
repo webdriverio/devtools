@@ -237,6 +237,27 @@ describe('selenium action-snapshot capture gate', () => {
       true
     ])
   })
+
+  it('does not re-arm the initial frame from a capture that resolves after the next test starts', async () => {
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    let resolveFirst!: (snap: Snap) => void
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snap>((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+    const bag = makeCtx(fakeDriver())
+    await handleOnCommand(bag.ctx, cmd({ command: 'getText', timestamp: 1 }))
+    bag.capturer.resetTestCapture()
+    resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
+    await Promise.all(bag.snapshotCaptures)
+
+    expect(bag.capturer.initialFrameRetried).toBe(false)
+    expect(bag.capturer.awaitingInitialFrame).toBe(true)
+  })
 })
 
 describe('selenium action-snapshot locator dialect', () => {
