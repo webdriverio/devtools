@@ -5,6 +5,7 @@ import { RUNNER_ENV } from '@wdio/devtools-shared'
 import DevToolsHookService from './index.js'
 import type { SessionCapturer } from './session.js'
 import { TraceType } from './types.js'
+import { configPathFromArgv } from './invocation-args.js'
 
 /**
  * Resolve the WDIO config path from argv or `DEVTOOLS_WDIO_CONFIG`. The
@@ -18,22 +19,7 @@ export function detectInvocationConfigPath(): string | undefined {
       ? envPath
       : path.resolve(process.cwd(), envPath)
   }
-  const argv = process.argv
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === '--config' || argv[i] === '-c') {
-      const next = argv[i + 1]
-      if (next && /\.(conf|config)\.(ts|js|cjs|mjs)$/i.test(next)) {
-        return path.isAbsolute(next) ? next : path.resolve(process.cwd(), next)
-      }
-    }
-  }
-  const positional = argv.find((a) => /\.conf\.(ts|js|cjs|mjs)$/i.test(a))
-  if (!positional) {
-    return undefined
-  }
-  return path.isAbsolute(positional)
-    ? positional
-    : path.resolve(process.cwd(), positional)
+  return configPathFromArgv()
 }
 
 /** Sent on the capturer that has a socket: `beforeSession` sees a placeholder

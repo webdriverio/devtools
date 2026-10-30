@@ -2,6 +2,7 @@ import logger from '@wdio/logger'
 import {
   type BidiHandlerSinks,
   attachBidiHandlers as attachBidiHandlersCore,
+  buildBidiSinks as buildBidiSinksCore,
   errorMessage
 } from '@wdio/devtools-core'
 import type { SessionCapturer } from './session.js'
@@ -114,30 +115,7 @@ export async function attachBidiHandlers(
 }
 
 export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
-  return {
-    pushConsoleLog: (entry) => {
-      capturer.bidiConsoleObserved = true
-      capturer.consoleLogs.push(entry)
-      capturer.sendUpstream('consoleLogs', [entry])
-    },
-    pushNetworkRequest: (entry) => {
-      capturer.bidiNetworkObserved = true
-      capturer.networkRequests.push(entry)
-      capturer.sendUpstream('networkRequests', [entry])
-    },
-    replaceNetworkRequest: (id, entry) => {
-      capturer.bidiNetworkObserved = true
-      const idx = capturer.networkRequests.findIndex(
-        (r: NetworkRequestWithId) => r.id === id
-      )
-      if (idx !== -1) {
-        capturer.networkRequests[idx] = entry
-      } else {
-        capturer.networkRequests.push(entry)
-      }
-      capturer.sendUpstream('networkRequests', [entry])
-    }
-  }
+  return buildBidiSinksCore(capturer, () => {
+    capturer.bidiConsoleObserved = true
+  })
 }
-
-type NetworkRequestWithId = { id?: string }

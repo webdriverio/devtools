@@ -3,9 +3,10 @@ import {
   type BidiHandlerSinks,
   attachBidiHandlers as attachBidiHandlersCore
 } from '@wdio/devtools-core'
-import type { SessionCapturer } from './session.js'
 
 const log = logger('@wdio/nightwatch-devtools:bidi')
+
+export { buildBidiSinks } from '@wdio/devtools-core'
 
 /**
  * Nightwatch wrapper around the core BiDi attach helper. Nightwatch ships
@@ -24,35 +25,4 @@ export async function attachBidiHandlers(
   return attachBidiHandlersCore(driver, sinks, (level, message) =>
     log[level](message)
   )
-}
-
-/**
- * Build sinks that route BiDi events into the SessionCapturer's local arrays
- * and broadcast them upstream. Mirrors selenium-devtools' `buildBidiSinks` —
- * separate per-adapter because the SessionCapturer concrete types differ.
- */
-export function buildBidiSinks(capturer: SessionCapturer): BidiHandlerSinks {
-  return {
-    pushConsoleLog: (entry) => {
-      capturer.consoleLogs.push(entry)
-      capturer.sendUpstream('consoleLogs', [entry])
-    },
-    pushNetworkRequest: (entry) => {
-      capturer.bidiNetworkObserved = true
-      capturer.networkRequests.push(entry)
-      capturer.sendUpstream('networkRequests', [entry])
-    },
-    replaceNetworkRequest: (id, entry) => {
-      capturer.bidiNetworkObserved = true
-      const idx = capturer.networkRequests.findIndex(
-        (r: { id?: string }) => r.id === id
-      )
-      if (idx !== -1) {
-        capturer.networkRequests[idx] = entry
-      } else {
-        capturer.networkRequests.push(entry)
-      }
-      capturer.sendUpstream('networkRequests', [entry])
-    }
-  }
 }

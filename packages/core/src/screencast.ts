@@ -2,6 +2,7 @@ import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import { isInputDispatchInFlight } from './input-dispatch.js'
 import { withTimeout } from './with-timeout.js'
+import { errorMessage } from './error.js'
 
 /** Ceiling for one awaited driver primitive in the screencast start/stop
  *  handshake. The queue serialises start against stop, so a primitive that
@@ -9,6 +10,12 @@ import { withTimeout } from './with-timeout.js'
 export const SCREENCAST_HANDSHAKE_TIMEOUT_MS = 5000
 
 const FIRST_SHOT_TIMEOUT = Symbol('first-shot-timeout')
+
+/** Where a recorder reports its lifecycle; each adapter passes its own logger. */
+export interface ScreencastLogger {
+  info(message: string): void
+  warn(message: string): void
+}
 
 /**
  * Shared screencast scaffolding consumed by every adapter (service, selenium,
@@ -235,22 +242,26 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
 
   // ─── Polling implementation ─────────────────────────────────────────────
 
-  /**
-   * Hook fired when the polling loop starts. Default: no-op. Subclasses
-   * (adapters with their own logger) override to surface visibility.
-   */
-  protected onPollingStarted(_intervalMs: number): void {
-    // no-op
+  /** The adapter's logger for the hooks below; none keeps them silent. */
+  protected readonly logger: ScreencastLogger | undefined = undefined
+
+  /** Hook fired when the polling loop starts. */
+  protected onPollingStarted(intervalMs: number): void {
+    this.logger?.info(
+      `✓ Screencast recording started (polling mode, ${intervalMs} ms interval)`
+    )
   }
 
   /** Hook fired when polling stops cleanly (driver still alive at the time). */
-  protected onPollingStopped(_frameCount: number): void {
-    // no-op
+  protected onPollingStopped(frameCount: number): void {
+    this.logger?.info(`✓ Screencast stopped — ${frameCount} frame(s) collected`)
   }
 
   /** Hook fired when the polling fallback couldn't even take the first shot. */
-  protected onUnavailable(_err: unknown): void {
-    // no-op
+  protected onUnavailable(err: unknown): void {
+    this.logger?.warn(
+      `Screencast unavailable (${errorMessage(err)}). Recording skipped.`
+    )
   }
 
   // ─── Polling implementation ─────────────────────────────────────────────

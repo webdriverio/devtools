@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
 import { findTestLineInFile } from '../helpers/utils.js'
+import { reportRunComplete, type RunCounters } from './run-summary.js'
 import type {
   MochaRootHooks,
   MochaTestCtx,
@@ -18,18 +19,10 @@ type MochaGlobals = {
   after?: (fn: () => void) => void
 }
 
-interface MochaCounters {
-  runStartTs: number
-  started: number
-  passed: number
-  failed: number
-  pending: number
-}
-
 export function buildMochaRootHooks(
   callbacks: RunnerHookCallbacks
 ): MochaRootHooks {
-  const counters: MochaCounters = {
+  const counters: RunCounters = {
     runStartTs: 0,
     started: 0,
     passed: 0,
@@ -48,24 +41,10 @@ export function buildMochaRootHooks(
 }
 
 function makeMochaRunEnd(
-  counters: MochaCounters,
+  counters: RunCounters,
   callbacks: RunnerHookCallbacks
 ): () => void {
-  return () => {
-    const durationMs = Date.now() - counters.runStartTs
-    const duration = (durationMs / 1000).toFixed(2)
-    log.info(
-      `🧪 Test run complete: ${counters.passed} passed, ${counters.failed} failed` +
-        (counters.pending ? `, ${counters.pending} pending` : '') +
-        ` (${duration}s, ${counters.started} total)`
-    )
-    callbacks.onTestRunComplete?.({
-      passed: counters.passed,
-      failed: counters.failed,
-      pending: counters.pending,
-      durationMs
-    })
-  }
+  return () => reportRunComplete(counters, callbacks, log)
 }
 
 function resolveCallSource(
@@ -81,7 +60,7 @@ function resolveCallSource(
 }
 
 function makeMochaBeforeEach(
-  counters: MochaCounters,
+  counters: RunCounters,
   callbacks: RunnerHookCallbacks
 ): (this: { currentTest?: MochaTestCtx }) => void {
   return function (this: { currentTest?: MochaTestCtx }) {
@@ -125,7 +104,7 @@ function resolveMochaState(
 }
 
 function makeMochaAfterEach(
-  counters: MochaCounters,
+  counters: RunCounters,
   callbacks: RunnerHookCallbacks
 ): (this: { currentTest?: MochaTestCtx }) => Promise<void> {
   // Async so mocha awaits the per-test artifact emit while the test is still

@@ -6,6 +6,7 @@ import logger from '@wdio/logger'
 import { REUSE_ENV, RUNNER_ENV } from '@wdio/devtools-shared'
 import { resolveRunId } from '@wdio/devtools-core'
 import { DEFAULT_LAUNCH_CAPS } from './constants.js'
+import { configPathFromArgv, detectInvocationSpecs } from './invocation-args.js'
 import type { ServiceOptions, ExtendedCapabilities } from './types.js'
 
 const log = logger('@wdio/devtools-service:Launcher')
@@ -37,52 +38,6 @@ if (process.env[REUSE_ENV.REUSE] === '1') {
   }
 }
 
-// Lives in the launcher: forked workers have their own argv without the config arg.
-// Exported for unit tests; not part of the package's public API surface.
-export function detectInvocationConfigPath(): string | undefined {
-  const argv = process.argv
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === '--config' || argv[i] === '-c') {
-      const next = argv[i + 1]
-      if (next && /\.(conf|config)\.(ts|js|cjs|mjs)$/i.test(next)) {
-        return path.isAbsolute(next) ? next : path.resolve(process.cwd(), next)
-      }
-    }
-  }
-  const positional = argv.find((a) => /\.conf\.(ts|js|cjs|mjs)$/i.test(a))
-  if (!positional) {
-    return undefined
-  }
-  return path.isAbsolute(positional)
-    ? positional
-    : path.resolve(process.cwd(), positional)
-}
-
-export function detectInvocationSpecs(): string[] {
-  const argv = process.argv
-  const out: string[] = []
-  for (let i = 0; i < argv.length - 1; i++) {
-    if (argv[i] === '--spec' || argv[i] === '-s') {
-      const raw = argv[i + 1]
-      if (!raw) {
-        continue
-      }
-      for (const part of raw.split(',')) {
-        const trimmed = part.trim()
-        if (!trimmed) {
-          continue
-        }
-        out.push(
-          path.isAbsolute(trimmed)
-            ? trimmed
-            : path.resolve(process.cwd(), trimmed)
-        )
-      }
-    }
-  }
-  return out
-}
-
 export class DevToolsAppLauncher {
   #options: ServiceOptions
   #browser?: WebdriverIO.Browser
@@ -92,7 +47,7 @@ export class DevToolsAppLauncher {
   }
 
   #captureRerunEnv(): void {
-    const detectedConfig = detectInvocationConfigPath()
+    const detectedConfig = configPathFromArgv()
     if (detectedConfig && !process.env[RUNNER_ENV.WDIO_CONFIG]) {
       process.env[RUNNER_ENV.WDIO_CONFIG] = detectedConfig
       log.info(`Detected config for reruns: ${detectedConfig}`)

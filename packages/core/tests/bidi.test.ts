@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   arrayHeadersToObject,
   attachBidiHandlers,
+  buildBidiSinks,
+  type BidiSinkTarget,
   loadSeleniumSubmodule,
   handleBidiConsoleEntry,
   handleBidiJsException,
@@ -668,5 +670,74 @@ describe('attachNetworkInspector with an inspector that has a fetchError hook', 
       silentLog
     )
     expect(replacements.at(-1)?.entry).toMatchObject({ id: 'open', status: 0 })
+  })
+})
+
+describe('buildBidiSinks', () => {
+  function makeTarget() {
+    const sent: Array<[string, unknown]> = []
+    const target: BidiSinkTarget = {
+      consoleLogs: [],
+      networkRequests: [],
+      bidiNetworkObserved: false,
+      sendUpstream: (event, data) => sent.push([event, data])
+    }
+    return { target, sent }
+  }
+  const request = (id: string, url = 'https://x/'): NetworkRequest => ({
+    id,
+    url,
+    method: 'GET',
+    type: 'document',
+    timestamp: 1,
+    startTime: 0
+  })
+
+  it('keeps and forwards a console entry, calling the hook first', () => {
+    const { target, sent } = makeTarget()
+    const seen: number[] = []
+    const sinks = buildBidiSinks(target, () =>
+      seen.push(target.consoleLogs.length)
+    )
+    const entry = { type: 'log' as const, args: ['hi'], timestamp: 1 }
+    sinks.pushConsoleLog(entry)
+    expect(seen).toEqual([0])
+    expect(target.consoleLogs).toEqual([entry])
+    expect(sent).toEqual([['consoleLogs', [entry]]])
+    expect(target.bidiNetworkObserved).toBe(false)
+  })
+
+  it('accepts a console entry without a hook', () => {
+    const { target } = makeTarget()
+    buildBidiSinks(target).pushConsoleLog({
+      type: 'log',
+      args: ['hi'],
+      timestamp: 1
+    })
+    expect(target.consoleLogs).toHaveLength(1)
+  })
+
+  it('latches network evidence on a pushed request', () => {
+    const { target, sent } = makeTarget()
+    buildBidiSinks(target).pushNetworkRequest(request('a'))
+    expect(target.bidiNetworkObserved).toBe(true)
+    expect(target.networkRequests.map((r) => r.id)).toEqual(['a'])
+    expect(sent).toEqual([['networkRequests', [request('a')]]])
+  })
+
+  it('replaces a known request in place and appends an unknown one', () => {
+    const { target } = makeTarget()
+    const sinks = buildBidiSinks(target)
+    sinks.pushNetworkRequest(request('a'))
+    sinks.pushNetworkRequest(request('b'))
+    target.bidiNetworkObserved = false
+    sinks.replaceNetworkRequest('a', request('a', 'https://done/'))
+    sinks.replaceNetworkRequest('c', request('c'))
+    expect(target.bidiNetworkObserved).toBe(true)
+    expect(target.networkRequests.map((r) => [r.id, r.url])).toEqual([
+      ['a', 'https://done/'],
+      ['b', 'https://x/'],
+      ['c', 'https://x/']
+    ])
   })
 })

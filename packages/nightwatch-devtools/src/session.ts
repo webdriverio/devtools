@@ -126,26 +126,14 @@ export class SessionCapturer extends SessionCapturerBase {
     error: Error | undefined,
     meta: CommandCaptureMeta = {}
   ): Promise<boolean> {
-    // Serialize error properly (Error objects don't JSON.stringify well)
-    const serializedError = serializeError(error)
-
-    const commandId = this.commandCounter++
     // A public `id`, so a late replace of this row cannot land on another row stamped in the same millisecond.
-    const commandLogEntry: CommandLog & { _id?: number } = {
-      _id: commandId,
-      id: commandId,
+    const commandLogEntry = this.#commandEntry(
       command,
       args,
       result,
-      error: serializedError,
-      timestamp: meta.timestamp || Date.now(),
-      startTime: meta.startTime,
-      sequence: meta.sequence,
-      callSource: meta.callSource,
-      testUid: meta.testUid,
-      selector: meta.selector,
-      parentId: meta.parentId
-    }
+      error,
+      meta
+    )
 
     this.commandsLog.push(commandLogEntry)
 
@@ -283,16 +271,36 @@ export class SessionCapturer extends SessionCapturerBase {
     // Allow the slot to be re-used by a new entry
     this.sentCommandIds.delete(oldId)
 
-    const serializedError = serializeError(error)
-    const commandId = this.commandCounter++
     // The retry keeps the row's public `id`, so the dashboard updates the row it already shows.
-    const entry: CommandLog & { _id?: number } = {
-      _id: commandId,
-      id: previous?.id ?? commandId,
+    const entry = this.#commandEntry(
       command,
       args,
       result,
-      error: serializedError,
+      error,
+      meta,
+      previous?.id
+    )
+    this.commandsLog.push(entry)
+    return { entry, oldTimestamp }
+  }
+
+  #commandEntry(
+    command: string,
+    args: unknown[],
+    result: unknown,
+    error: Error | undefined,
+    meta: CommandCaptureMeta,
+    publicId?: number
+  ): CommandLog & { _id?: number } {
+    const commandId = this.commandCounter++
+    return {
+      _id: commandId,
+      id: publicId ?? commandId,
+      command,
+      args,
+      result,
+      // Error objects don't JSON.stringify well.
+      error: serializeError(error),
       timestamp: meta.timestamp || Date.now(),
       startTime: meta.startTime,
       sequence: meta.sequence,
@@ -301,8 +309,6 @@ export class SessionCapturer extends SessionCapturerBase {
       selector: meta.selector,
       parentId: meta.parentId
     }
-    this.commandsLog.push(entry)
-    return { entry, oldTimestamp }
   }
 
   /** Rows {@link openCommand} sent that have not ended yet. */
