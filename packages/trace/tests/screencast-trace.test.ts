@@ -126,6 +126,28 @@ describe('buildDenseScreencast', () => {
     })
   })
 
+  it('names each frame resource by its own image format', () => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+    const jpeg = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMC'
+    const { events, resources } = buildDenseScreencast(
+      [
+        { data: png, timestamp: 0 },
+        { data: jpeg, timestamp: 200 }
+      ],
+      'page@x',
+      0,
+      viewport,
+      { minFrameIntervalMs: 100 }
+    )
+    expect(resources.map((r) => r.resourceName.split('.')[1])).toEqual([
+      'png',
+      'jpeg'
+    ])
+    expect(events.map((e) => e.sha1)).toEqual(
+      resources.map((r) => r.resourceName)
+    )
+  })
+
   it('resource bytes decode back to the source frame data', () => {
     const { resources } = buildDenseScreencast(
       [frame('hello', 0)],

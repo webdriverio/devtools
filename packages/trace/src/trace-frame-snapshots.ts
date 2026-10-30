@@ -1,7 +1,11 @@
 // Image-backed frame-snapshots, a shim until real DOM snapshots are captured: each action is a page
 // whose <img> resolves, through `resourceOverrides`, to the screenshot already stored under `resources/`.
 
-import { imageMime, type ActionSnapshot } from '@wdio/devtools-shared'
+import {
+  imageExtension,
+  imageMime,
+  type ActionSnapshot
+} from '@wdio/devtools-shared'
 import { networkRequestToHar, type ResourceSnapshotEntry } from './trace-har.js'
 import { screenshotResourceName } from './trace-snapshots.js'
 
@@ -149,8 +153,7 @@ function frameIdForPage(pageId: string): string {
 
 /** One URL per image type, so the shared response's content type is right for every override of it. */
 export function screenshotUrl(screenshot: string): string {
-  const extension = imageMime(screenshot).slice('image/'.length)
-  return `${SCREENSHOT_URL_ORIGIN}/action.${extension}`
+  return `${SCREENSHOT_URL_ORIGIN}/action.${imageExtension(screenshot)}`
 }
 
 function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
@@ -197,7 +200,11 @@ export function buildImageFrameSnapshots(
       resourceOverrides: [
         {
           url: screenshotUrl(ref.snapshot.screenshot ?? ''),
-          sha1: screenshotResourceName(pageId, ref.snapshot.timestamp)
+          sha1: screenshotResourceName(
+            pageId,
+            ref.snapshot.timestamp,
+            ref.snapshot.screenshot ?? ''
+          )
         }
       ],
       isMainFrame: true
@@ -232,7 +239,8 @@ export function buildScreenshotResourceSnapshots(
     })
     har.snapshot.response.content._sha1 = screenshotResourceName(
       pageId,
-      snapshot.timestamp
+      snapshot.timestamp,
+      screenshot
     )
     byUrl.set(url, {
       type: 'resource-snapshot',
