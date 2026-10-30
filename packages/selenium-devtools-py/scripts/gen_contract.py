@@ -203,6 +203,26 @@ def _runner_cwd_env(runner_ts: str) -> str:
     return m.group(1)
 
 
+def _action_commands(schema_path: Path) -> dict[str, list[str]]:
+    """The runner-native command names the capture gate reads, evaluated from
+    shared's ACTION_MAP by ``wire-schema.ts`` rather than restated here.
+
+    Generated because a name that drifts is silent: a command missing from the
+    page-changing set is never captured, so its row shows the page before it.
+    """
+    if not schema_path.exists():
+        raise SystemExit(
+            f"{schema_path} is missing: run `npx tsx scripts/wire-schema.ts` in packages/shared"
+        )
+    sets = json.loads(schema_path.read_text()).get("actionCommands")
+    if not sets or "pageChanging" not in sets or "mapped" not in sets:
+        raise SystemExit(
+            "contract drift: `actionCommands` is missing from wire-schema.json; "
+            "regenerate it with packages/shared/scripts/wire-schema.ts"
+        )
+    return sets
+
+
 def _test_runner_ids(types_ts: str) -> list[str]:
     m = re.search(r"export const TEST_RUNNER_IDS = \[(.*?)\] as const", types_ts, re.DOTALL)
     if not m:
@@ -335,6 +355,7 @@ def main() -> int:
     rerun_slot = _rerun_slot(runner_ts)
     runner_cwd_env = _runner_cwd_env(runner_ts)
     reuse_env = _reuse_env(runner_ts)
+    action_commands = _action_commands(shared / "wire-schema.json")
 
     # Drift-guard.
     missing = [v for v in REQUIRED_DATA_SCOPES.values() if v not in data_keys]
@@ -409,6 +430,8 @@ def main() -> int:
     lines += [
         "",
         f"DATA_SCOPES = frozenset({sorted(data_keys)!r})",
+        f"PAGE_CHANGING_COMMANDS = frozenset({action_commands['pageChanging']!r})",
+        f"MAPPED_COMMANDS = frozenset({action_commands['mapped']!r})",
         f"CONTROL_SCOPES = frozenset({sorted(control.values())!r})",
         "",
         f'COLLECTOR_PATH = "{collector_path}"',

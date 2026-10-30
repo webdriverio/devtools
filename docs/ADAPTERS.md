@@ -169,7 +169,7 @@ All times are epoch milliseconds except the suite/test `start`/`end` ISO strings
 
 ### Generating your types
 
-`packages/shared/wire-schema.json` is a JSON Schema (draft 2020-12) generated from shared's TypeScript types by `packages/shared/scripts/wire-schema.ts`: one entry per scope under `scopes`, shared shapes under `$defs`. A vitest test (`packages/shared/tests/wire-schema.test.ts`) fails when the committed copy is stale; regenerate with:
+`packages/shared/wire-schema.json` is a JSON Schema (draft 2020-12) generated from shared's TypeScript types by `packages/shared/scripts/wire-schema.ts`: one entry per scope under `scopes`, shared shapes under `$defs`, and the command names the Python capture gate reads under `actionCommands`. A vitest test (`packages/shared/tests/wire-schema.test.ts`) fails when the committed copy is stale; regenerate with:
 
 ```sh
 pnpm --filter @wdio/devtools-shared gen:wire-schema
