@@ -12,15 +12,48 @@ import {
 import { errorMessage } from './error.js'
 import { getRequestType } from './net.js'
 
-/**
- * Generic sinks the BiDi handlers push into. Each adapter wires these to its
- * own SessionCapturer state — selenium's `buildBidiSinks` is the canonical
- * example; nightwatch can mirror the pattern when it wires up BiDi.
- */
+/** Generic sinks the BiDi handlers push into; {@link buildBidiSinks} wires them to a capturer. */
 export interface BidiHandlerSinks {
   pushConsoleLog: (entry: ConsoleLog) => void
   pushNetworkRequest: (entry: NetworkRequest) => void
   replaceNetworkRequest: (id: string, entry: NetworkRequest) => void
+}
+
+/** The capturer state BiDi events land in; `bidiNetworkObserved` is the evidence latch that gates the page's own rows. */
+export interface BidiSinkTarget {
+  consoleLogs: ConsoleLog[]
+  networkRequests: NetworkRequest[]
+  sendUpstream(event: string, data: unknown): void
+  bidiNetworkObserved: boolean
+}
+
+/** Route BiDi events into the target's arrays and upstream; `onConsoleEntry` runs before each console entry is kept. */
+export function buildBidiSinks(
+  target: BidiSinkTarget,
+  onConsoleEntry?: () => void
+): BidiHandlerSinks {
+  return {
+    pushConsoleLog: (entry) => {
+      onConsoleEntry?.()
+      target.consoleLogs.push(entry)
+      target.sendUpstream('consoleLogs', [entry])
+    },
+    pushNetworkRequest: (entry) => {
+      target.bidiNetworkObserved = true
+      target.networkRequests.push(entry)
+      target.sendUpstream('networkRequests', [entry])
+    },
+    replaceNetworkRequest: (id, entry) => {
+      target.bidiNetworkObserved = true
+      const idx = target.networkRequests.findIndex((r) => r.id === id)
+      if (idx !== -1) {
+        target.networkRequests[idx] = entry
+      } else {
+        target.networkRequests.push(entry)
+      }
+      target.sendUpstream('networkRequests', [entry])
+    }
+  }
 }
 
 /**

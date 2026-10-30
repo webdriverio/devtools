@@ -64,6 +64,7 @@ export interface CucumberLifecycleCtx extends TestSliceCtx {
   setCurrentTest(t: unknown): void
   recordAttempt(uid: string, specFile?: string): number
   recordOutcome(uid: string, state: TestStats['state']): void
+  /** Produces (no attach) this test's screenshot and video, core-gated to trace mode and `test` granularity. */
   emitTestArtifacts(uid: string | undefined, failed: boolean): Promise<void>
 }
 

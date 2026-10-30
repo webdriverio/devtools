@@ -59,6 +59,7 @@ export interface SessionInitCtx {
   readonly bidiEnabled: boolean
   readonly mode: DevToolsMode
   readonly captureAssertions: boolean
+  /** Derived from the cucumber flag, so one value answers both the metadata payload and the locator dialect. */
   readonly runner: TestRunnerId
 
   sessionCapturer: SessionCapturer
@@ -77,12 +78,15 @@ export interface SessionInitCtx {
   screencastSessionId: string | undefined
   /** In-flight recorder rotation — see screencast-session.ts. */
   screencastRotation: Promise<void> | undefined
+  /** Resolved Nightwatch config file, the fallback directory for screencast video output. */
   configPath: string | undefined
 
   getCurrentTest(): unknown
   getCurrentScenarioSuite(): SuiteStats | null
   buildMetadataOptions(): unknown
+  /** Latest attempt recorded for `uid`, or undefined if it never started. */
   attemptFor(uid: string): number | undefined
+  /** Stamps the terminal state onto uid's latest attempt, for the retry-aware retention policies. */
   recordOutcome(uid: string, state: TestStats['state']): void
   /** Drains the live recorder's frames into the run's filmstrip buffer, then
    *  stops and clears it. */

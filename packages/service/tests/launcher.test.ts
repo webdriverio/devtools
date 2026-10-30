@@ -1,10 +1,10 @@
 import path from 'node:path'
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import { DevToolsAppLauncher } from '../src/launcher.js'
 import {
-  DevToolsAppLauncher,
-  detectInvocationConfigPath,
+  configPathFromArgv,
   detectInvocationSpecs
-} from '../src/launcher.js'
+} from '../src/invocation-args.js'
 import * as backend from '@wdio/devtools-backend'
 import { remote } from 'webdriverio'
 
@@ -296,7 +296,7 @@ describe('DevToolsAppLauncher', () => {
     })
   })
 
-  describe('detectInvocationConfigPath', () => {
+  describe('configPathFromArgv', () => {
     let originalArgv: string[]
     beforeEach(() => {
       originalArgv = process.argv
@@ -307,13 +307,13 @@ describe('DevToolsAppLauncher', () => {
 
     it('returns undefined when no --config is present', () => {
       process.argv = ['node', 'cli']
-      expect(detectInvocationConfigPath()).toBeUndefined()
+      expect(configPathFromArgv()).toBeUndefined()
       process.argv = originalArgv
     })
 
     it('resolves --config <path> against cwd when relative', () => {
       process.argv = ['node', 'cli', '--config', 'wdio.conf.ts']
-      expect(detectInvocationConfigPath()).toBe(
+      expect(configPathFromArgv()).toBe(
         path.resolve(process.cwd(), 'wdio.conf.ts')
       )
       process.argv = originalArgv
@@ -322,19 +322,19 @@ describe('DevToolsAppLauncher', () => {
     it('returns absolute --config path verbatim', () => {
       const abs = '/abs/wdio.conf.cjs'
       process.argv = ['node', 'cli', '-c', abs]
-      expect(detectInvocationConfigPath()).toBe(abs)
+      expect(configPathFromArgv()).toBe(abs)
       process.argv = originalArgv
     })
 
     it('ignores --config when value does not match the conf naming pattern', () => {
       process.argv = ['node', 'cli', '--config', 'not-a-conf.txt']
-      expect(detectInvocationConfigPath()).toBeUndefined()
+      expect(configPathFromArgv()).toBeUndefined()
       process.argv = originalArgv
     })
 
     it('finds a positional .conf.* path when no --config flag', () => {
       process.argv = ['node', 'cli', 'wdio.conf.ts', '--spec', 's']
-      expect(detectInvocationConfigPath()).toBe(
+      expect(configPathFromArgv()).toBe(
         path.resolve(process.cwd(), 'wdio.conf.ts')
       )
       process.argv = originalArgv

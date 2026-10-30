@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import {
   ScreencastRecorderBase,
+  type ScreencastLogger,
   SCREENCAST_HANDSHAKE_TIMEOUT_MS,
   errorMessage,
   withTimeout
@@ -45,21 +46,7 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
    *  `tryStartCdp` await actual readiness instead of returning eagerly. */
   #firstFrameResolve: (() => void) | undefined
 
-  protected override onPollingStarted(intervalMs: number): void {
-    log.info(
-      `✓ Screencast recording started (polling mode, ${intervalMs} ms interval)`
-    )
-  }
-
-  protected override onPollingStopped(frameCount: number): void {
-    log.info(`✓ Screencast stopped — ${frameCount} frame(s) collected`)
-  }
-
-  protected override onUnavailable(err: unknown): void {
-    log.warn(
-      `Screencast unavailable (${errorMessage(err)}). Recording skipped.`
-    )
-  }
+  protected override readonly logger: ScreencastLogger = log
 
   protected override async takeScreenshot(): Promise<string | null> {
     const driver = this.driver
