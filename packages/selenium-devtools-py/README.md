@@ -176,6 +176,12 @@ ini file the next:
 The first row that applies wins. A policy or granularity left without trace
 mode does nothing, and the run logs a warning saying so.
 
+`DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run times the screenshot and the
+two page reads taken for each command. When the trace is exported, the run
+prints a per-read table to stderr and appends the raw records to
+`capture-timing-<pid>.ndjson` beside the trace, in the format the JS adapters
+write. It only measures; see "Measuring capture cost" in the repo README.
+
 The values are shared's `TraceRetentionPolicy`: `on` (the default — keep
 everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,
 `on-all-retries`, `retain-on-failure-and-retries`. A value outside that set

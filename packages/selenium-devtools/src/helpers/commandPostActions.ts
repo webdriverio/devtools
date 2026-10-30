@@ -375,7 +375,8 @@ function queueActionSnapshot(
       ctx.driver,
       cmd.command,
       timestamp,
-      capturer.isNativeAppSession
+      capturer.isNativeAppSession,
+      cmd.waitScope ? 'wait-poll' : 'action'
     ).then((snap) => {
       if (snap) {
         upsertRichestSnapshot(ctx.actionSnapshots, snap)

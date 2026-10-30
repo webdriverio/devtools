@@ -23,6 +23,7 @@ from . import (
     assertions,
     bidi,
     bidi_preload,
+    capture_timing,
     element_locators,
     frames,
     interceptor_network,
@@ -421,8 +422,22 @@ def resolved_output_dir() -> Optional[str]:
     return _state.get("output_dir")
 
 
+def _capture_timer(
+    driver: Any, command: str, poll: Any
+) -> Optional[capture_timing.CaptureTimer]:
+    """A timer for this command's capture, only in trace mode with timing switched on."""
+    if not _state["trace"] or not capture_timing.enabled():
+        return None
+    trigger = "action" if wait_tracking.parent_of(poll) is None else "wait-poll"
+    return capture_timing.CaptureTimer(command, trigger, driver_is_native_app(driver))
+
+
 def _capture_action_snapshot(
-    driver: Any, command: str, timestamp: int, shot: Optional[str]
+    driver: Any,
+    command: str,
+    timestamp: int,
+    shot: Optional[str],
+    timer: Optional[capture_timing.CaptureTimer] = None,
 ) -> None:
     """Read the page's element tree beside one action, for the trace's A11y tab.
 
@@ -457,7 +472,11 @@ def _capture_action_snapshot(
         ("accessibilityTree", scripts["accessibilityTree"]),
     ):
         try:
-            value = run(f"return {script}")
+            value = (
+                timer.read(key, run, f"return {script}")
+                if timer
+                else run(f"return {script}")
+            )
         except Exception as exc:  # noqa: BLE001 — a missing pane, not a failed run
             _log.debug("%s read failed: %s", key, exc)
             continue
@@ -1049,7 +1068,8 @@ def install(
         # One screenshot per command on this (main) thread — attached to the
         # command (so selecting it shows the page) AND reused as a screencast
         # frame, so we pay for only a single screenshot round-trip either way.
-        shot = _take_screenshot(self)
+        timer = _capture_timer(self, driver_command, poll)
+        shot = timer.read("screenshot", _take_screenshot, self) if timer else _take_screenshot(self)
         selector = element_locators.selector_for_command(driver_command, params, value)
         _remember_read_value(driver_command, params, value, selector)
         row = capturer.capture_command(
@@ -1064,7 +1084,9 @@ def install(
             parent_id=wait_tracking.parent_of(poll),
         )
         wait_tracking.note_poll_row(poll, row)
-        _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)
+        _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot, timer)
+        if timer:
+            timer.finish()
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
         # No per-command line here: the Actions timeline lists every command as

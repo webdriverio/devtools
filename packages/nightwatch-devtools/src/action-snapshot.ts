@@ -8,7 +8,7 @@
 // empty a11y tree and no element rects.
 
 import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
 import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import type { NightwatchBrowser, TestRunnerId } from './types.js'
 
@@ -17,7 +17,8 @@ export function captureActionSnapshot(
   command: string,
   timestamp?: number,
   runner?: TestRunnerId,
-  native = false
+  native = false,
+  trigger?: CaptureTrigger
 ): Promise<ActionSnapshot | null> {
   // The screenshot is the only one of these a native app can serve. The rest
   // are page reads — an injected script plus url and title — and they fire on
@@ -27,6 +28,7 @@ export function captureActionSnapshot(
     command,
     timestamp,
     runner,
+    trigger,
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
     ...(native
       ? {}
