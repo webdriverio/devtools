@@ -1,4 +1,9 @@
 {
   "extends": "../../tsconfig.json",
-  "include": ["src/**/*.ts", "scenarios/**/*.ts", "smoke/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "scenarios/**/*.ts",
+    "smoke/**/*.ts",
+    "hosted-player/**/*.ts"
+  ]
 }

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "author": "Vishnu Vardhan",
-  "description": "Cross-adapter conformance suite: drives each adapter through one scenario against a fake WebDriver server, records the frames it sends, and checks them against behavioural rules. Also holds the examples smoke job's fixture site and trace checker (`smoke/`). Test-only, never published or bundled.",
+  "description": "Cross-adapter conformance suite: drives each adapter through one scenario against a fake WebDriver server, records the frames it sends, and checks them against behavioural rules. Also holds the examples smoke job's fixture site and trace checker (`smoke/`) and the hosted trace player's end-to-end check (`hosted-player/`). Test-only, never published or bundled.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/webdriverio/devtools.git",
@@ -34,6 +34,7 @@
     "mocha": "^12.0.3",
     "nightwatch": "^3.16.0",
     "selenium-webdriver": "^4.50.0",
+    "vite": "^8.3.2",
     "webdriverio": "^10.0.2",
     "ws": "^8.22.0",
     "yazl": "^3.3.1"
