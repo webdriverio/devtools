@@ -7,11 +7,8 @@ import {
   isUserCodeFrame,
   normalizeFilePath
 } from '@wdio/devtools-core'
-import {
-  TEST_FILE_PATTERN,
-  CONFIG_FILENAMES,
-  NIGHTWATCH_CONFIG_FLAGS
-} from '../constants.js'
+import { NIGHTWATCH_CONFIG_FILENAMES } from '@wdio/devtools-shared'
+import { TEST_FILE_PATTERN, NIGHTWATCH_CONFIG_FLAGS } from '../constants.js'
 import type {
   NightwatchTestCase,
   TestFileMetadata,
@@ -452,7 +449,7 @@ export function resolveNightwatchConfig(): string | undefined {
   let dir = process.cwd()
   const root = path.parse(dir).root
   while (dir && dir !== root) {
-    for (const file of CONFIG_FILENAMES) {
+    for (const file of NIGHTWATCH_CONFIG_FILENAMES) {
       const candidate = path.join(dir, file)
       if (fs.existsSync(candidate)) {
         return candidate

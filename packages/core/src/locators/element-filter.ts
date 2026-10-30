@@ -10,6 +10,11 @@ import {
   IOS_LAYOUT_CONTAINERS
 } from './constants.js'
 
+/** Android's automation drivers are the UiAutomator family; anything else is read as iOS. */
+export function isUiAutomatorDriver(automationName: string): boolean {
+  return automationName.toLowerCase().includes('uiautomator')
+}
+
 /**
  * Check if element tag matches any in the list (handles partial matches)
  */
@@ -86,7 +91,7 @@ export function isInteractableElement(
   _isNative: boolean,
   automationName: string
 ): boolean {
-  const isAndroid = automationName.toLowerCase().includes('uiautomator')
+  const isAndroid = isUiAutomatorDriver(automationName)
   const interactableTags = isAndroid
     ? ANDROID_INTERACTABLE_TAGS
     : IOS_INTERACTABLE_TAGS
@@ -194,7 +199,7 @@ export function shouldIncludeElement(
   }
 
   if (visibleOnly) {
-    const isAndroid = automationName.toLowerCase().includes('uiautomator')
+    const isAndroid = isUiAutomatorDriver(automationName)
     if (isAndroid && element.attributes?.displayed === 'false') {
       return false
     }

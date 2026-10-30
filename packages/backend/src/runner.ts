@@ -6,13 +6,14 @@ import kill from 'tree-kill'
 import logger from '@wdio/logger'
 import { parse as shellParse, quote as shellQuote } from 'shell-quote'
 import {
+  NIGHTWATCH_CONFIG_FILENAMES,
   RERUN_SLOT,
   REUSE_ENV,
   RUNNER_ENV,
+  WDIO_CONFIG_FILENAMES,
   parseInitialArgs,
   type RunnerRequestBody
 } from '@wdio/devtools-shared'
-import { WDIO_CONFIG_FILENAMES, NIGHTWATCH_CONFIG_FILENAMES } from './types.js'
 import {
   escapeFilterRegex,
   getFilterBuilder,

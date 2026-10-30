@@ -16,6 +16,7 @@ import {
   evaluateXPath,
   isAttributeUnique
 } from './xml-parsing.js'
+import { isUiAutomatorDriver } from './element-filter.js'
 
 /**
  * Check if a string value is valid for use in a locator
@@ -422,12 +423,11 @@ function buildXPath(
 function getSimpleSuggestedLocators(
   element: JSONElement,
   ctx: LocatorContext,
-  automationName: string,
+  isAndroid: boolean,
   inUiAutomatorScope: boolean,
   targetNode?: XMLNode
 ): [LocatorStrategy, string][] {
   const results: [LocatorStrategy, string][] = []
-  const isAndroid = automationName.toLowerCase().includes('uiautomator')
   const attrs = element.attributes
 
   if (isAndroid) {
@@ -528,12 +528,11 @@ function getSimpleSuggestedLocators(
 function getComplexSuggestedLocators(
   element: JSONElement,
   ctx: LocatorContext,
-  automationName: string,
+  isAndroid: boolean,
   inUiAutomatorScope: boolean,
   targetNode?: XMLNode
 ): [LocatorStrategy, string][] {
   const results: [LocatorStrategy, string][] = []
-  const isAndroid = automationName.toLowerCase().includes('uiautomator')
 
   if (isAndroid) {
     if (inUiAutomatorScope) {
@@ -589,11 +588,8 @@ export function getSuggestedLocators(
   ctx?: LocatorContext,
   targetNode?: XMLNode
 ): [LocatorStrategy, string][] {
-  const locatorCtx = ctx ?? {
-    sourceXML,
-    parsedDOM: null,
-    isAndroid: automationName.toLowerCase().includes('uiautomator')
-  }
+  const isAndroid = isUiAutomatorDriver(automationName)
+  const locatorCtx = ctx ?? { sourceXML, parsedDOM: null, isAndroid }
 
   const inUiAutomatorScope = locatorCtx.isAndroid
     ? isInUiAutomatorScope(element, locatorCtx.parsedDOM)
@@ -602,14 +598,14 @@ export function getSuggestedLocators(
   const simpleLocators = getSimpleSuggestedLocators(
     element,
     locatorCtx,
-    automationName,
+    isAndroid,
     inUiAutomatorScope,
     targetNode
   )
   const complexLocators = getComplexSuggestedLocators(
     element,
     locatorCtx,
-    automationName,
+    isAndroid,
     inUiAutomatorScope,
     targetNode
   )
