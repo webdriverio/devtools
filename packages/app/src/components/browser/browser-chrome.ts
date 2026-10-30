@@ -15,9 +15,9 @@ export function renderBrowserChrome(
     <header
       class="flex items-center mx-2 bg-sideBarBackground rounded-t-[14px]"
     >
-      <div class="frame-dot bg-notificationsErrorIconForeground"></div>
-      <div class="frame-dot bg-notificationsWarningIconForeground"></div>
-      <div class="frame-dot bg-portsIconRunningProcessForeground"></div>
+      <div class="frame-dot"></div>
+      <div class="frame-dot"></div>
+      <div class="frame-dot"></div>
       <div
         class="flex items-center mx-4 my-2 pr-2 bg-input-background text-inputForeground border border-editorSuggestWidgetBorder rounded leading-7 flex-1 min-w-0 overflow-hidden"
       >

@@ -37,8 +37,6 @@ export class DevtoolsTabs extends Element {
         background-color: var(--vscode-sideBar-background);
       }
 
-      /* Token-based utilities (text-*Foreground) don't generate CSS in this
-         Tailwind setup, so tab colours live here. */
       .tab-btn {
         color: var(--vscode-descriptionForeground);
         cursor: pointer;
