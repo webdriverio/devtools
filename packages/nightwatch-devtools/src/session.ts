@@ -16,6 +16,7 @@ import {
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import {
+  changesPage,
   COLLECTOR_INJECT_SCRIPT,
   COLLECTOR_READY_SCRIPT
 } from '@wdio/devtools-shared'
@@ -90,6 +91,17 @@ export class SessionCapturer extends SessionCapturerBase {
     log[level](message)
   )
 
+  /** True until the current test's first mapped command takes its capture. */
+  awaitingInitialFrame = true
+  initialFrameRetried = false
+  testCaptureGeneration = 0
+
+  resetTestCapture(): void {
+    this.awaitingInitialFrame = true
+    this.initialFrameRetried = false
+    this.testCaptureGeneration++
+  }
+
   constructor(
     devtoolsOptions: SessionCapturerOptions = {},
     browser?: NightwatchBrowser
@@ -159,7 +171,7 @@ export class SessionCapturer extends SessionCapturerBase {
     }
 
     if (!error) {
-      this.#queueActionSnapshot(command, commandLogEntry.timestamp)
+      this.#queueActionSnapshot(command, args, commandLogEntry.timestamp)
     }
 
     return true
@@ -169,14 +181,28 @@ export class SessionCapturer extends SessionCapturerBase {
    *  logged command's timestamp, not the capture's own: the capture resolves
    *  after the command completes, and export claims snapshots by exact equality
    *  with the command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
-  #queueActionSnapshot(command: string, timestamp: number): void {
-    if (
-      this.traceMode !== 'trace' ||
-      !this.#browser ||
-      !mapCommandToAction(command)
-    ) {
+  #queueActionSnapshot(
+    command: string,
+    args: unknown[],
+    timestamp: number
+  ): void {
+    if (this.traceMode !== 'trace' || !this.#browser) {
       return
     }
+    // Reads and waits inherit the earlier capture; only the test's first mapped command adds an initial frame.
+    const initialFrame =
+      this.awaitingInitialFrame && !!mapCommandToAction(command)
+    // `url()` without a string argument is a getter; it does not navigate.
+    const pageChanging =
+      changesPage(command) &&
+      !(command === 'url' && typeof args[0] !== 'string')
+    if (!pageChanging && !initialFrame) {
+      return
+    }
+    if (initialFrame) {
+      this.awaitingInitialFrame = false
+    }
+    const generation = this.testCaptureGeneration
     this.snapshotCaptures.push(
       captureActionSnapshot(
         this.#browser,
@@ -187,6 +213,16 @@ export class SessionCapturer extends SessionCapturerBase {
       ).then((snap) => {
         if (snap) {
           upsertRichestSnapshot(this.actionSnapshots, snap)
+        }
+        // A capture resolving after resetTestCapture() belongs to the previous test.
+        if (
+          initialFrame &&
+          !snap?.screenshot &&
+          !this.initialFrameRetried &&
+          generation === this.testCaptureGeneration
+        ) {
+          this.initialFrameRetried = true
+          this.awaitingInitialFrame = true
         }
       })
     )
@@ -355,7 +391,7 @@ export class SessionCapturer extends SessionCapturerBase {
     entry.error = serializeError(error)
     entry.timestamp = timestamp
     if (!error) {
-      this.#queueActionSnapshot(entry.command, timestamp)
+      this.#queueActionSnapshot(entry.command, entry.args, timestamp)
     }
     this.sendReplaceCommand(oldTimestamp, entry)
   }

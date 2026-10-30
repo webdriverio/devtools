@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as DevtoolsCore from '@wdio/devtools-core'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
 import { TestManager } from '../src/helpers/testManager.js'
@@ -11,9 +12,20 @@ import {
 } from '../src/helpers/commandPostActions.js'
 import { captureActionSnapshot } from '../src/action-snapshot.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
-import { RetryTracker } from '@wdio/devtools-core'
+import {
+  RetryTracker,
+  captureActionSnapshot as coreCapture
+} from '@wdio/devtools-core'
 import type { ActionSnapshot } from '@wdio/devtools-shared'
 import type { CapturedCommand, SeleniumDriverLike } from '../src/types.js'
+
+vi.mock('@wdio/devtools-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof DevtoolsCore>()
+  return {
+    ...actual,
+    captureActionSnapshot: vi.fn(actual.captureActionSnapshot)
+  }
+})
 
 const capturers: SessionCapturer[] = []
 
@@ -26,13 +38,16 @@ afterEach(() => {
 /** A driver whose probes resolve to empty results — enough for the snapshot to
  *  be produced without a browser. The patcher's `originals` bag is empty here
  *  (nothing was patched), so the adapter falls back to these directly. */
-function fakeDriver(): SeleniumDriverLike {
+type FakeDriver = SeleniumDriverLike &
+  Required<Pick<SeleniumDriverLike, 'takeScreenshot'>>
+
+function fakeDriver(): FakeDriver {
   return {
     executeScript: vi.fn().mockResolvedValue([]),
     takeScreenshot: vi.fn().mockResolvedValue('AA'),
     getCurrentUrl: vi.fn().mockResolvedValue('http://example.test/'),
     getTitle: vi.fn().mockResolvedValue('Example')
-  } as unknown as SeleniumDriverLike
+  } as unknown as FakeDriver
 }
 
 function makeCtx(driver: SeleniumDriverLike) {
@@ -112,6 +127,136 @@ describe('selenium action-snapshot timestamp binding', () => {
     )
     await Promise.all(snapshotCaptures)
     expect(actionSnapshots).toHaveLength(0)
+  })
+})
+
+describe('selenium action-snapshot capture gate', () => {
+  // The capture reads through the patcher's originals; route them to the fake
+  // driver so its screenshot probe is the one that can fail.
+  const patched = ['takeScreenshot'] as const
+  beforeEach(() => {
+    const originals = getDriverOriginals() as Record<string, unknown>
+    for (const key of patched) {
+      originals[key] = (d: FakeDriver) => d[key]()
+    }
+  })
+  afterEach(() => {
+    const originals = getDriverOriginals() as Record<string, unknown>
+    for (const key of patched) {
+      delete originals[key]
+    }
+  })
+
+  async function run(commands: string[], ctxBag = makeCtx(fakeDriver())) {
+    let t = 1
+    for (const command of commands) {
+      await handleOnCommand(ctxBag.ctx, cmd({ command, timestamp: t++ }))
+    }
+    await Promise.all(ctxBag.snapshotCaptures)
+    return ctxBag
+  }
+
+  it('captures a click, but not a read or wait that follows it', async () => {
+    const { actionSnapshots } = await run([
+      'click',
+      'getText',
+      'waitForDisplayed'
+    ])
+    expect(actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+  })
+
+  it('captures a leading read as the initial frame, once per test', async () => {
+    const bag = makeCtx(fakeDriver())
+    await run(['getText', 'isDisplayed'], bag)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+
+    bag.capturer.resetTestCapture()
+    await handleOnCommand(bag.ctx, cmd({ command: 'getText', timestamp: 9 }))
+    await Promise.all(bag.snapshotCaptures)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 9])
+  })
+
+  it('retries the initial frame when the first read captures no screenshot', async () => {
+    const driver = fakeDriver()
+    vi.mocked(driver.takeScreenshot).mockRejectedValueOnce(new Error('gone'))
+    vi.mocked(coreCapture).mockClear()
+    const bag = makeCtx(driver)
+    for (const [i, command] of [
+      'getText',
+      'isDisplayed',
+      'getText'
+    ].entries()) {
+      await handleOnCommand(bag.ctx, cmd({ command, timestamp: i + 1 }))
+      await Promise.all(bag.snapshotCaptures)
+    }
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 2])
+    expect(bag.actionSnapshots.map((s) => !!s.screenshot)).toEqual([
+      false,
+      true
+    ])
+  })
+
+  it('attempts the initial frame at most twice when every screenshot fails', async () => {
+    const driver = fakeDriver()
+    vi.mocked(driver.takeScreenshot).mockRejectedValue(new Error('gone'))
+    vi.mocked(coreCapture).mockClear()
+    const bag = makeCtx(driver)
+    for (const [i, command] of [
+      'getText',
+      'getText',
+      'getText',
+      'getText'
+    ].entries()) {
+      await handleOnCommand(bag.ctx, cmd({ command, timestamp: i + 1 }))
+      await Promise.all(bag.snapshotCaptures)
+    }
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries the initial frame when the first capture resolves null', async () => {
+    vi.mocked(coreCapture).mockClear()
+    vi.mocked(coreCapture).mockResolvedValueOnce(null)
+    const bag = makeCtx(fakeDriver())
+    for (const [i, command] of ['getText', 'getText', 'getText'].entries()) {
+      await handleOnCommand(bag.ctx, cmd({ command, timestamp: i + 1 }))
+      await Promise.all(bag.snapshotCaptures)
+    }
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(bag.actionSnapshots.map((s) => s.timestamp)).toEqual([2])
+  })
+
+  it('retries the initial frame when a page-changing first command loses its screenshot', async () => {
+    const driver = fakeDriver()
+    vi.mocked(driver.takeScreenshot).mockRejectedValueOnce(new Error('gone'))
+    vi.mocked(coreCapture).mockClear()
+    const bag = await run(['click', 'getText', 'getText'], makeCtx(driver))
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(bag.actionSnapshots.map((s) => !!s.screenshot)).toEqual([
+      false,
+      true
+    ])
+  })
+
+  it('does not re-arm the initial frame from a capture that resolves after the next test starts', async () => {
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    let resolveFirst!: (snap: Snap) => void
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snap>((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+    const bag = makeCtx(fakeDriver())
+    await handleOnCommand(bag.ctx, cmd({ command: 'getText', timestamp: 1 }))
+    bag.capturer.resetTestCapture()
+    resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
+    await Promise.all(bag.snapshotCaptures)
+
+    expect(bag.capturer.initialFrameRetried).toBe(false)
+    expect(bag.capturer.awaitingInitialFrame).toBe(true)
   })
 })
 

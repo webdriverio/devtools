@@ -55,6 +55,17 @@ export class SessionCapturer extends SessionCapturerBase {
   // A screenshot that reaches a driver being quit is skipped, not reported as a failure.
   #endingDrivers = new WeakSet<SeleniumDriverLike>()
 
+  /** True until the current test's first mapped command takes its capture. */
+  awaitingInitialFrame = true
+  initialFrameRetried = false
+  testCaptureGeneration = 0
+
+  resetTestCapture(): void {
+    this.awaitingInitialFrame = true
+    this.initialFrameRetried = false
+    this.testCaptureGeneration++
+  }
+
   #clientConnected = false
   #clientConnectedWaiters: Array<() => void> = []
   #onClientDisconnected?: () => void

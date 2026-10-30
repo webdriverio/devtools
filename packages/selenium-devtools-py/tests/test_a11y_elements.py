@@ -6,6 +6,7 @@ A Python trace carried 0 `*-elements.json` where a JS Selenium trace of the
 same flow carried 12; this is the gap.
 """
 
+import contextlib
 import json
 import unittest
 from unittest import mock
@@ -13,6 +14,8 @@ from unittest import mock
 from selenium_devtools import element_scripts, instrumentation, trace_export
 from selenium_devtools._contract import (
     ELEMENT_SCRIPTS_PATH,
+    MAPPED_COMMANDS,
+    PAGE_CHANGING_COMMANDS,
     RUNNER_ID,
     SCOPE_ACTION_SNAPSHOTS,
 )
@@ -216,6 +219,94 @@ class TestCapturingPerAction(unittest.TestCase):
         self.assertEqual(self._capture(self.Driver(elements=[])), [])
         self.assertEqual(self._capture(self.Driver(elements=None)), [])
         self.assertEqual(self._capture(self.Driver(raises=True)), [])
+
+    @contextlib.contextmanager
+    def _armed(self, driver=None):
+        with mock.patch.dict(
+            instrumentation._state,
+            {
+                "trace": True,
+                "a11y": True,
+                "element_scripts": SCRIPTS,
+                "action_snapshots": [],
+                "awaiting_initial_frame": True,
+                "initial_frame_retried": False,
+            },
+        ):
+            yield driver or self.Driver(elements=[{"selector": "#go"}])
+
+    def _gate(self, driver, command, shot="c2hvdA=="):
+        instrumentation._maybe_capture_action_snapshot(driver, command, 1200, shot)
+
+    def _captured(self):
+        return [snap["command"] for snap in instrumentation.action_snapshots()]
+
+    def test_a_click_is_captured_and_the_reads_after_it_are_not(self):
+        with self._armed() as driver:
+            self._gate(driver, "clickElement")
+            self._gate(driver, "getElementText")
+            self._gate(driver, "wait")
+            self.assertEqual(self._captured(), ["clickElement"])
+            self.assertEqual(len(driver.scripts_run), 2, "read the page for a read")
+
+    def test_a_leading_read_is_the_initial_frame_once_until_the_next_test(self):
+        with self._armed() as driver:
+            self._gate(driver, "getElementText")
+            self._gate(driver, "getElementText")
+            self.assertEqual(self._captured(), ["getElementText"])
+
+            instrumentation.reset_test_capture()
+            self._gate(driver, "getElementText")
+            self.assertEqual(self._captured(), ["getElementText", "getElementText"])
+
+    def test_a_missing_initial_screenshot_is_retried_exactly_once(self):
+        with self._armed() as driver:
+            self._gate(driver, "getElementText", shot=None)
+            self._gate(driver, "getElementText", shot="c2hvdA==")
+            self._gate(driver, "getElementText", shot="c2hvdA==")
+            snaps = instrumentation.action_snapshots()
+            self.assertEqual(len(snaps), 2)
+            self.assertNotIn("screenshot", snaps[0])
+            self.assertIn("screenshot", snaps[1])
+
+    def test_a_form_submit_is_captured_as_a_page_change(self):
+        submit = {"script": "/* submitForm */var form = arguments[0];", "args": []}
+        other = {"script": "return 1", "args": []}
+        self.assertEqual(
+            instrumentation._capture_command("w3cExecuteScript", submit), "submit"
+        )
+        self.assertEqual(
+            instrumentation._capture_command("w3cExecuteScript", other),
+            "w3cExecuteScript",
+        )
+        with self._armed() as driver:
+            self._gate(driver, "clickElement")
+            self._gate(driver, instrumentation._capture_command("w3cExecuteScript", submit))
+            self.assertEqual(self._captured(), ["clickElement", "submit"])
+
+    def test_a_second_missing_initial_screenshot_is_not_retried_again(self):
+        with self._armed() as driver:
+            self._gate(driver, "clickElement", shot=None)
+            self._gate(driver, "getElementText", shot=None)
+            self._gate(driver, "getElementText", shot="c2hvdA==")
+            self.assertEqual(self._captured(), ["clickElement", "getElementText"])
+
+    def test_the_initial_frame_waits_for_a_capture_that_can_run(self):
+        class NativeDriver(self.Driver):
+            capabilities = {"platformName": "Android", "appium:app": "/app.apk"}
+
+        with self._armed(NativeDriver(elements=[{"selector": "#go"}])) as driver:
+            self._gate(driver, "getElementText")
+            self.assertTrue(instrumentation._state["awaiting_initial_frame"])
+            self.assertEqual(driver.scripts_run, [])
+
+    def test_the_generated_sets_agree_with_the_gate(self):
+        self.assertIn("get", PAGE_CHANGING_COMMANDS)
+        self.assertIn("clickElement", PAGE_CHANGING_COMMANDS)
+        self.assertNotIn("getElementText", PAGE_CHANGING_COMMANDS)
+        self.assertIn("getElementText", MAPPED_COMMANDS)
+        self.assertNotIn("findElement", MAPPED_COMMANDS)
+        self.assertLessEqual(PAGE_CHANGING_COMMANDS, MAPPED_COMMANDS)
 
 
 class TestStreamingTheSnapshots(unittest.TestCase):

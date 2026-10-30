@@ -30,6 +30,7 @@ from . import (
     read_value_locators,
     wait_tracking,
 )
+from ._contract import MAPPED_COMMANDS, PAGE_CHANGING_COMMANDS
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
@@ -288,6 +289,9 @@ _state: dict = {
     # is the only moment they are reachable. Run-scoped: a run may replace its
     # driver, and the filmstrip is the whole run.
     "filmstrip_frames": [],
+    # Re-armed per test by reset_test_capture().
+    "awaiting_initial_frame": True,
+    "initial_frame_retried": False,
 }
 
 
@@ -421,9 +425,18 @@ def resolved_output_dir() -> Optional[str]:
     return _state.get("output_dir")
 
 
+_SUBMIT_SCRIPT_MARKER = "/* submitForm */"
+
+
+def _action_capture_enabled(driver: Any) -> bool:
+    if not _state["trace"] or not _state["a11y"] or not _state.get("element_scripts"):
+        return False
+    return not driver_is_native_app(driver)
+
+
 def _capture_action_snapshot(
     driver: Any, command: str, timestamp: int, shot: Optional[str]
-) -> None:
+) -> Optional[ActionSnapshot]:
     """Read the page's element tree beside one action, for the trace's A11y tab.
 
     Trace mode only, and only with the scripts in hand — the JS adapters run
@@ -437,13 +450,9 @@ def _capture_action_snapshot(
     Skipped entirely on a native app: both reads are page script, they run on
     every action, and neither can do anything but fail there.
     """
-    if not _state["trace"] or not _state["a11y"]:
-        return
-    if driver_is_native_app(driver):
-        return
+    if not _action_capture_enabled(driver):
+        return None
     scripts = _state.get("element_scripts")
-    if not scripts:
-        return
     run = _guarded_execute_script(driver)
     snapshot: ActionSnapshot = {"timestamp": timestamp, "command": command}
     if shot:
@@ -464,8 +473,42 @@ def _capture_action_snapshot(
         if isinstance(value, list) and value:
             snapshot[key] = value
     if "elements" not in snapshot and "accessibilityTree" not in snapshot:
-        return
+        return None
     _state["action_snapshots"].append(snapshot)
+    return snapshot
+
+
+def _maybe_capture_action_snapshot(
+    driver: Any, command: str, timestamp: int, shot: Optional[str]
+) -> None:
+    """Capture on a page-changing command, and on a test's first mapped command
+    as its initial frame. Reads and waits inherit the capture before them."""
+    initial = _state["awaiting_initial_frame"] and command in MAPPED_COMMANDS
+    if command not in PAGE_CHANGING_COMMANDS and not initial:
+        return
+    if not _action_capture_enabled(driver):
+        return
+    if initial:
+        _state["awaiting_initial_frame"] = False
+    snapshot = _capture_action_snapshot(driver, command, timestamp, shot)
+    if not initial or _state["initial_frame_retried"]:
+        return
+    if snapshot is None or "screenshot" not in snapshot:
+        _state["initial_frame_retried"] = True
+        _state["awaiting_initial_frame"] = True
+
+
+def _capture_command(driver_command: str, params: Any) -> str:
+    """Selenium's `WebElement.submit()` reaches `execute` as a marked script."""
+    script = params.get("script") if isinstance(params, dict) else None
+    if isinstance(script, str) and script.startswith(_SUBMIT_SCRIPT_MARKER):
+        return "submit"
+    return driver_command
+
+
+def reset_test_capture() -> None:
+    """Re-arm the initial frame for the test about to start."""
+    _state.update(awaiting_initial_frame=True, initial_frame_retried=False)
 
 
 def _begin_screencast_run(entry: Optional[dict], shot: Optional[str] = None) -> None:
@@ -1064,7 +1107,12 @@ def install(
             parent_id=wait_tracking.parent_of(poll),
         )
         wait_tracking.note_poll_row(poll, row)
-        _capture_action_snapshot(self, driver_command, row.get("timestamp", start), shot)
+        _maybe_capture_action_snapshot(
+            self,
+            _capture_command(driver_command, params),
+            row.get("timestamp", start),
+            shot,
+        )
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
         # No per-command line here: the Actions timeline lists every command as
@@ -1093,6 +1141,7 @@ def install(
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
         trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
         a11y=a11y, element_scripts=None, page_scripts=None, action_snapshots=[],
+        awaiting_initial_frame=True, initial_frame_retried=False,
     )
 
 

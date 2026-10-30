@@ -11,7 +11,7 @@ import types
 import unittest
 from unittest import mock
 
-from selenium_devtools import assertions
+from selenium_devtools import assertions, instrumentation
 from selenium_devtools import pytest_plugin as plugin
 from selenium_devtools.pytest_plugin import _SuiteRegistry, reported_state
 from selenium_devtools.utils import iso
@@ -550,3 +550,18 @@ class TestEnablingThePassHook(unittest.TestCase):
         plugin._enable_assertion_pass_hook(config)
 
         self.assertIs(config.getini("enable_assertion_pass_hook"), True)
+
+
+class TestEachTestStartsWithItsOwnInitialFrame(unittest.TestCase):
+    def test_a_test_starting_re_arms_the_initial_frame(self):
+        with mock.patch.dict(
+            instrumentation._state,
+            {"awaiting_initial_frame": False, "initial_frame_retried": True},
+        ), mock.patch.object(plugin, "_opted_in", return_value=True), mock.patch.object(
+            plugin.devtools, "get_capturer", return_value=None
+        ):
+            plugin.pytest_runtest_logstart("tests/t.py::test_a", ("tests/t.py", 1, "test_a"))
+
+            self.assertIs(instrumentation._state["awaiting_initial_frame"], True)
+            self.assertIs(instrumentation._state["initial_frame_retried"], False)
+
