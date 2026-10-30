@@ -300,6 +300,44 @@ describe('DataManagerController', () => {
       expect(FakeSocket.opened[0].url).toContain('/client')
     })
 
+    it('lists the zips show-trace serves as a run instead of connecting to a socket', async () => {
+      const listing = {
+        traces: [
+          { path: 'run/a/trace.zip', url: '/api/trace/zip/0' },
+          { path: 'run/b/trace.zip', url: '/api/trace/zip/1' }
+        ]
+      }
+      traceProbe = () =>
+        Promise.resolve(
+          fetchedUrls[fetchedUrls.length - 1] === TRACE_API.run
+            ? { ok: true, status: 200, json: () => Promise.resolve(listing) }
+            : probeResponse(204)
+        )
+      const opened: string[][] = []
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      manager.onServedRun = (sources) =>
+        opened.push(sources.map(({ path }) => path))
+      manager.hostConnected()
+      await vi.waitFor(() => expect(opened).toHaveLength(1))
+
+      expect(fetchedUrls).toEqual([TRACE_API.get, TRACE_API.run])
+      expect(opened[0]).toEqual(['run/a/trace.zip', 'run/b/trace.zip'])
+      expect(manager.playerMode).toBe(true)
+      expect(FakeSocket.opened).toHaveLength(0)
+    })
+
+    it('connects to the socket when nothing serves a run either', async () => {
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      manager.onServedRun = () => {}
+      manager.hostConnected()
+      await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1))
+
+      expect(fetchedUrls).toEqual([TRACE_API.get, TRACE_API.run])
+      expect(manager.playerMode).toBe(false)
+    })
+
     it('reports a connection once the socket opens', async () => {
       const host = document.createElement('data-manager-stub-host') as StubHost
       const manager = new DataManagerController(host)

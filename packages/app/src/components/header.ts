@@ -6,6 +6,7 @@ import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
 import '~icons/mdi/upload.js'
+import '~icons/mdi/folder-open.js'
 
 import {
   applyDarkMode,
@@ -15,7 +16,7 @@ import {
 } from '../controller/theme.js'
 import { HOSTED_PLAYER } from '../controller/constants.js'
 import { TRACE_FILE_ACCEPT } from '../controller/constants.js'
-import { announceTraceFile, takePickedFile } from '../utils/trace-file.js'
+import { announceTraceSources, takePickedSources } from '../utils/trace-file.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
@@ -109,32 +110,47 @@ export class DevtoolsHeader extends Element {
     `
   }
 
-  @query('input[type="file"]') traceInput?: HTMLInputElement
+  @query('input[data-pick="files"]') traceInput?: HTMLInputElement
+  @query('input[data-pick="folder"]') folderInput?: HTMLInputElement
 
   #openTraceButton() {
     return html`
       <button
         class="p-2"
-        title="Open another trace.zip"
-        aria-label="Open another trace.zip"
+        title="Open other trace .zip files"
+        aria-label="Open other trace .zip files"
         @click="${() => this.traceInput?.click()}"
       >
         <icon-mdi-upload></icon-mdi-upload>
       </button>
+      <button
+        class="p-2"
+        title="Open a folder of traces"
+        aria-label="Open a folder of traces"
+        @click="${() => this.folderInput?.click()}"
+      >
+        <icon-mdi-folder-open></icon-mdi-folder-open>
+      </button>
       <input
+        data-pick="files"
         type="file"
         accept="${TRACE_FILE_ACCEPT}"
+        multiple
         hidden
-        @change="${this.#onTracePicked}"
+        @change="${() => this.#onTracePicked(this.traceInput)}"
+      />
+      <input
+        data-pick="folder"
+        type="file"
+        webkitdirectory
+        hidden
+        @change="${() => this.#onTracePicked(this.folderInput)}"
       />
     `
   }
 
-  #onTracePicked() {
-    const file = takePickedFile(this.traceInput)
-    if (file) {
-      announceTraceFile(this, file)
-    }
+  #onTracePicked(input?: HTMLInputElement) {
+    announceTraceSources(this, takePickedSources(input))
   }
 
   #switchMode() {

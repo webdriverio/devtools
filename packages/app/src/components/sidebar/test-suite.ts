@@ -5,16 +5,13 @@ import { customElement, property } from 'lit/decorators.js'
 import { CollapseableEntry } from './collapseableEntry.js'
 import type { TestRunDetail, TestStatus } from './types.js'
 import { TestState } from './types.js'
+import { stateIcon, STATE_ICON_STYLES } from './state-icon.js'
 
 import '~icons/mdi/menu-down.js'
 import '~icons/mdi/play.js'
 import '~icons/mdi/stop.js'
 import '~icons/mdi/collapse-all.js'
 import '~icons/mdi/expand-all.js'
-import '~icons/mdi/close.js'
-import '~icons/mdi/debug-step-over.js'
-import '~icons/mdi/check.js'
-import '~icons/mdi/circle-outline.js'
 import '~icons/mdi/bug-play.js'
 
 const TEST_SUITE = 'wdio-test-suite'
@@ -158,26 +155,8 @@ export class ExplorerTestEntry extends CollapseableEntry {
         color: var(--vscode-foreground);
         font-weight: 600;
       }
-
-      .run-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--vscode-charts-blue);
-        animation: run-pulse 1.5s ease-in-out infinite;
-      }
-      @keyframes run-pulse {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.4;
-          transform: scale(0.7);
-        }
-      }
-    `
+    `,
+    STATE_ICON_STYLES
   ]
 
   #toggleEntry() {
@@ -284,36 +263,16 @@ export class ExplorerTestEntry extends CollapseableEntry {
     return this.state === TestState.RUNNING
   }
   get testStateIcon() {
-    // Vertically centred in the row so the status icon lines up with the
-    // row's action buttons (run/stop), which are also centre-aligned.
-    const box = (inner: unknown) =>
-      html`<span
-        class="w-4 h-[18px] shrink-0 self-center grid place-items-center"
-        >${inner}</span
-      >`
     if (this.isRunning) {
-      return box(html`<span class="run-dot"></span>`)
+      return stateIcon('running')
     }
     if (this.hasPassed) {
-      return box(
-        html`<icon-mdi-check class="text-chartsGreen"></icon-mdi-check>`
-      )
+      return stateIcon('passed')
     }
     if (this.hasFailed) {
-      return box(html`<icon-mdi-close class="text-chartsRed"></icon-mdi-close>`)
+      return stateIcon('failed')
     }
-    if (this.hasSkipped) {
-      return box(
-        html`<icon-mdi-debug-step-over
-          class="text-chartsYellow"
-        ></icon-mdi-debug-step-over>`
-      )
-    }
-    return box(
-      html`<icon-mdi-circle-outline
-        class="text-disabledForeground"
-      ></icon-mdi-circle-outline>`
-    )
+    return stateIcon(this.hasSkipped ? 'skipped' : 'idle')
   }
 
   #renderStopButton() {

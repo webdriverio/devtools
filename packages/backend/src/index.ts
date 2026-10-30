@@ -18,6 +18,7 @@ import { testRunner } from './runner.js'
 import { baselineStore } from './baselineStore.js'
 import { createWorkerMessageHandler } from './worker-message-handler.js'
 import { resolveByteRange } from './video-range.js'
+import { registerTraceRoutes, type TraceServe } from './trace-routes.js'
 import {
   BASELINE_API,
   BASELINE_WS_SCOPE,
@@ -30,7 +31,6 @@ import {
   isTestRunnerId,
   PAGE_SCRIPTS_API,
   PAGE_SCRIPTS_CONTENT_TYPE,
-  TRACE_API,
   WORKER_WS_QUERY,
   WS_PATHS,
   WS_SCOPE,
@@ -41,19 +41,16 @@ import {
   type BaselineSavedWsPayload,
   type BaselineClearedWsPayload,
   type RunnerRequestBody,
-  type SocketMessage,
-  type TracePlayerData
+  type SocketMessage
 } from '@wdio/devtools-shared'
 
 let server: FastifyInstance | undefined
 
-interface DevtoolsBackendOptions {
+/** With `trace` or `traceRun` set, the server runs in trace-serve mode for
+ *  `pnpm show-trace` and no worker ever connects. */
+interface DevtoolsBackendOptions extends TraceServe {
   port?: number
   hostname?: string
-  /** When set, the server runs in trace-serve mode: it exposes the
-   *  reconstructed trace at TRACE_API.get for `pnpm show-trace` and no worker
-   *  ever connects. */
-  trace?: TracePlayerData
 }
 
 const log = logger('@wdio/devtools-backend')
@@ -456,18 +453,6 @@ function registerPageScriptsRoute(s: FastifyInstance): void {
   )
 }
 
-function registerTraceRoute(
-  s: FastifyInstance,
-  trace: TracePlayerData | undefined
-): void {
-  // Always registered so live mode gets a definitive 204 here instead of a 404
-  // from the static handler — the app probes this on boot to choose between
-  // player and live-WS mode, and a 204 keeps the common (live) path quiet.
-  s.get(TRACE_API.get, async (_request, reply) =>
-    trace ? reply.send(trace) : reply.code(204).send()
-  )
-}
-
 export async function start(
   opts: DevtoolsBackendOptions = {}
 ): Promise<{ server: FastifyInstance; port: number }> {
@@ -487,7 +472,7 @@ export async function start(
   await server.register(websocket)
   await server.register(staticServer, { root: appPath })
 
-  registerTraceRoute(server, opts.trace)
+  registerTraceRoutes(server, opts)
   registerCollectorRoute(server, collectorSource)
   registerElementScriptsRoute(server)
   registerPageScriptsRoute(server)

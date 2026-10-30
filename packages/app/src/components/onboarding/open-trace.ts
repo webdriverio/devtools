@@ -7,9 +7,13 @@ import {
   TRACE_OPEN_PHASE_LABEL
 } from '../../controller/constants.js'
 import type { TraceOpenPhase } from '../../controller/trace-parse-protocol.js'
-import { announceTraceFile, takePickedFile } from '../../utils/trace-file.js'
+import {
+  announceTraceSources,
+  takePickedSources
+} from '../../utils/trace-file.js'
+import type { TraceSource } from '../../utils/trace-sources.js'
 
-/** Landing screen of the hosted trace player: pick or drop a trace.zip. */
+/** Landing screen of the hosted trace player: pick or drop trace zips or a folder of them. */
 @customElement('wdio-devtools-open-trace')
 export class DevtoolsOpenTrace extends Element {
   @property({ type: Boolean }) busy = false
@@ -18,7 +22,8 @@ export class DevtoolsOpenTrace extends Element {
 
   @state() dragging = false
 
-  @query('input[type="file"]') input?: HTMLInputElement
+  @query('input[data-pick="files"]') input?: HTMLInputElement
+  @query('input[data-pick="folder"]') folderInput?: HTMLInputElement
 
   static styles = [
     ...Element.styles,
@@ -41,8 +46,14 @@ export class DevtoolsOpenTrace extends Element {
         border-color: var(--accent);
       }
 
-      button {
+      .actions {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
         margin-top: 16px;
+      }
+
+      button {
         padding: 8px 18px;
         border-radius: 6px;
         background: var(--accent);
@@ -109,9 +120,9 @@ export class DevtoolsOpenTrace extends Element {
     `
   ]
 
-  #open(file: File | undefined) {
-    if (file && !this.busy) {
-      announceTraceFile(this, file)
+  #open(sources: readonly TraceSource[]) {
+    if (!this.busy) {
+      announceTraceSources(this, sources)
     }
   }
 
@@ -128,23 +139,52 @@ export class DevtoolsOpenTrace extends Element {
     }
   }
 
+  // Left to bubble: the app opens a drop anywhere on the window, this one included.
   #onDrop(event: DragEvent) {
     event.preventDefault()
-    // The app also opens files dropped anywhere on the window.
-    event.stopPropagation()
     this.dragging = false
-    this.#open(event.dataTransfer?.files[0])
   }
 
-  #onPick() {
-    this.#open(takePickedFile(this.input))
+  #onPick(input?: HTMLInputElement) {
+    this.#open(takePickedSources(input))
   }
 
   #status(): string {
     if (!this.busy) {
-      return 'Drop a trace.zip here'
+      return 'Drop trace .zip files or a folder of them here'
     }
     return this.phase ? TRACE_OPEN_PHASE_LABEL[this.phase] : 'Opening trace…'
+  }
+
+  #pickers() {
+    return html`
+      <div class="actions">
+        <button ?disabled="${this.busy}" @click="${() => this.input?.click()}">
+          Select files
+        </button>
+        <button
+          ?disabled="${this.busy}"
+          @click="${() => this.folderInput?.click()}"
+        >
+          Select folder
+        </button>
+      </div>
+      <input
+        data-pick="files"
+        type="file"
+        accept="${TRACE_FILE_ACCEPT}"
+        multiple
+        hidden
+        @change="${() => this.#onPick(this.input)}"
+      />
+      <input
+        data-pick="folder"
+        type="file"
+        webkitdirectory
+        hidden
+        @change="${() => this.#onPick(this.folderInput)}"
+      />
+    `
   }
 
   render() {
@@ -160,18 +200,7 @@ export class DevtoolsOpenTrace extends Element {
         <div class="drop ${this.dragging ? 'dragging' : ''}">
           <p class="text-lg" role="status">${this.#status()}</p>
           ${this.busy ? html`<div class="progress"></div>` : nothing}
-          <button
-            ?disabled="${this.busy}"
-            @click="${() => this.input?.click()}"
-          >
-            Select file
-          </button>
-          <input
-            type="file"
-            accept="${TRACE_FILE_ACCEPT}"
-            hidden
-            @change="${this.#onPick}"
-          />
+          ${this.#pickers()}
         </div>
         ${
           this.error
@@ -179,10 +208,10 @@ export class DevtoolsOpenTrace extends Element {
             : nothing
         }
         <p class="muted text-sm max-w-xl text-center">
-          The trace is opened in this browser tab and never leaves your machine.
-          To open one offline, run
-          <code>npx show-trace trace.zip</code> in a project with WebdriverIO
-          DevTools installed.
+          Traces are opened in this browser tab and never leave your machine. To
+          open them offline, run
+          <code>npx show-trace trace.zip</code> (or a folder of traces) in a
+          project with WebdriverIO DevTools installed.
         </p>
       </div>
     `

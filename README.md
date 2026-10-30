@@ -262,7 +262,16 @@ The player exposes everything captured in the archive:
 
 The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
-**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: drop a `.zip` on the page or pick one. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A replayed page still loads its own stylesheets and images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks the `http` ones, so a trace of an `http` site can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+**A whole run at once.** With `traceGranularity: 'test'` every test writes its own `trace.zip`, so a run is a folder of them. Give `show-trace` the folder, or several zips, and the player lists every trace beside the timeline, one row per test with its outcome, failures first and then in the order they ran; picking a row plays that trace without reloading (`↑`/`↓` move between rows, `Enter` opens one). The hosted player does the same for several zips, or a folder, picked or dropped on the page.
+
+```sh
+pnpm show-trace test-results/                        # every zip under the folder
+pnpm show-trace a/trace.zip b/trace.zip              # several zips
+```
+
+Each zip is read once, as the list fills in, and kept for when it is picked. Anything in the folder that is not a `.zip` (screenshots, videos, the artifacts manifest) is skipped; a zip that cannot be opened stays in the list with the reason, and the rest open normally. A zip records no test state, so the outcome is read from the trace itself: **failed** when an action or step in it failed, **passed** when it holds actions and none failed, **unknown** when it holds none. An assertion library that records no row (a jest `expect`, chai) can fail a test whose trace still reads as passed. One zip opens exactly as before, with no list.
+
+**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: drop a `.zip` on the page or pick one, or several, or a folder of them. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A replayed page still loads its own stylesheets and images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks the `http` ones, so a trace of an `http` site can render unstyled there and fully in `show-trace`. To try the hosted build locally:
 
 ```sh
 pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
@@ -534,6 +543,8 @@ With `mode: 'trace'` no UI opens — the run writes a portable `trace.zip` under
 pnpm show-trace test-results/trace-<sessionId>.zip
 # or from a project that installs an adapter:
 npx show-trace <path-to-trace.zip>
+# a folder of per-test zips opens as a list of tests:
+npx show-trace test-results/
 ```
 
 <p align="center">
