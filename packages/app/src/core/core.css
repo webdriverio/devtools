@@ -1,4 +1,4 @@
-@import url('./shadow-styles.css');
+@import url('./colors.css');
 @import url('./scrollbars.css');
 
 @layer base {
@@ -15,10 +15,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-}
-
-:host {
-  --spacing: 0.25rem;
 }
 
 @layer base {
