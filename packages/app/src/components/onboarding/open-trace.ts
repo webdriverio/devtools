@@ -22,8 +22,7 @@ export class DevtoolsOpenTrace extends Element {
 
   @state() dragging = false
 
-  @query('input[data-pick="files"]') input?: HTMLInputElement
-  @query('input[data-pick="folder"]') folderInput?: HTMLInputElement
+  @query('input[type="file"]') input?: HTMLInputElement
 
   static styles = [
     ...Element.styles,
@@ -46,14 +45,8 @@ export class DevtoolsOpenTrace extends Element {
         border-color: var(--accent);
       }
 
-      .actions {
-        display: flex;
-        justify-content: center;
-        gap: 8px;
-        margin-top: 16px;
-      }
-
       button {
+        margin-top: 16px;
         padding: 8px 18px;
         border-radius: 6px;
         background: var(--accent);
@@ -156,33 +149,18 @@ export class DevtoolsOpenTrace extends Element {
     return this.phase ? TRACE_OPEN_PHASE_LABEL[this.phase] : 'Opening trace…'
   }
 
+  // A picker takes files or folders, never both, so folders come in by drop.
   #pickers() {
     return html`
-      <div class="actions">
-        <button ?disabled="${this.busy}" @click="${() => this.input?.click()}">
-          Select files
-        </button>
-        <button
-          ?disabled="${this.busy}"
-          @click="${() => this.folderInput?.click()}"
-        >
-          Select folder
-        </button>
-      </div>
+      <button ?disabled="${this.busy}" @click="${() => this.input?.click()}">
+        Open traces
+      </button>
       <input
-        data-pick="files"
         type="file"
         accept="${TRACE_FILE_ACCEPT}"
         multiple
         hidden
         @change="${() => this.#onPick(this.input)}"
-      />
-      <input
-        data-pick="folder"
-        type="file"
-        webkitdirectory
-        hidden
-        @change="${() => this.#onPick(this.folderInput)}"
       />
     `
   }

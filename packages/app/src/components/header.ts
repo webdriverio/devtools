@@ -6,7 +6,6 @@ import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
 import '~icons/mdi/upload.js'
-import '~icons/mdi/folder-open.js'
 
 import {
   applyDarkMode,
@@ -110,41 +109,24 @@ export class DevtoolsHeader extends Element {
     `
   }
 
-  @query('input[data-pick="files"]') traceInput?: HTMLInputElement
-  @query('input[data-pick="folder"]') folderInput?: HTMLInputElement
+  @query('input[type="file"]') traceInput?: HTMLInputElement
 
   #openTraceButton() {
     return html`
       <button
         class="p-2"
-        title="Open other trace .zip files"
-        aria-label="Open other trace .zip files"
+        title="Open trace .zip files, or drop a folder of them on the page"
+        aria-label="Open trace .zip files"
         @click="${() => this.traceInput?.click()}"
       >
         <icon-mdi-upload></icon-mdi-upload>
       </button>
-      <button
-        class="p-2"
-        title="Open a folder of traces"
-        aria-label="Open a folder of traces"
-        @click="${() => this.folderInput?.click()}"
-      >
-        <icon-mdi-folder-open></icon-mdi-folder-open>
-      </button>
       <input
-        data-pick="files"
         type="file"
         accept="${TRACE_FILE_ACCEPT}"
         multiple
         hidden
         @change="${() => this.#onTracePicked(this.traceInput)}"
-      />
-      <input
-        data-pick="folder"
-        type="file"
-        webkitdirectory
-        hidden
-        @change="${() => this.#onTracePicked(this.folderInput)}"
       />
     `
   }
