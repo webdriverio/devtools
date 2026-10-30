@@ -1,0 +1,65 @@
+{
+  "source": "examples-smoke CI artifact, run 40774299701 at 14977b93, 2026-10-28 (python-pytest/1)",
+  "runner": "selenium-webdriver",
+  "browserName": "chrome",
+  "commands": {
+    "count": 22,
+    "failed": 0,
+    "titles": [
+      "Element.click(\"{\"id\":\"f.742D14747C86DBDBA1C513BADD248F99.d.9831E87A746BCA0C3A4FB67344DD937D.e.13\"}\")",
+      "Element.click(\"{\"id\":\"f.742D14747C86DBDBA1C513BADD248F99.d.CEBF4E3C7D57CCC66E9DAAB16684B9B1.e.4\"}\")",
+      "Element.click(\"{\"id\":\"f.8D1DD0F93A1C8D18FB3BB9EF1415C69B.d.0E25887790809E9D37C9B825965BC35F.e.4\"}\")",
+      "Element.fill(\"{\"text\":\"SuperSecretPassword!\",\"value\":[\"S\",\"u\",\"p\",\"e\",\"r\",\"S\",\"e\",\"c\",\"r\",\"e\",\"t\",\"P\",\"a\",\"s\",\"s\",\"w\",\"o\",\"r\",\"d\",\"!\"],\"id\":\"f.742D14747C86DBDBA1C513BADD248F99.d.CEBF4E3C7D57CCC66E9DAAB16684B9B1.e.3\"}\")",
+      "Element.fill(\"{\"text\":\"tomsmith\",\"value\":[\"t\",\"o\",\"m\",\"s\",\"m\",\"i\",\"t\",\"h\"],\"id\":\"f.742D14747C86DBDBA1C513BADD248F99.d.CEBF4E3C7D57CCC66E9DAAB16684B9B1.e.2\"}\")",
+      "Element.fill(\"{\"text\":\"tomsmith\",\"value\":[\"t\",\"o\",\"m\",\"s\",\"m\",\"i\",\"t\",\"h\"],\"id\":\"f.8D1DD0F93A1C8D18FB3BB9EF1415C69B.d.0E25887790809E9D37C9B825965BC35F.e.2\"}\")",
+      "Element.fill(\"{\"text\":\"wrong-password\",\"value\":[\"w\",\"r\",\"o\",\"n\",\"g\",\"-\",\"p\",\"a\",\"s\",\"s\",\"w\",\"o\",\"r\",\"d\"],\"id\":\"f.8D1DD0F93A1C8D18FB3BB9EF1415C69B.d.0E25887790809E9D37C9B825965BC35F.e.3\"}\")",
+      "Element.getText(\"{\"id\":\"f.742D14747C86DBDBA1C513BADD248F99.d.9831E87A746BCA0C3A4FB67344DD937D.e.11\"}\")",
+      "Element.getText(\"{\"id\":\"f.8D1DD0F93A1C8D18FB3BB9EF1415C69B.d.3770805972768FCE568F32302BB7EE47.e.15\"}\")",
+      "Page.getTitle()",
+      "Page.getUrl()",
+      "Page.getUrl()",
+      "Page.getUrl()",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "assert.equal(\"title == \\\"The Internet\\\"\")",
+      "assert.ok(\"\\\"/login\\\" in current_url\")",
+      "assert.ok(\"\\\"/login\\\" in current_url\")",
+      "assert.ok(\"\\\"/secure\\\" in current_url\")",
+      "assert.ok(\"\\\"You logged into a secure area\\\" in f…)",
+      "assert.ok(\"\\\"Your password is invalid\\\" in flash\")"
+    ],
+    "withSnapshotText": 22,
+    "withCallSource": 22
+  },
+  "consoleLogs": 37,
+  "networkRequests": {
+    "count": 6,
+    "urls": [
+      "http://127.0.0.1:4567/login",
+      "http://127.0.0.1:4567/secure"
+    ]
+  },
+  "mutations": {
+    "count": 58,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "a8b8d1b58931d9f904bb21a785568726b2b0dc66",
+    "36a5bcaa0dbe7fd08de055c9032c89864f01934b",
+    "1ef9bbd8e5f51e11f8579d4a5005affa88b78aa8",
+    "dd365f897eb8ac06ba865c29803db88b1ee60635",
+    "3d395b9e24737082192eb7e2d4df67400e91ceb8",
+    "02f270c0fd87b5d2cfb31999d733d24c77dff87e",
+    "a8b8d1b58931d9f904bb21a785568726b2b0dc66",
+    "1a93371bf34b22299253a50eed016febcdcf9133",
+    "3393e0aec47396ec413d2b8349f2e8d1f06d4927",
+    "166c6cf749984b868abe4d9125962971f35185cc",
+    "a8b8d1b58931d9f904bb21a785568726b2b0dc66",
+    "1a93371bf34b22299253a50eed016febcdcf9133"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/selenium-py/pytest/test_login_pytest.py"
+  ],
+  "transcript": true
+}

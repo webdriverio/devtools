@@ -1,0 +1,59 @@
+{
+  "source": "examples-smoke CI artifact, run 40774299701 at 14977b93, 2026-10-28 (nightwatch-bdd/1)",
+  "runner": "nightwatch",
+  "browserName": "chrome",
+  "commands": {
+    "count": 21,
+    "failed": 1,
+    "titles": [
+      "Element.click(\"a.button\")",
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#username\")",
+      "Element.fill(\"#username\")",
+      "Element.waitForDisplayed(\"#flash\")",
+      "Element.waitForDisplayed(\"#flash\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"a.button\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "assert.textContains(\"#flash\", \"You logged into a secure area\")",
+      "assert.textContains(\"#flash\", \"You logged into a secure area\")",
+      "assert.urlContains(\"/login\")",
+      "assert.urlContains(\"/secure\")"
+    ],
+    "withSnapshotText": 21,
+    "withCallSource": 21
+  },
+  "consoleLogs": 86,
+  "networkRequests": {
+    "count": 6,
+    "urls": [
+      "http://127.0.0.1:4567/login",
+      "http://127.0.0.1:4567/secure"
+    ]
+  },
+  "mutations": {
+    "count": 48,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "6cdde8df7352d373f00f5f8332320a6a2aa09db8",
+    "7d988f14b29194d3731015f773597fdf90d23930",
+    "fbb6a64d1f669e9ec0ff80c091fadb3a0b9607e3",
+    "c8d83b9e30d261ad8585499495db0d7efcd71477",
+    "7d988f14b29194d3731015f773597fdf90d23930",
+    "66d600759c3fda30844627f3f3b9f6b6c0103811",
+    "7d988f14b29194d3731015f773597fdf90d23930"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/nightwatch/bdd/smoke-test.js"
+  ],
+  "transcript": true
+}
