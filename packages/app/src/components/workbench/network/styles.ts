@@ -13,60 +13,12 @@ export const networkStyles = css`
     background-color: var(--vscode-sideBar-background);
   }
 
-  /* ── Toolbar: filter input + segmented type filter ── */
   .network-header {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
     flex-shrink: 0;
-  }
-
-  .search-input {
-    flex: 1;
-    max-width: 280px;
-    padding: 6px 10px;
-    border: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-input-background);
-    color: var(--vscode-foreground);
-    border-radius: 8px;
-    font-size: 12px;
-  }
-  .search-input::placeholder {
-    color: var(--vscode-descriptionForeground);
-  }
-  .search-input:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .filter-tabs {
-    display: flex;
-    gap: 2px;
-    padding: 2px;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px;
-    background: var(--vscode-input-background);
-  }
-  .filter-tab {
-    border: none;
-    background: transparent;
-    color: var(--vscode-descriptionForeground);
-    cursor: pointer;
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 6px;
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
-  }
-  .filter-tab:hover {
-    color: var(--vscode-foreground);
-  }
-  .filter-tab.active {
-    background: var(--accent);
-    color: var(--accent-foreground);
   }
 
   /* ── List + detail split ── */
@@ -285,33 +237,8 @@ export const networkStyles = css`
     color: var(--vscode-descriptionForeground);
     margin-bottom: 8px;
   }
-  .kv-card {
-    background: var(--vscode-editorWidget-background);
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
   .kv {
-    display: grid;
     grid-template-columns: auto 1fr;
-    gap: 14px;
-    padding: 9px 14px;
-    font-size: 12px;
-    border-top: 1px solid var(--vscode-panel-border);
-  }
-  .kv:first-child {
-    border-top: none;
-  }
-  .kv .k {
-    color: var(--vscode-descriptionForeground);
-    font-family: var(--vscode-editor-font-family);
-    white-space: nowrap;
-  }
-  .kv .v {
-    color: var(--vscode-foreground);
-    font-family: var(--vscode-editor-font-family);
-    word-break: break-all;
-    text-align: right;
   }
   .kv .v pre {
     margin: 0;

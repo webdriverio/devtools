@@ -13,6 +13,7 @@ import type { CommandEndpoint } from '@wdio/protocols'
 
 import { commandCategory } from './actionItems/category.js'
 import { formatDuration } from './actionItems/duration.js'
+import { keyValueCardStyles } from '../shared-styles.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-logs'
 
@@ -69,6 +70,7 @@ export class DevtoolsCommandLogs extends Element {
 
   static styles = [
     ...Element.styles,
+    keyValueCardStyles,
     css`
       :host {
         display: flex;
@@ -157,33 +159,8 @@ export class DevtoolsCommandLogs extends Element {
         line-height: 1.65;
       }
 
-      .kv-card {
-        background: var(--vscode-editorWidget-background);
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 10px;
-        overflow: hidden;
-      }
       .kv {
-        display: grid;
         grid-template-columns: minmax(80px, auto) 1fr;
-        gap: 14px;
-        padding: 9px 14px;
-        font-size: 12px;
-        border-top: 1px solid var(--vscode-panel-border);
-      }
-      .kv:first-child {
-        border-top: none;
-      }
-      .kv .k {
-        color: var(--vscode-descriptionForeground);
-        font-family: var(--vscode-editor-font-family);
-        white-space: nowrap;
-      }
-      .kv .v {
-        color: var(--vscode-foreground);
-        font-family: var(--vscode-editor-font-family);
-        word-break: break-all;
-        text-align: right;
       }
       .kv .v.empty {
         color: var(--vscode-editorLineNumber-foreground);

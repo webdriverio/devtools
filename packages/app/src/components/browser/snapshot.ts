@@ -3,6 +3,7 @@ import scrollbarStyles from '@core/scrollbars.css?inline'
 import { html, nothing } from 'lit'
 import { consume } from '@lit/context'
 import { snapshotStyles } from './snapshot-styles.js'
+import { compactSelectStyles } from '../shared-styles.js'
 import { renderBrowserChrome } from './browser-chrome.js'
 import {
   deviceFrameSize,
@@ -124,7 +125,7 @@ export class DevtoolsBrowser extends Element {
   @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
 
-  static styles = [...Element.styles, snapshotStyles]
+  static styles = [...Element.styles, compactSelectStyles, snapshotStyles]
 
   @query('iframe')
   iframe?: HTMLIFrameElement
@@ -997,7 +998,7 @@ export class DevtoolsBrowser extends Element {
         ${
           this.#videos.length > 1
             ? html`<select
-                class="video-select"
+                class="compact-select video-select"
                 ?disabled=${this.#viewMode !== 'video'}
                 @change=${(e: Event) => {
                   this.#setActiveVideo(

@@ -49,7 +49,6 @@
     "@typescript-eslint/utils": "^8.71.0",
     "@vitest/coverage-v8": "^5.0.2",
     "@wdio/allure-reporter": "^10.0.1",
-    "autoprefixer": "^10.6.1",
     "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-import": "^2.32.0",

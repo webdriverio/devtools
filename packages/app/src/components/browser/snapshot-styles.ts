@@ -184,15 +184,6 @@ export const snapshotStyles = css`
   }
 
   .video-select {
-    font-size: 11px;
-    font-family: inherit;
-    padding: 5px 8px;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 8px;
-    background: var(--vscode-input-background);
-    color: var(--vscode-foreground);
-    cursor: pointer;
-    line-height: 1;
     margin-left: 6px;
   }
   /* kept visible (greyed) in snapshot mode so the toggle cluster doesn't change

@@ -12,12 +12,14 @@ import {
   CONSOLE_LEVEL_FILTERS,
   type ConsoleLevelFilter
 } from './console-filter.js'
+import { filterToolbarStyles } from '../shared-styles.js'
 
 const SOURCE_COMPONENT = 'wdio-devtools-console-logs'
 @customElement(SOURCE_COMPONENT)
 export class DevtoolsConsoleLogs extends Element {
   static styles = [
     ...Element.styles,
+    filterToolbarStyles,
     css`
       :host {
         display: flex;
@@ -28,58 +30,12 @@ export class DevtoolsConsoleLogs extends Element {
         position: relative;
       }
 
-      /* ── Toolbar: filter input + segmented level filter ── */
       .console-header {
         display: flex;
         align-items: center;
         gap: 10px;
         padding: 10px 14px;
         flex-shrink: 0;
-      }
-      .search-input {
-        flex: 1;
-        max-width: 280px;
-        padding: 6px 10px;
-        border: 1px solid var(--vscode-panel-border);
-        background: var(--vscode-input-background);
-        color: var(--vscode-foreground);
-        border-radius: 8px;
-        font-size: 12px;
-      }
-      .search-input::placeholder {
-        color: var(--vscode-descriptionForeground);
-      }
-      .search-input:focus {
-        outline: none;
-        border-color: var(--accent);
-      }
-      .filter-tabs {
-        display: flex;
-        gap: 2px;
-        padding: 2px;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 8px;
-        background: var(--vscode-input-background);
-      }
-      .filter-tab {
-        border: none;
-        background: transparent;
-        color: var(--vscode-descriptionForeground);
-        cursor: pointer;
-        font-size: 11px;
-        font-weight: 600;
-        padding: 4px 10px;
-        border-radius: 6px;
-        transition:
-          background-color 0.15s ease,
-          color 0.15s ease;
-      }
-      .filter-tab:hover {
-        color: var(--vscode-foreground);
-      }
-      .filter-tab.active {
-        background: var(--accent);
-        color: var(--accent-foreground);
       }
 
       /* ── Log list ── */
