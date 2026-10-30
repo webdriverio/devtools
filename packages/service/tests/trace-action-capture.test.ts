@@ -46,6 +46,7 @@ const capturer = {
   isReportingUpstream: false,
   metadata: {},
   setBrowser: vi.fn(),
+  openWait: vi.fn(() => 0),
   /** Set by a test to stand in for the drain having brought a document the
    *  session had not anchored before. */
   replacedDocumentInLastDrain: false
