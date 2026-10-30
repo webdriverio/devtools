@@ -159,7 +159,11 @@ export class SessionCapturer extends SessionCapturerBase {
     }
 
     if (!error) {
-      this.#queueActionSnapshot(command, commandLogEntry.timestamp)
+      this.#queueActionSnapshot(
+        command,
+        commandLogEntry.timestamp,
+        meta.parentId
+      )
     }
 
     return true
@@ -169,7 +173,11 @@ export class SessionCapturer extends SessionCapturerBase {
    *  logged command's timestamp, not the capture's own: the capture resolves
    *  after the command completes, and export claims snapshots by exact equality
    *  with the command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
-  #queueActionSnapshot(command: string, timestamp: number): void {
+  #queueActionSnapshot(
+    command: string,
+    timestamp: number,
+    parentId: number | undefined
+  ): void {
     if (
       this.traceMode !== 'trace' ||
       !this.#browser ||
@@ -183,7 +191,8 @@ export class SessionCapturer extends SessionCapturerBase {
         command,
         timestamp,
         this.runner,
-        this.isNativeAppSession
+        this.isNativeAppSession,
+        parentId === undefined ? 'action' : 'wait-poll'
       ).then((snap) => {
         if (snap) {
           upsertRichestSnapshot(this.actionSnapshots, snap)
@@ -355,7 +364,7 @@ export class SessionCapturer extends SessionCapturerBase {
     entry.error = serializeError(error)
     entry.timestamp = timestamp
     if (!error) {
-      this.#queueActionSnapshot(entry.command, timestamp)
+      this.#queueActionSnapshot(entry.command, timestamp, entry.parentId)
     }
     this.sendReplaceCommand(oldTimestamp, entry)
   }

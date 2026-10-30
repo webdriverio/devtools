@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildSpecSessionId,
+  captureActionSnapshot,
   buildTestSliceFolder,
   finalizeTraceExport,
   flushRangeLogged,
@@ -17,6 +18,8 @@ import {
   settlePending
 } from '@wdio/devtools-core'
 import {
+  CAPTURE_TIMING_ENV,
+  captureTimingFileName,
   TraceType,
   type TestMetadataEntry,
   type TestMetadataMap
@@ -127,6 +130,29 @@ describe('finalizeTraceExport', () => {
     const result = await finalizeTraceExport(baseCtx({ mode: 'live' }))
     expect(result).toEqual([])
     expect(await fs.readdir(outputDir)).toEqual([])
+  })
+
+  it("reports the run's capture timing beside the trace when it is switched on", async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    const printed = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true)
+    try {
+      await captureActionSnapshot({
+        command: 'click',
+        takeScreenshot: () => Promise.resolve('AA')
+      })
+      await finalizeTraceExport(baseCtx())
+      expect(await fs.readdir(outputDir)).toContain(
+        captureTimingFileName(process.pid)
+      )
+      expect(String(printed.mock.calls.at(-1)?.[0])).toContain(
+        'capture timing: 1 captures'
+      )
+    } finally {
+      printed.mockRestore()
+      vi.unstubAllEnvs()
+    }
   })
 
   it('writes one session-level trace for session granularity', async () => {

@@ -64,6 +64,7 @@ ENV_BACKEND_CMD = "DEVTOOLS_BACKEND_CMD"
 ENV_OPT_IN = "DEVTOOLS_ENABLE"
 ENV_BIDI = "DEVTOOLS_BIDI"  # "0"/"false"/"no"/"off" disables BiDi auto-enable
 ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-open
+ENV_CAPTURE_TIMING = "DEVTOOLS_CAPTURE_TIMING"  # times each trace capture; see capture_timing.py
 
 # ── Backend launch ───────────────────────────────────────────────────────────
 # Pinned backend version fetched via npx from a published install. There is no

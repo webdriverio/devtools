@@ -53,6 +53,11 @@ export class AssertionTracker {
     this.#ctx = ctx
   }
 
+  /** True while an expect-webdriverio matcher is polling, so a capture taken now is one of its polls. */
+  get matcherPolling(): boolean {
+    return this.#assertionDepth > 0
+  }
+
   /** Clear per-test matcher state; called from the service's resetStack. */
   reset(): void {
     this.#assertionDepth = 0
