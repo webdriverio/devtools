@@ -1,10 +1,15 @@
-// Image-backed frame-snapshot synthesis: each action screenshot becomes a
-// minimal DOM document so standard trace viewers render the action pane.
-// Compatibility shim until real DOM snapshots are captured.
+// Image-backed frame-snapshots, a shim until real DOM snapshots are captured: each action is a page
+// whose <img> resolves, through `resourceOverrides`, to the screenshot already stored under `resources/`.
 
 import { imageMime, type ActionSnapshot } from '@wdio/devtools-shared'
+import { networkRequestToHar, type ResourceSnapshotEntry } from './trace-har.js'
+import { screenshotResourceName } from './trace-snapshots.js'
 
 const SNAPSHOT_DOCTYPE = 'html'
+// `.invalid` never resolves (RFC 6761), so a viewer that ignores the override fetches nothing.
+const SCREENSHOT_URL_ORIGIN = 'https://screenshot.wdio-devtools.invalid'
+// Before every snapshot, including one clamped to 0: the viewer only serves a resource loaded before the snapshot.
+const SCREENSHOT_RESOURCE_TIME = -1
 const FALLBACK_FRAME_URL = 'about:blank'
 const BODY_STYLE = 'margin:0'
 const IMAGE_STYLE = 'display:block;width:100vw;height:100vh;object-fit:contain'
@@ -38,6 +43,15 @@ export interface FrameSnapshot {
 export interface FrameSnapshotEvent {
   type: 'frame-snapshot'
   snapshot: FrameSnapshot
+}
+
+/** The response a frame-snapshot's screenshot override patches; the viewer applies an override only to a recorded resource. */
+export interface ScreenshotResourceEvent extends ResourceSnapshotEntry {
+  snapshot: ResourceSnapshotEntry['snapshot'] & {
+    _monotonicTime: number
+    pageref: string
+    _frameref: string
+  }
 }
 
 export interface FrameSnapshotRef {
@@ -133,8 +147,13 @@ function frameIdForPage(pageId: string): string {
   return `frame@${suffix}`
 }
 
+/** One URL per image type, so the shared response's content type is right for every override of it. */
+export function screenshotUrl(screenshot: string): string {
+  const extension = imageMime(screenshot).slice('image/'.length)
+  return `${SCREENSHOT_URL_ORIGIN}/action.${extension}`
+}
+
 function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
-  const screenshot = snap.screenshot ?? ''
   return [
     'HTML',
     {},
@@ -145,7 +164,7 @@ function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
       [
         'IMG',
         {
-          src: `data:${imageMime(screenshot)};base64,${screenshot}`,
+          src: screenshotUrl(snap.screenshot ?? ''),
           style: IMAGE_STYLE
         }
       ]
@@ -175,8 +194,55 @@ export function buildImageFrameSnapshots(
       timestamp: Math.max(0, ref.snapshot.timestamp - wallTime),
       wallTime: ref.snapshot.timestamp,
       collectionTime: 0,
-      resourceOverrides: [],
+      resourceOverrides: [
+        {
+          url: screenshotUrl(ref.snapshot.screenshot ?? ''),
+          sha1: screenshotResourceName(pageId, ref.snapshot.timestamp)
+        }
+      ],
       isMainFrame: true
     }
   }))
+}
+
+/** One resource-snapshot per screenshot URL the frame-snapshots reference. */
+export function buildScreenshotResourceSnapshots(
+  refs: FrameSnapshotRef[],
+  pageId: string
+): ScreenshotResourceEvent[] {
+  const byUrl = new Map<string, ScreenshotResourceEvent>()
+  for (const { snapshot } of refs) {
+    const screenshot = snapshot.screenshot ?? ''
+    const url = screenshotUrl(screenshot)
+    if (byUrl.has(url)) {
+      continue
+    }
+    const mimeType = imageMime(screenshot)
+    const har = networkRequestToHar({
+      id: url,
+      url,
+      method: 'GET',
+      status: 200,
+      statusText: 'OK',
+      timestamp: snapshot.timestamp,
+      startTime: snapshot.timestamp,
+      time: 0,
+      type: 'image',
+      response: { fromCache: false, headers: {}, mimeType, status: 200 }
+    })
+    har.snapshot.response.content._sha1 = screenshotResourceName(
+      pageId,
+      snapshot.timestamp
+    )
+    byUrl.set(url, {
+      type: 'resource-snapshot',
+      snapshot: {
+        ...har.snapshot,
+        _monotonicTime: SCREENSHOT_RESOURCE_TIME,
+        pageref: pageId,
+        _frameref: frameIdForPage(pageId)
+      }
+    })
+  }
+  return [...byUrl.values()]
 }

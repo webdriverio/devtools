@@ -35,8 +35,10 @@ import {
 import { buildDenseScreencast } from './screencast-trace.js'
 import {
   buildImageFrameSnapshots,
+  buildScreenshotResourceSnapshots,
   FrameSnapshotIndex,
-  type FrameSnapshotEvent
+  type FrameSnapshotEvent,
+  type ScreenshotResourceEvent
 } from './trace-frame-snapshots.js'
 import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
 import { buildSourceResources } from './trace-sources.js'
@@ -138,6 +140,7 @@ type TraceEvent =
   | ConsoleEvent
   | StdioEvent
   | FrameSnapshotEvent
+  | ScreenshotResourceEvent
 
 function shortId(sessionId?: string): string {
   return (sessionId ?? Math.random().toString(36).slice(2, 10)).slice(0, 8)
@@ -255,6 +258,8 @@ function eventTime(e: TraceEvent): number {
   switch (e.type) {
     case 'context-options':
       return -Infinity
+    case 'resource-snapshot':
+      return e.snapshot._monotonicTime
     case 'before':
       return e.startTime
     case 'after':
@@ -279,6 +284,7 @@ function eventTime(e: TraceEvent): number {
 function eventOrder(e: TraceEvent): number {
   switch (e.type) {
     case 'context-options':
+    case 'resource-snapshot':
       return 0
     case 'after':
       return 1
@@ -340,6 +346,7 @@ function buildEventStream(
       wallTime,
       viewport
     ),
+    ...buildScreenshotResourceSnapshots(snapshotIndex.refs(), pageId),
     ...buildConsoleEvents(trace.consoleLogs, pageId, wallTime)
   ]
   events.sort(compareEvents)

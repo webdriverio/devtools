@@ -70,6 +70,14 @@ export function upsertRichestSnapshot(
   mergeSnapshotInto(snapshots[idx]!, snap)
 }
 
+/** Name under `resources/` of the screenshot captured at `timestamp`. */
+export function screenshotResourceName(
+  pageId: string,
+  timestamp: number
+): string {
+  return `${pageId}-${timestamp}.jpeg`
+}
+
 export function buildSnapshotResources(
   rawSnapshots: ActionSnapshot[],
   pageId: string
@@ -80,7 +88,7 @@ export function buildSnapshotResources(
     const base = `${pageId}-${snap.timestamp}`
     if (snap.screenshot) {
       out.push({
-        resourceName: `${base}.jpeg`,
+        resourceName: screenshotResourceName(pageId, snap.timestamp),
         data: Buffer.from(snap.screenshot, 'base64')
       })
     }
@@ -110,7 +118,7 @@ function frameForSnapshot(
   const frame: ScreencastFrameEvent = {
     type: 'screencast-frame',
     pageId,
-    sha1: `${base}.jpeg`,
+    sha1: screenshotResourceName(pageId, snap.timestamp),
     width: viewport.width,
     height: viewport.height,
     timestamp
