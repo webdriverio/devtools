@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 // CLI entry for `show-trace` (also exposed as the root `pnpm show-trace`
-// script): reconstructs a trace.zip, boots the backend in trace-serve mode, and
-// opens the player in the default browser.
+// script): reconstructs a trace.zip, or lists several zips and folders of them,
+// boots the backend in trace-serve mode, and opens the player in the browser.
 
 import { spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
-import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
 import { readTraceZip } from '@wdio/devtools-trace/read-trace-zip'
 import { start } from './index.js'
+import { collectTraceZips, traceRunFiles } from './trace-files.js'
 
-const USAGE = `Usage: show-trace <trace.zip>
+const USAGE = `Usage: show-trace <trace.zip | folder>...
 
-Opens a recorded trace.zip in the WebdriverIO Devtools player.`
+Opens a recorded trace.zip in the WebdriverIO Devtools player. Given several
+zips, or a folder (such as a run with traceGranularity: 'test'), it lists every
+zip found with its outcome and opens the one picked.`
 
 function openBrowser(url: string): void {
   const platform = process.platform
@@ -28,10 +30,24 @@ function openBrowser(url: string): void {
   }
 }
 
-export async function showTrace(zipArg: string): Promise<void> {
-  const zipPath = path.resolve(process.cwd(), zipArg)
-  const trace = await readTraceZip(zipPath)
-  const { port } = await start({ trace })
+/** One zip is reconstructed here as it always was; several are served for the player to read. */
+async function serveTraces(args: readonly string[]): Promise<number> {
+  const cwd = process.cwd()
+  const zips = await collectTraceZips(args, cwd)
+  if (zips.length === 0) {
+    throw new Error(`No trace .zip found in ${args.join(', ')}`)
+  }
+  const options =
+    zips.length === 1
+      ? { trace: await readTraceZip(zips[0]) }
+      : { traceRun: traceRunFiles(zips, cwd) }
+  return (await start(options)).port
+}
+
+export async function showTrace(
+  paths: string | readonly string[]
+): Promise<void> {
+  const port = await serveTraces(typeof paths === 'string' ? [paths] : paths)
   const url = `http://localhost:${port}`
   console.log(`\n  Trace player running at ${url}\n`)
   openBrowser(url)
@@ -50,7 +66,7 @@ export async function runShowTraceCli(args: string[]): Promise<void> {
     process.exit(arg ? 0 : 1)
   }
   try {
-    await showTrace(arg)
+    await showTrace(args)
   } catch (error) {
     console.error(`Failed to open trace: ${(error as Error).message}`)
     process.exit(1)

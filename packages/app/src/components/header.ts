@@ -15,7 +15,7 @@ import {
 } from '../controller/theme.js'
 import { HOSTED_PLAYER } from '../controller/constants.js'
 import { TRACE_FILE_ACCEPT } from '../controller/constants.js'
-import { announceTraceFile, takePickedFile } from '../utils/trace-file.js'
+import { announceTraceSources, takePickedSources } from '../utils/trace-file.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
@@ -115,8 +115,8 @@ export class DevtoolsHeader extends Element {
     return html`
       <button
         class="p-2"
-        title="Open another trace.zip"
-        aria-label="Open another trace.zip"
+        title="Open trace .zip files, or drop a folder of them on the page"
+        aria-label="Open trace .zip files"
         @click="${() => this.traceInput?.click()}"
       >
         <icon-mdi-upload></icon-mdi-upload>
@@ -124,17 +124,15 @@ export class DevtoolsHeader extends Element {
       <input
         type="file"
         accept="${TRACE_FILE_ACCEPT}"
+        multiple
         hidden
-        @change="${this.#onTracePicked}"
+        @change="${() => this.#onTracePicked(this.traceInput)}"
       />
     `
   }
 
-  #onTracePicked() {
-    const file = takePickedFile(this.traceInput)
-    if (file) {
-      announceTraceFile(this, file)
-    }
+  #onTracePicked(input?: HTMLInputElement) {
+    announceTraceSources(this, takePickedSources(input))
   }
 
   #switchMode() {

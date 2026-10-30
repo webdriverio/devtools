@@ -35,7 +35,10 @@ interface GlobalEventHandlersEventMap {
     import('./components/sidebar/types').TestRunDetail
   >
   'app-logs': CustomEvent<string>
-  'app-trace-open': CustomEvent<File>
+  'app-trace-open': CustomEvent<
+    readonly import('./utils/trace-sources').TraceSource[]
+  >
+  'app-trace-run-select': CustomEvent<number>
   'show-command': CustomEvent<CommandEventProps>
   'clear-execution-data': CustomEvent<{
     uid?: string
