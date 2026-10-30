@@ -10,6 +10,7 @@ import {
   metadataBySessionContext
 } from '../../controller/context.js'
 import { PENDING_SESSION_KEY } from '../../controller/contextUpdates.js'
+import { compactSelectStyles } from '../shared-styles.js'
 
 import '../placeholder.js'
 import '~icons/mdi/chevron-right.js'
@@ -36,6 +37,7 @@ export class DevtoolsMetadata extends Element {
 
   static styles = [
     ...Element.styles,
+    compactSelectStyles,
     css`
       :host {
         display: flex;
@@ -54,15 +56,6 @@ export class DevtoolsMetadata extends Element {
 
       .session-select {
         align-self: flex-start;
-        font-size: 11px;
-        font-family: inherit;
-        padding: 5px 8px;
-        border: 1px solid var(--vscode-panel-border);
-        border-radius: 8px;
-        background: var(--vscode-input-background);
-        color: var(--vscode-foreground);
-        cursor: pointer;
-        line-height: 1;
       }
 
       .meta-sec h4 {
@@ -295,7 +288,7 @@ export class DevtoolsMetadata extends Element {
     const selectedKey = this.#activeKey(sessions)
     return html`
       <select
-        class="session-select"
+        class="compact-select session-select"
         .value=${selectedKey ?? ''}
         @change=${(e: Event) => {
           this.selectedSessionId = (e.target as HTMLSelectElement).value

@@ -691,8 +691,35 @@ export class DevtoolsWorkbench extends Element {
       : 'flex:1 1 auto; min-height:0;'
   }
 
-  #renderLiveDeviceLayout() {
+  /** The resize handle plus the full-height capture column of both device layouts. */
+  #renderDeviceColumn(withPlayerControls: boolean) {
     const width = basisPx(this.#dragDevice.getPosition())
+    return html`
+      ${
+        !this.#toolbarCollapsed
+          ? this.#dragDevice.getSlider('z-[999] pointer-events-auto')
+          : nothing
+      }
+      <section
+        data-device-pane
+        class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
+        style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
+      >
+        ${
+          // Playback belongs with what it plays, so in the live layout the
+          // controls ride above the capture rather than above the dock.
+          withPlayerControls && this.playerMode
+            ? html`<wdio-devtools-trace-player-controls
+                class="flex-none h-10 border-b-[1px] border-b-panelBorder"
+              ></wdio-devtools-trace-player-controls>`
+            : nothing
+        }
+        ${this.#renderBrowserPane(true)}
+      </section>
+    `
+  }
+
+  #renderLiveDeviceLayout() {
     return html`
       <section
         data-device-row
@@ -729,27 +756,7 @@ export class DevtoolsWorkbench extends Element {
             ${this.#renderWorkbenchTabs()}
           </section>
         </section>
-        ${
-          !this.#toolbarCollapsed
-            ? this.#dragDevice.getSlider('z-[999] pointer-events-auto')
-            : nothing
-        }
-        <section
-          data-device-pane
-          class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
-          style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
-        >
-          ${
-            // Playback belongs with what it plays, so in this layout the
-            // controls ride above the capture rather than above the dock.
-            this.playerMode
-              ? html`<wdio-devtools-trace-player-controls
-                  class="flex-none h-10 border-b-[1px] border-b-panelBorder"
-                ></wdio-devtools-trace-player-controls>`
-              : nothing
-          }
-          ${this.#renderBrowserPane(true)}
-        </section>
+        ${this.#renderDeviceColumn(true)}
       </section>
     `
   }
@@ -783,25 +790,12 @@ export class DevtoolsWorkbench extends Element {
    * handle needs to tell it nothing.
    */
   #renderDeviceSplit() {
-    const width = basisPx(this.#dragDevice.getPosition())
     return html`
       <section
         data-device-row
         class="relative flex flex-row flex-1 min-w-0 min-h-0 overflow-hidden"
       >
-        ${this.#renderWorkbenchTabs()}
-        ${
-          !this.#toolbarCollapsed
-            ? this.#dragDevice.getSlider('z-[999] pointer-events-auto')
-            : nothing
-        }
-        <section
-          data-device-pane
-          class="relative flex flex-col min-w-0 min-h-0 overflow-hidden"
-          style="${this.#dragDevice.getPosition()}; flex:0 1 auto; width:${width}px; max-width:100%;"
-        >
-          ${this.#renderBrowserPane(true)}
-        </section>
+        ${this.#renderWorkbenchTabs()} ${this.#renderDeviceColumn(false)}
       </section>
     `
   }

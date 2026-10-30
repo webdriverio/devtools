@@ -222,7 +222,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
     this.#viewSource()
   }
 
-  #runEntry(event: Event) {
+  #launchEntry(event: Event, type: 'app-test-run' | 'app-test-preserve-rerun') {
     event.stopPropagation()
     if (!this.uid || this.runDisabled) {
       return
@@ -239,7 +239,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
       suiteType: this.suiteType
     }
     this.dispatchEvent(
-      new CustomEvent<TestRunDetail>('app-test-run', {
+      new CustomEvent<TestRunDetail>(type, {
         detail,
         bubbles: true,
         composed: true
@@ -264,31 +264,6 @@ export class ExplorerTestEntry extends CollapseableEntry {
     }
     this.dispatchEvent(
       new CustomEvent<TestRunDetail>('app-test-stop', {
-        detail,
-        bubbles: true,
-        composed: true
-      })
-    )
-  }
-
-  #preserveAndRerun(event: Event) {
-    event.stopPropagation()
-    if (!this.uid || this.runDisabled) {
-      return
-    }
-    const detail: TestRunDetail = {
-      uid: this.uid,
-      entryType: this.entryType,
-      specFile: this.specFile,
-      fullTitle: this.fullTitle,
-      label: this.labelText,
-      callSource: this.callSource,
-      featureFile: this.featureFile,
-      featureLine: this.featureLine,
-      suiteType: this.suiteType
-    }
-    this.dispatchEvent(
-      new CustomEvent<TestRunDetail>('app-test-preserve-rerun', {
         detail,
         bubbles: true,
         composed: true
@@ -369,7 +344,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
         }"
         title="${runTooltip}"
         ?disabled=${this.runDisabled}
-        @click="${(event: Event) => this.#runEntry(event)}"
+        @click="${(event: Event) => this.#launchEntry(event, 'app-test-run')}"
       >
         <icon-mdi-play
           class="${ACTION_ICON} ${
@@ -394,7 +369,7 @@ export class ExplorerTestEntry extends CollapseableEntry {
               <button
                 class="${ACTION_BTN}"
                 title="Preserve current run and rerun for comparison"
-                @click="${(event: Event) => this.#preserveAndRerun(event)}"
+                @click="${(event: Event) => this.#launchEntry(event, 'app-test-preserve-rerun')}"
               >
                 <icon-mdi-bug-play
                   class="${ACTION_ICON} group-hover/button:text-chartsBlue"
