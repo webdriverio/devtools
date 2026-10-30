@@ -86,6 +86,43 @@ const IS_VISIBLE_SCRIPT = `
     }
 `
 
+/** Naming steps both scripts share; null means none applied, which an empty alt or label does not. */
+const EXPLICIT_NAME_SCRIPT = `
+    function getExplicitName(el) {
+      var ariaLabel = el.getAttribute('aria-label')
+      if (ariaLabel) { return ariaLabel.trim() }
+      var labelledBy = el.getAttribute('aria-labelledby')
+      if (labelledBy) {
+        var texts = labelledBy.split(/\\s+/).map(function(id) { return (document.getElementById(id)?.textContent || '').trim() }).filter(Boolean)
+        if (texts.length > 0) { return texts.join(' ').slice(0, 200) }
+      }
+      var tag = el.tagName.toLowerCase()
+      if (tag === 'img' || (tag === 'input' && el.getAttribute('type') === 'image')) {
+        var alt = el.getAttribute('alt')
+        if (alt !== null) { return alt.trim() }
+      }
+      if (['input', 'select', 'textarea'].indexOf(tag) !== -1) {
+        var id = el.getAttribute('id')
+        if (id) {
+          var label = document.querySelector('label[for="' + CSS.escape(id) + '"]')
+          if (label) { return (label.textContent || '').trim() }
+        }
+        var parentLabel = el.closest('label')
+        if (parentLabel) {
+          var clone = parentLabel.cloneNode(true)
+          clone.querySelectorAll('input,select,textarea').forEach(function(n) { n.remove() })
+          var lt = (clone.textContent || '').trim()
+          if (lt) { return lt }
+        }
+      }
+      var ph = el.getAttribute('placeholder')
+      if (ph) { return ph.trim() }
+      var title = el.getAttribute('title')
+      if (title) { return title.trim() }
+      return null
+    }
+`
+
 /** XPath 1.0 has no string escape, so a value carrying both quote kinds is
  *  stitched from single-kind literals; a literal double quote can only enter the
  *  expression as its own single-quoted token. */
@@ -286,37 +323,11 @@ export function accessibilityTreeScript(
       return null
     }
 
+    ${EXPLICIT_NAME_SCRIPT}
+
     function getAccessibleName(el, role) {
-      var ariaLabel = el.getAttribute('aria-label')
-      if (ariaLabel) { return ariaLabel.trim() }
-      var labelledBy = el.getAttribute('aria-labelledby')
-      if (labelledBy) {
-        var texts = labelledBy.split(/\\s+/).map(function(id) { return (document.getElementById(id)?.textContent || '').trim() }).filter(Boolean)
-        if (texts.length > 0) { return texts.join(' ').slice(0, 200) }
-      }
-      var tag = el.tagName.toLowerCase()
-      if (tag === 'img' || (tag === 'input' && el.getAttribute('type') === 'image')) {
-        var alt = el.getAttribute('alt')
-        if (alt !== null) { return alt.trim() }
-      }
-      if (['input', 'select', 'textarea'].indexOf(tag) !== -1) {
-        var id = el.getAttribute('id')
-        if (id) {
-          var label = document.querySelector('label[for="' + CSS.escape(id) + '"]')
-          if (label) { return (label.textContent || '').trim() }
-        }
-        var parentLabel = el.closest('label')
-        if (parentLabel) {
-          var clone = parentLabel.cloneNode(true)
-          clone.querySelectorAll('input,select,textarea').forEach(function(n) { n.remove() })
-          var lt = (clone.textContent || '').trim()
-          if (lt) { return lt }
-        }
-      }
-      var ph = el.getAttribute('placeholder')
-      if (ph) { return ph.trim() }
-      var title = el.getAttribute('title')
-      if (title) { return title.trim() }
+      var explicitName = getExplicitName(el)
+      if (explicitName !== null) { return explicitName }
       var childImg = el.querySelector('img')
       if (childImg) {
         var imgAlt = childImg.getAttribute('alt')
@@ -418,37 +429,11 @@ export function elementsScript(
 
     ${IS_VISIBLE_SCRIPT}
 
+    ${EXPLICIT_NAME_SCRIPT}
+
     function getAccessibleName(el) {
-      var ariaLabel = el.getAttribute('aria-label')
-      if (ariaLabel) { return ariaLabel.trim() }
-      var labelledBy = el.getAttribute('aria-labelledby')
-      if (labelledBy) {
-        var texts = labelledBy.split(/\\s+/).map(function(id) { return (document.getElementById(id)?.textContent || '').trim() }).filter(Boolean)
-        if (texts.length > 0) { return texts.join(' ').slice(0, 200) }
-      }
-      var tag = el.tagName.toLowerCase()
-      if (tag === 'img' || (tag === 'input' && el.getAttribute('type') === 'image')) {
-        var alt = el.getAttribute('alt')
-        if (alt !== null) { return alt.trim() }
-      }
-      if (['input', 'select', 'textarea'].indexOf(tag) !== -1) {
-        var id = el.getAttribute('id')
-        if (id) {
-          var label = document.querySelector('label[for="' + CSS.escape(id) + '"]')
-          if (label) { return (label.textContent || '').trim() }
-        }
-        var parentLabel = el.closest('label')
-        if (parentLabel) {
-          var clone = parentLabel.cloneNode(true)
-          clone.querySelectorAll('input,select,textarea').forEach(function(n) { n.remove() })
-          var lt = (clone.textContent || '').trim()
-          if (lt) { return lt }
-        }
-      }
-      var ph = el.getAttribute('placeholder')
-      if (ph) { return ph.trim() }
-      var title = el.getAttribute('title')
-      if (title) { return title.trim() }
+      var explicitName = getExplicitName(el)
+      if (explicitName !== null) { return explicitName }
       return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
     }
 
