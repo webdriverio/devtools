@@ -38,13 +38,16 @@ afterEach(() => {
 /** A driver whose probes resolve to empty results — enough for the snapshot to
  *  be produced without a browser. The patcher's `originals` bag is empty here
  *  (nothing was patched), so the adapter falls back to these directly. */
-function fakeDriver(): SeleniumDriverLike {
+type FakeDriver = SeleniumDriverLike &
+  Required<Pick<SeleniumDriverLike, 'takeScreenshot'>>
+
+function fakeDriver(): FakeDriver {
   return {
     executeScript: vi.fn().mockResolvedValue([]),
     takeScreenshot: vi.fn().mockResolvedValue('AA'),
     getCurrentUrl: vi.fn().mockResolvedValue('http://example.test/'),
     getTitle: vi.fn().mockResolvedValue('Example')
-  } as unknown as SeleniumDriverLike
+  } as unknown as FakeDriver
 }
 
 function makeCtx(driver: SeleniumDriverLike) {
@@ -134,7 +137,7 @@ describe('selenium action-snapshot capture gate', () => {
   beforeEach(() => {
     const originals = getDriverOriginals() as Record<string, unknown>
     for (const key of patched) {
-      originals[key] = (d: SeleniumDriverLike) => d[key]()
+      originals[key] = (d: FakeDriver) => d[key]()
     }
   })
   afterEach(() => {
