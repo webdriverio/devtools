@@ -15,6 +15,7 @@ import { exportTraceZip } from '@wdio/devtools-trace'
 
 import {
   checkExample,
+  checkTraceBudget,
   findTimeout,
   readSmokeTrace,
   validateExpectations
@@ -22,7 +23,8 @@ import {
 import type {
   ExampleExpectations,
   RunScopedExpectation,
-  SmokeTrace
+  SmokeTrace,
+  TraceBudget
 } from '../smoke/types.js'
 
 const EXPECTATIONS_DIR = path.join(
@@ -32,6 +34,12 @@ const EXPECTATIONS_DIR = path.join(
 const REPO_ROOT = path.join(EXPECTATIONS_DIR, '../../../..')
 
 let clock = 1_000
+
+const traceBudget: TraceBudget = {
+  maxBytes: 1_000,
+  measuredBytes: 800,
+  measuredIn: 'unit'
+}
 
 function cmd(
   command: string,
@@ -124,6 +132,7 @@ const failingRun = () => [
 
 const expectations: ExampleExpectations = {
   example: 'unit',
+  traceBudget,
   runFails: true,
   tests: [
     {
@@ -324,6 +333,7 @@ describe('checkExample', () => {
     ])
     const byName: ExampleExpectations = {
       example: 'unit',
+      traceBudget,
       runFails: false,
       tests: [
         { test: 'test_rejects_invalid_credentials', rows: ['Page.navigate'] }
@@ -351,6 +361,7 @@ describe('checkExample', () => {
     const trace = await parsed([...passingRun(), ...failingRun()])
     const whole: ExampleExpectations = {
       example: 'unit',
+      traceBudget,
       runFails: true,
       tests: [
         {
@@ -465,6 +476,7 @@ describe('a test that times out on purpose', () => {
     allowTimeoutError: boolean | undefined
   ): ExampleExpectations => ({
     example: 'unit',
+    traceBudget,
     runFails: true,
     tests: [
       {
@@ -533,6 +545,7 @@ describe('a retried test', () => {
 
   const retryExpectations = (attempts?: number): ExampleExpectations => ({
     example: 'unit',
+    traceBudget,
     runFails: true,
     tests: [
       {
@@ -604,6 +617,7 @@ describe('call sites', () => {
   ]
   const withSources: ExampleExpectations = {
     example: 'unit',
+    traceBudget,
     runFails: false,
     sourceFiles: ['examples/wdio/mocha/specs/login.e2e.ts'],
     tests: [{ test: 'logs in with valid credentials' }]
@@ -682,6 +696,7 @@ describe('validateExpectations', () => {
     const typed: RunScopedExpectation = entry
     const expectations: ExampleExpectations = {
       example: 'unit',
+      traceBudget,
       runFails: true,
       tests: [typed]
     }
@@ -698,7 +713,12 @@ describe('validateExpectations', () => {
     // @ts-expect-error attempts is typed `never` on a run-scoped entry
     const typed: RunScopedExpectation = entry
     expect(
-      validateExpectations({ example: 'unit', runFails: true, tests: [typed] })
+      validateExpectations({
+        example: 'unit',
+        traceBudget,
+        runFails: true,
+        tests: [typed]
+      })
     ).toEqual(['the run: attempts is only allowed on a test-scoped entry'])
   })
 
@@ -706,10 +726,71 @@ describe('validateExpectations', () => {
     expect(
       validateExpectations({
         example: 'unit',
+        traceBudget,
         runFails: true,
         tests: [{ test: 'times out on purpose', allowTimeoutError: true }]
       })
     ).toEqual([])
+  })
+})
+
+describe('trace size budget', () => {
+  const zips = [
+    { path: 'out/1/trace-a.zip', bytes: 400 },
+    { path: 'out/2/trace-b.zip', bytes: 600 }
+  ]
+
+  it('passes zips whose total is at or under the budget', () => {
+    expect(checkTraceBudget(traceBudget, zips)).toEqual([])
+  })
+
+  it('names every zip, the total, the budget and the baseline when over it', () => {
+    expect(
+      checkTraceBudget(traceBudget, [
+        ...zips,
+        { path: 'out/3/trace-c.zip', bytes: 1_200 }
+      ])
+    ).toEqual([
+      'trace zips total 2,200 bytes, over the 1,000-byte budget (baseline 800 from unit): out/3/trace-c.zip 1,200, out/2/trace-b.zip 600, out/1/trace-a.zip 400'
+    ])
+  })
+
+  it('runs as part of checkExample when the run reports its zips', async () => {
+    const traces = [await parsed([...passingRun(), ...failingRun()])]
+    expect(checkExample(expectations, traces, { exitCode: 1, zips })).toEqual(
+      []
+    )
+    const over = [{ path: 'trace-smoke.zip', bytes: 1_001 }]
+    expect(
+      checkExample(expectations, traces, { exitCode: 1, zips: over })
+    ).toEqual([expect.stringMatching(/^trace zips total 1,001 bytes, over/)])
+  })
+
+  it('is required, so an expectation file cannot leave it out', () => {
+    const { traceBudget: _omitted, ...rest } = expectations
+    expect(validateExpectations(rest as ExampleExpectations)).toEqual([
+      'traceBudget is required: { maxBytes, measuredBytes, measuredIn }'
+    ])
+  })
+
+  it('rejects a budget that is not a byte count or sits under its baseline', () => {
+    const invalid = (budget: Partial<Record<keyof TraceBudget, unknown>>) =>
+      validateExpectations({
+        ...expectations,
+        traceBudget: { ...traceBudget, ...budget } as TraceBudget
+      })
+    expect(invalid({ maxBytes: '1MB' })).toEqual([
+      'traceBudget.maxBytes must be a positive whole number of bytes'
+    ])
+    expect(invalid({ measuredBytes: 0 })).toEqual([
+      'traceBudget.measuredBytes must be a positive whole number of bytes'
+    ])
+    expect(invalid({ measuredBytes: 1_001 })).toEqual([
+      'traceBudget.measuredBytes is already over maxBytes'
+    ])
+    expect(invalid({ measuredIn: '' })).toEqual([
+      'traceBudget.measuredIn must say where the baseline was measured'
+    ])
   })
 })
 

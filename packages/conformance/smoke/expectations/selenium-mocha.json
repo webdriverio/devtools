@@ -2,6 +2,11 @@
   "example": "selenium-mocha",
   "runFails": true,
   "sourceFiles": ["examples/selenium-js/mocha/example.js"],
+  "traceBudget": {
+    "maxBytes": 200000,
+    "measuredBytes": 158349,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
+  },
   "tests": [
     {
       "test": "loads the login page and reads the heading",

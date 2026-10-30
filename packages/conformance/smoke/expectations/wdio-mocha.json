@@ -8,6 +8,11 @@
     "examples/wdio/pageobjects/login.page.ts",
     "examples/wdio/pageobjects/secure.page.ts"
   ],
+  "traceBudget": {
+    "maxBytes": 1210000,
+    "measuredBytes": 966841,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
+  },
   "tests": [
     {
       "test": "logs into the secure area with valid credentials",
