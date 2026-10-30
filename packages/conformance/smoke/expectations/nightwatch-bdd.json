@@ -3,9 +3,9 @@
   "runFails": true,
   "sourceFiles": ["examples/nightwatch/bdd/smoke-test.js"],
   "traceBudget": {
-    "maxBytes": 480000,
-    "measuredBytes": 376379,
-    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+    "maxBytes": 330000,
+    "measuredBytes": 260322,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
   },
   "tests": [
     {

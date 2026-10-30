@@ -3,9 +3,9 @@
   "runFails": false,
   "sourceFiles": ["examples/selenium-py/pytest/test_login_pytest.py"],
   "traceBudget": {
-    "maxBytes": 1010000,
-    "measuredBytes": 804136,
-    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+    "maxBytes": 870000,
+    "measuredBytes": 688296,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
   },
   "tests": [
     {

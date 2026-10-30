@@ -4,8 +4,8 @@
   "sourceFiles": ["examples/selenium-js/mocha/example.js"],
   "traceBudget": {
     "maxBytes": 200000,
-    "measuredBytes": 159706,
-    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+    "measuredBytes": 158349,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
   },
   "tests": [
     {

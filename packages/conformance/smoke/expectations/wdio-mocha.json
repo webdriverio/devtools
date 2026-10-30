@@ -9,9 +9,9 @@
     "examples/wdio/pageobjects/secure.page.ts"
   ],
   "traceBudget": {
-    "maxBytes": 1330000,
-    "measuredBytes": 1059358,
-    "measuredIn": "CI run 40774299701, examples-smoke artifact"
+    "maxBytes": 1210000,
+    "measuredBytes": 966841,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
   },
   "tests": [
     {
