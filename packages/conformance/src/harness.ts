@@ -1,0 +1,181 @@
+import { spawn } from 'node:child_process'
+import { readFileSync, realpathSync } from 'node:fs'
+
+import { REUSE_ENV } from '@wdio/devtools-shared'
+
+import {
+  BROKEN_PATH,
+  REPO_ROOT,
+  SCENARIO_ENV,
+  SCENARIO_TIMEOUT_MS
+} from './constants.js'
+import { judge } from './allowlist.js'
+import { checkConformance } from './checker.js'
+import { checkTestOutcomes } from './scenario-tests.js'
+import { FakeWebDriver } from './fake-webdriver.js'
+import { RecordingBackend } from './recording-backend.js'
+import type {
+  AdapterId,
+  AdapterScenario,
+  BidiMode,
+  RunReport,
+  ScenarioFile,
+  ScenarioRun
+} from './types.js'
+
+/** Runs a scenario process against the fakes, reached through the rerun reuse handshake so no adapter gains a test path. */
+export async function runScenario(
+  command: string,
+  args: string[],
+  {
+    env = {},
+    bidi,
+    cwd = REPO_ROOT,
+    timeoutMs = SCENARIO_TIMEOUT_MS
+  }: {
+    env?: NodeJS.ProcessEnv
+    bidi: BidiMode
+    cwd?: string
+    timeoutMs?: number
+  }
+): Promise<ScenarioRun> {
+  const driver = await FakeWebDriver.start({ bidi })
+  const backend = await RecordingBackend.start()
+  try {
+    const { exitCode, output } = await run(
+      command,
+      args,
+      {
+        ...process.env,
+        ...env,
+        [REUSE_ENV.REUSE]: '1',
+        [REUSE_ENV.HOST]: backend.host,
+        [REUSE_ENV.PORT]: String(backend.port),
+        [SCENARIO_ENV.webdriver]: driver.origin,
+        [SCENARIO_ENV.login]: driver.url('/login'),
+        [SCENARIO_ENV.broken]: driver.url(BROKEN_PATH)
+      },
+      cwd,
+      timeoutMs
+    )
+    return {
+      frames: [...backend.frames],
+      truth: driver.truth(),
+      exitCode,
+      output
+    }
+  } finally {
+    await backend.close()
+    await driver.close()
+  }
+}
+
+/** Runs one adapter in one mode and judges its stream; a scenario that cannot run becomes a failed report, not a thrown error. */
+export async function runAdapter(
+  adapter: AdapterScenario,
+  bidi: BidiMode
+): Promise<RunReport> {
+  const launch = adapter.prepare()
+  let scenarioFile: ScenarioFile = { paths: [launch.scenarioFile], lines: 0 }
+  let run: ScenarioRun
+  try {
+    // Read before the run: a scenario run from a copy is gone once cleanup has removed it.
+    scenarioFile = readScenarioFile(launch.scenarioFile)
+    run = await runScenario(launch.command, launch.args, {
+      env: launch.env,
+      cwd: launch.cwd,
+      bidi
+    })
+  } catch (err) {
+    return unrunReport(adapter.id, bidi, scenarioFile, String(err))
+  } finally {
+    launch.cleanup?.()
+  }
+  // A checker that throws on a malformed frame must not take the recorded evidence with it.
+  const truth = { ...run.truth, scenarioFile }
+  try {
+    const violations = [
+      ...checkConformance(run.frames, truth),
+      ...checkTestOutcomes(run.frames)
+    ]
+    return {
+      adapter: adapter.id,
+      bidi,
+      ...run,
+      truth,
+      violations,
+      ...judge(adapter.id, bidi, violations)
+    }
+  } catch (err) {
+    return {
+      adapter: adapter.id,
+      bidi,
+      ...run,
+      truth,
+      violations: [],
+      unexplained: [],
+      stale: [],
+      checkerError: String(err)
+    }
+  }
+}
+
+/** The spec's facts, under every spelling a stack trace may give its path. */
+function readScenarioFile(file: string): ScenarioFile {
+  const text = readFileSync(file, 'utf8')
+  return {
+    paths: [...new Set([file, realpathSync(file)])],
+    lines: text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+  }
+}
+
+function unrunReport(
+  adapter: AdapterId,
+  bidi: BidiMode,
+  scenarioFile: ScenarioFile,
+  output: string
+): RunReport {
+  return {
+    adapter,
+    bidi,
+    exitCode: null,
+    output,
+    frames: [],
+    truth: {
+      documents: [],
+      failedNavigations: [],
+      actions: { navigate: [], click: [], fill: [] },
+      requests: [],
+      bidi,
+      scenarioFile
+    },
+    violations: [],
+    unexplained: [],
+    stale: []
+  }
+}
+
+function run(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  cwd: string,
+  timeoutMs: number
+): Promise<{ exitCode: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env })
+    let output = ''
+    child.stdout.on('data', (d) => (output += d))
+    child.stderr.on('data', (d) => (output += d))
+    // Killed, not rejected: the frames recorded before a hang are the evidence of it.
+    const timer = setTimeout(() => {
+      output += `\nscenario timed out after ${timeoutMs} ms`
+      child.kill('SIGKILL')
+    }, timeoutMs)
+    child.on('error', reject)
+    child.on('close', (exitCode) => {
+      clearTimeout(timer)
+      resolve({ exitCode, output })
+    })
+  })
+}

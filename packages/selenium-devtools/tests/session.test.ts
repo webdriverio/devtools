@@ -1,0 +1,544 @@
+import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import { loadInjectableScript } from '@wdio/devtools-core'
+import { SessionCapturer } from '../src/session.js'
+import { getDriverOriginals } from '../src/driverPatcher.js'
+import { buildDriverMetadata } from '../src/helpers/driverMetadata.js'
+
+// `@wdio/devtools-script` is a workspace sibling that may not be built
+// yet in a CI test job that runs before the script-package build step.
+// injectScript() calls loadInjectableScript() (resolve + readFile), so
+// the probe attempts the same operation — checking only resolution
+// against the TEST file's node_modules tree historically drifted from
+// what the runtime actually does inside @wdio/devtools-core.
+const scriptPackageAvailable = await loadInjectableScript()
+  .then(() => true)
+  .catch(() => false)
+
+function makeCapturer(driver?: unknown): SessionCapturer {
+  return new SessionCapturer({}, driver as never)
+}
+
+describe('selenium SessionCapturer.captureCommand', () => {
+  it('pushes a CommandLog with _id and id set to the same counter value', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand(
+      'click',
+      ['#btn'],
+      { ok: true },
+      undefined
+    )
+    expect(entry._id).toBeDefined()
+    expect((entry as { id?: number }).id).toBe(entry._id)
+    expect(cap.commandsLog).toHaveLength(1)
+  })
+
+  it('serializes Error into a plain object', async () => {
+    const cap = makeCapturer()
+    const err = new Error('boom')
+    const entry = await cap.captureCommand('x', [], undefined, err)
+    expect((entry.error as { name: string; message: string }).name).toBe(
+      'Error'
+    )
+  })
+
+  it('uses provided timestamp when given', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand(
+      'x',
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      9999
+    )
+    expect(entry.timestamp).toBe(9999)
+  })
+
+  it('stores testUid on the captured entry', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand(
+      'click',
+      ['.btn'],
+      undefined,
+      undefined,
+      'uid-selenium-1'
+    )
+    expect(entry.testUid).toBe('uid-selenium-1')
+    expect(cap.commandsLog[0].testUid).toBe('uid-selenium-1')
+  })
+
+  it('leaves testUid undefined when not provided', async () => {
+    const cap = makeCapturer()
+    const entry = await cap.captureCommand(
+      'click',
+      ['.btn'],
+      undefined,
+      undefined
+    )
+    expect(entry.testUid).toBeUndefined()
+  })
+})
+
+describe('selenium SessionCapturer.replaceCommand', () => {
+  it('mutates the existing entry in place and preserves _id/id', async () => {
+    const cap = makeCapturer()
+    const orig = await cap.captureCommand('click', ['#a'], undefined, undefined)
+    const origId = orig._id!
+    const origTs = orig.timestamp
+    const { entry, oldTimestamp } = cap.replaceCommand(
+      origId,
+      'click',
+      ['#a'],
+      { ok: true },
+      undefined
+    )
+    expect(oldTimestamp).toBe(origTs)
+    expect(cap.commandsLog).toHaveLength(1)
+    expect(entry._id).toBe(origId)
+    expect(entry.result).toEqual({ ok: true })
+  })
+
+  it('appends a fresh entry with new _id when oldId not found, oldTimestamp=0', async () => {
+    const cap = makeCapturer()
+    const { entry, oldTimestamp } = cap.replaceCommand(
+      999,
+      'x',
+      [],
+      'result',
+      undefined
+    )
+    expect(oldTimestamp).toBe(0)
+    expect(cap.commandsLog).toHaveLength(1)
+    expect(entry.result).toBe('result')
+  })
+})
+
+describe('selenium SessionCapturer.isNavigationCommand', () => {
+  it.each([
+    ['get', true],
+    ['navigate', true],
+    ['url', false],
+    ['click', false]
+  ])('isNavigationCommand(%s) → %s', (command, expected) => {
+    const cap = makeCapturer()
+    expect(cap.isNavigationCommand(command)).toBe(expected)
+  })
+})
+
+describe('selenium SessionCapturer.takeScreenshot', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('returns null when no driver is set', async () => {
+    const cap = makeCapturer()
+    expect(await cap.takeScreenshot()).toBeNull()
+  })
+
+  it('returns null when takeScreenshot original is not stashed', async () => {
+    // Driver present but no original stashed → null
+    const cap = makeCapturer({ id: 'driver' })
+    expect(await cap.takeScreenshot()).toBeNull()
+  })
+})
+
+describe('selenium SessionCapturer.captureBrowserLogs', () => {
+  it('no-ops when no driver set', async () => {
+    const cap = makeCapturer()
+    await expect(cap.captureBrowserLogs()).resolves.toBeUndefined()
+    expect(cap.consoleLogs).toHaveLength(0)
+  })
+
+  it('no-ops when driver set but no manage() stashed', async () => {
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureBrowserLogs()).resolves.toBeUndefined()
+    expect(cap.consoleLogs).toHaveLength(0)
+  })
+})
+
+describe('selenium SessionCapturer.injectScript', () => {
+  it('no-ops when no driver set', async () => {
+    const cap = makeCapturer()
+    await expect(cap.injectScript()).resolves.toBeUndefined()
+  })
+
+  it('no-ops when driver set but no executeScript stashed', async () => {
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.injectScript()).resolves.toBeUndefined()
+  })
+})
+
+describe('selenium SessionCapturer.captureTrace', () => {
+  it('no-ops when no driver set', async () => {
+    const cap = makeCapturer()
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+
+  it('no-ops when driver set but no executeScript stashed', async () => {
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+})
+
+// Direct mutation of the singleton driverOriginals bag is the
+// least-painful way to exercise the executeScript-dependent paths
+// without standing up a real selenium-webdriver. Always restore in
+// afterEach so we don't leak state between tests.
+describe('selenium SessionCapturer (with stashed executeScript)', () => {
+  let restoreExec: (() => void) | undefined
+
+  afterEach(() => {
+    restoreExec?.()
+    restoreExec = undefined
+  })
+
+  function stubExec(impl: (...args: unknown[]) => unknown) {
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = impl as (typeof originals)['executeScript']
+    restoreExec = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  }
+
+  it.skipIf(!scriptPackageAvailable)(
+    'injectScript runs to completion when collector becomes ready',
+    async () => {
+      let scriptInjected = false
+      let collectorReadyCalls = 0
+      stubExec(async (_driver, script) => {
+        const s = String(script)
+        if (s.includes('createElement')) {
+          scriptInjected = true
+          return true
+        }
+        if (s.includes('wdioTraceCollector')) {
+          collectorReadyCalls++
+          // Absent on the pre-injection probe, present once injected — the
+          // real sequence on a navigation destination.
+          return scriptInjected
+        }
+        return undefined
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await cap.injectScript()
+      expect(scriptInjected).toBe(true)
+      expect(collectorReadyCalls).toBeGreaterThanOrEqual(1)
+    }
+  )
+
+  it.skipIf(!scriptPackageAvailable)(
+    'skips injection when a collector is already live on the document',
+    async () => {
+      // Injecting over a live collector replaces the global with a fresh
+      // instance and discards its buffered full-DOM anchor, which is how a
+      // navigation destination's DOM went missing from the trace entirely.
+      let scriptInjected = false
+      stubExec(async (_driver, script) => {
+        const s = String(script)
+        if (s.includes('createElement')) {
+          scriptInjected = true
+          return true
+        }
+        if (s.includes('wdioTraceCollector')) {
+          return true
+        }
+        return undefined
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await cap.injectScript()
+      expect(scriptInjected).toBe(false)
+    }
+  )
+
+  it('injectScript swallows ECONNREFUSED / no-such-session errors silently', async () => {
+    stubExec(async () => {
+      throw new Error('ECONNREFUSED')
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.injectScript()).resolves.toBeUndefined()
+  })
+
+  it('captureTrace early-returns when collector is not present', async () => {
+    stubExec(async () => false)
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+
+  it.skipIf(!scriptPackageAvailable)(
+    'captureTrace re-injects and re-drains when getTraceData returns falsy',
+    async () => {
+      const scripts: string[] = []
+      stubExec(async (_driver, script) => {
+        const source = String(script)
+        scripts.push(source)
+        // Recovery is gated on being on a real page (see script-loader.ts).
+        return source.includes('location.href')
+          ? 'http://localhost/login'
+          : null
+      })
+      const cap = makeCapturer({ id: 'd' })
+      await expect(cap.captureTrace()).resolves.toBeUndefined()
+      // One atomic check+read per drain (see session.ts comment), and an absent
+      // collector triggers exactly one re-inject + re-drain — a document that
+      // loaded before the injection would otherwise never be captured.
+      const drains = scripts.filter((s) => s.includes('getTraceData'))
+      expect(drains).toHaveLength(2)
+      expect(scripts.some((s) => s.includes('createElement'))).toBe(true)
+    }
+  )
+
+  it('captureTrace processes payload when collector returns data', async () => {
+    let call = 0
+    stubExec(async () => {
+      call++
+      return {
+        mutations: [],
+        networkRequests: [],
+        consoleLogs: []
+      }
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await cap.captureTrace()
+    expect(call).toBe(1)
+  })
+
+  it('captureTrace swallows ECONNREFUSED / no-such-session errors silently', async () => {
+    stubExec(async () => {
+      throw new Error('invalid session id')
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await expect(cap.captureTrace()).resolves.toBeUndefined()
+  })
+})
+
+describe('selenium SessionCapturer.awaitClientConnected', () => {
+  it('resolves immediately if client already connected', async () => {
+    const cap = makeCapturer()
+    // simulate connect via onWsMessage
+    ;(cap as unknown as { onWsMessage: (m: unknown) => void }).onWsMessage({
+      scope: 'clientConnected'
+    })
+    await expect(cap.awaitClientConnected()).resolves.toBeUndefined()
+  })
+
+  it('blocks until a clientConnected message arrives', async () => {
+    const cap = makeCapturer()
+    let resolved = false
+    const p = cap.awaitClientConnected().then(() => {
+      resolved = true
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(resolved).toBe(false)
+    ;(cap as unknown as { onWsMessage: (m: unknown) => void }).onWsMessage({
+      scope: 'clientConnected'
+    })
+    await p
+    expect(resolved).toBe(true)
+  })
+
+  it('invokes setClientDisconnectedHandler on clientDisconnected scope', () => {
+    const cap = makeCapturer()
+    const fn = vi.fn()
+    cap.setClientDisconnectedHandler(fn)
+    ;(cap as unknown as { onWsMessage: (m: unknown) => void }).onWsMessage({
+      scope: 'clientDisconnected'
+    })
+    expect(fn).toHaveBeenCalled()
+  })
+})
+
+describe('selenium SessionCapturer.setDriver', () => {
+  it('updates the driver reference', () => {
+    const cap = makeCapturer()
+    const driver = { id: 'd1' }
+    cap.setDriver(driver as never)
+    // No direct getter exposed; verify via takeScreenshot path falling through
+    // (driver-yes, original-no → null without throw)
+    return cap.takeScreenshot().then((s) => expect(s).toBeNull())
+  })
+})
+
+/**
+ * A native app has no document, so every page-side call is a round trip to the
+ * device that can only fail. The predicate reads the capabilities the adapter
+ * already published as `metadata`, since selenium's own `getCapabilities()` is
+ * async and a guard cannot await it.
+ */
+describe('selenium SessionCapturer on a native session', () => {
+  const NATIVE = {
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': '/app.apk'
+  }
+  const MOBILE_WEB = {
+    platformName: 'Android',
+    browserName: 'Chrome',
+    'appium:automationName': 'Chrome'
+  }
+
+  let restore: (() => void) | undefined
+  let scripts: string[]
+
+  beforeEach(() => {
+    scripts = []
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = (async (_driver: unknown, script: unknown) => {
+      scripts.push(String(script))
+      return null
+    }) as (typeof originals)['executeScript']
+    restore = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  })
+
+  afterEach(() => {
+    restore?.()
+    restore = undefined
+  })
+
+  const capturerWith = (capabilities: Record<string, unknown>) => {
+    const cap = makeCapturer({})
+    cap.metadata = { capabilities } as never
+    return cap
+  }
+
+  it('reports itself native from the published capabilities', () => {
+    expect(capturerWith(NATIVE).isNativeAppSession).toBe(true)
+    expect(capturerWith(MOBILE_WEB).isNativeAppSession).toBe(false)
+  })
+
+  it('reads the bag the adapter actually publishes', async () => {
+    // Not a hand-written object: `buildDriverMetadata` is what fills
+    // `metadata`, and it receives selenium's `Capabilities` — whose data is in
+    // a private Map. Assigning a plain bag here proved nothing about that, and
+    // every guard in this file was dead against a real driver.
+    const { metadata } = await buildDriverMetadata({
+      driver: {
+        getSession: () => Promise.resolve({ getId: () => 'sess-1' }),
+        getCapabilities: () =>
+          Promise.resolve({
+            keys: () => new Map(Object.entries(NATIVE)).keys(),
+            get: (key: string) => (NATIVE as Record<string, unknown>)[key]
+          })
+      } as never,
+      driverReadyTs: Date.now(),
+      detectedRunner: 'mocha'
+    })
+    const cap = makeCapturer({})
+    cap.metadata = metadata as never
+
+    expect(cap.isNativeAppSession).toBe(true)
+  })
+
+  it('makes no page call from captureTrace', async () => {
+    await capturerWith(NATIVE).captureTrace(true)
+    expect(scripts).toEqual([])
+  })
+
+  it('makes none from injectScript or reinjectIfNavigated', async () => {
+    const cap = capturerWith(NATIVE)
+
+    await cap.injectScript()
+    await cap.reinjectIfNavigated()
+
+    expect(scripts).toEqual([])
+  })
+
+  it('still drains a phone running a browser', async () => {
+    // Its recovery injection is the only collector such a session gets, so a
+    // guard keyed on the device rather than the document silences it entirely.
+    await capturerWith(MOBILE_WEB).captureTrace(true)
+    expect(scripts.length).toBeGreaterThan(0)
+  })
+})
+
+/**
+ * BiDi counts as a source only once it has delivered an event of that stream.
+ * Against Appium 3.7's XCUITest driver the inspectors attach cleanly and then
+ * send nothing; gating on the attach alone left the trace with zero network
+ * rows and no console.
+ */
+describe('selenium SessionCapturer.captureTrace and BiDi evidence', () => {
+  let restoreExec: (() => void) | undefined
+
+  afterEach(() => {
+    restoreExec?.()
+    restoreExec = undefined
+  })
+
+  const payload = {
+    mutations: [],
+    consoleLogs: [{ type: 'log', args: ['from the page'], timestamp: 1 }],
+    networkRequests: [
+      {
+        id: 'rt-1',
+        url: 'https://x/app.js',
+        method: 'GET',
+        type: 'script',
+        timestamp: 2,
+        startTime: 1,
+        source: 'resource-timing'
+      }
+    ]
+  }
+
+  function drainAnswers() {
+    const originals = getDriverOriginals()
+    const prev = originals.executeScript
+    originals.executeScript = (async (_driver: unknown, script: unknown) => {
+      const s = String(script)
+      if (s.includes('getTraceData')) {
+        return payload
+      }
+      if (s.includes('location.href')) {
+        return 'https://x/'
+      }
+      return true
+    }) as (typeof originals)['executeScript']
+    restoreExec = () => {
+      if (prev) {
+        originals.executeScript = prev
+      } else {
+        delete originals.executeScript
+      }
+    }
+  }
+
+  it('keeps the page’s console and network while an attached BiDi has delivered nothing', async () => {
+    drainAnswers()
+    const cap = makeCapturer({ id: 'd' })
+    cap.bidiActive = true
+    await cap.captureTrace()
+    expect(cap.networkRequests.map((r) => r.id)).toEqual(['rt-1'])
+    expect(cap.consoleLogs.map((c) => c.args)).toEqual([['from the page']])
+  })
+
+  it('withholds each stream once its BiDi sink has received an event', async () => {
+    const { buildBidiSinks } = await import('../src/bidi.js')
+    drainAnswers()
+    const cap = makeCapturer({ id: 'd' })
+    cap.bidiActive = true
+    const sinks = buildBidiSinks(cap)
+    sinks.pushNetworkRequest({
+      id: 'bidi-1',
+      url: 'https://x/',
+      method: 'GET',
+      type: 'document',
+      timestamp: 1,
+      startTime: 0
+    })
+    sinks.pushConsoleLog({ type: 'log', args: ['from bidi'], timestamp: 1 })
+    await cap.captureTrace()
+    expect(cap.networkRequests.map((r) => r.id)).toEqual(['bidi-1'])
+    expect(cap.consoleLogs.map((c) => c.args)).toEqual([['from bidi']])
+  })
+})

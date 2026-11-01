@@ -1,0 +1,472 @@
+import type { IncomingMessage } from 'node:http'
+
+import logger from '@wdio/logger'
+import {
+  collectorDrainExpression,
+  SessionCapturerBase,
+  drainCollectorWithRecovery,
+  errorMessage,
+  isSessionGoneError,
+  loadInjectableScript,
+  NativeNetworkCapture,
+  mapChromeBrowserLogs,
+  pollUntilReady,
+  PENDING_SETTLE_TIMEOUT_MS,
+  serializeError,
+  settlePending
+} from '@wdio/devtools-core'
+import {
+  COLLECTOR_INJECT_SCRIPT,
+  COLLECTOR_READY_SCRIPT,
+  WS_SCOPE
+} from '@wdio/devtools-shared'
+import { NAVIGATION_COMMANDS } from './constants.js'
+import { getDriverOriginals } from './driverPatcher.js'
+import type { CommandLog, SeleniumDriverLike } from './types.js'
+
+const log = logger('@wdio/selenium-devtools:SessionCapturer')
+
+export class SessionCapturer extends SessionCapturerBase {
+  #driver: SeleniumDriverLike | undefined
+
+  // Tail of the serialized live-mode drain queue — see drainAfterLiveCommand.
+  #liveDrain: Promise<void> = Promise.resolve()
+
+  // True once BiDi inspectors are attached — script-trace path skips streams.
+  bidiActive = false
+  /** Whether BiDi has delivered at least one event of each stream. A
+   *  subscription that delivers nothing is not a source. */
+  bidiConsoleObserved = false
+  bidiNetworkObserved = false
+
+  /** True once the collector is registered as a document-start BiDi preload.
+   *  Every document then instruments itself before any of its own script runs,
+   *  which makes the `<script>`-append paths (eager injection on navigation,
+   *  post-navigation re-injection) unreachable rather than merely redundant. */
+  preloadRegistered = false
+
+  /** Native app network from appium-interceptor's proxy; started per driver. */
+  readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
+    log[level](message)
+  )
+
+  // Work the driver patcher does not await (a command's capture, its row screenshot); quit waits for it.
+  #inFlight = new Set<Promise<unknown>>()
+  // A screenshot that reaches a driver being quit is skipped, not reported as a failure.
+  #endingDrivers = new WeakSet<SeleniumDriverLike>()
+
+  #clientConnected = false
+  #clientConnectedWaiters: Array<() => void> = []
+  #onClientDisconnected?: () => void
+  #socket: IncomingMessage['socket'] | undefined
+
+  constructor(
+    devtoolsOptions: { hostname?: string; port?: number } = {},
+    driver?: SeleniumDriverLike
+  ) {
+    super(devtoolsOptions)
+    this.#driver = driver
+    // Teardown runs on `beforeExit`, which a ref'd socket stops from ever firing.
+    this.ws?.once('upgrade', (res: IncomingMessage) => {
+      this.#socket = res.socket
+      this.#socket.unref()
+    })
+
+    // Skip console patching when running under Jest's CustomConsole / Vitest —
+    // those reroute writes through their own console, which causes our patched
+    // `console.*` to feed back through stream interception and loop. Stream
+    // interception alone is sufficient in that case.
+    const protoName = Object.getPrototypeOf(console)?.constructor?.name
+    if (!protoName || protoName === 'Console') {
+      this.patchConsole()
+    } else {
+      log.info(
+        `Detected non-standard console (${protoName}) — skipping console patching, using stdout interception only`
+      )
+    }
+    this.patchStreams()
+  }
+
+  protected override onWsOpen(): void {
+    log.info('✓ Worker WebSocket connected to backend')
+  }
+
+  protected override onWsError(err: unknown): void {
+    log.error(`Couldn't connect to devtools backend: ${errorMessage(err)}`)
+  }
+
+  protected override onWsClose(): void {
+    log.info('Worker WebSocket disconnected')
+  }
+
+  protected override onWsMessage(msg: unknown): void {
+    const parsed = msg as { scope?: string } | null | undefined
+    if (parsed?.scope === WS_SCOPE.clientConnected) {
+      this.#clientConnected = true
+      const waiters = this.#clientConnectedWaiters
+      this.#clientConnectedWaiters = []
+      for (const w of waiters) {
+        try {
+          w()
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (parsed?.scope === WS_SCOPE.clientDisconnected) {
+      this.#onClientDisconnected?.()
+    }
+  }
+
+  setDriver(driver: SeleniumDriverLike) {
+    this.#driver = driver
+  }
+
+  track(work: Promise<unknown>): void {
+    this.#inFlight.add(work)
+    const done = () => this.#inFlight.delete(work)
+    void work.then(done, done)
+  }
+
+  /** Before quit, while the session is alive: lets tracked work finish, including what it queues meanwhile. */
+  async settleBeforeQuit(): Promise<void> {
+    const deadline = Date.now() + PENDING_SETTLE_TIMEOUT_MS
+    while (this.#inFlight.size > 0) {
+      const timedOut = await settlePending(
+        [...this.#inFlight],
+        Math.max(0, deadline - Date.now())
+      )
+      if (timedOut) {
+        log.warn(
+          `${this.#inFlight.size} capture(s) still in flight after ${PENDING_SETTLE_TIMEOUT_MS}ms; quitting without them`
+        )
+        // Forgotten, or a capture that never settles would hold up every later quit too.
+        this.#inFlight.clear()
+        break
+      }
+    }
+    if (this.#driver) {
+      this.#endingDrivers.add(this.#driver)
+    }
+  }
+
+  /** Re-ref'd first so the close handshake keeps the process alive until it lands. */
+  override async closeWebSocket(): Promise<void> {
+    this.#socket?.ref()
+    await super.closeWebSocket()
+  }
+
+  awaitClientConnected(): Promise<void> {
+    if (this.#clientConnected) {
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve) => {
+      this.#clientConnectedWaiters.push(resolve)
+    })
+  }
+
+  setClientDisconnectedHandler(fn: () => void) {
+    this.#onClientDisconnected = fn
+  }
+
+  // ---- WebSocket plumbing --------------------------------------------------
+
+  // ---- command capture -----------------------------------------------------
+
+  async captureCommand(
+    command: string,
+    args: unknown[],
+    result: unknown,
+    error: Error | undefined,
+    testUid?: string,
+    callSource?: string,
+    timestamp?: number
+  ): Promise<CommandLog & { _id?: number }> {
+    const commandId = this.commandCounter++
+    // `id` is the stable lookup key — chained calls share a ms timestamp,
+    // so timestamp-based matching rewrites the wrong entry on async updates.
+    const entry: CommandLog & { _id?: number } = {
+      _id: commandId,
+      id: commandId,
+      command,
+      args,
+      result,
+      error: serializeError(error),
+      timestamp: timestamp || Date.now(),
+      callSource,
+      testUid
+    }
+    this.commandsLog.push(entry)
+    return entry
+  }
+
+  /** Update an existing entry in place (matched by `_id`) for retry coalesce. */
+  replaceCommand(
+    oldId: number,
+    command: string,
+    args: unknown[],
+    result: unknown,
+    error: Error | undefined,
+    testUid?: string,
+    callSource?: string,
+    timestamp?: number
+  ): { entry: CommandLog & { _id?: number }; oldTimestamp: number } {
+    const idx = this.commandsLog.findIndex(
+      (c) => (c as CommandLog & { _id?: number })._id === oldId
+    )
+    const oldTimestamp =
+      idx !== -1 ? (this.commandsLog[idx]?.timestamp ?? 0) : 0
+    if (idx === -1) {
+      const newId = this.commandCounter++
+      const fresh: CommandLog & { _id?: number; id?: number } = {
+        _id: newId,
+        id: newId,
+        command,
+        args,
+        result,
+        error: serializeError(error),
+        timestamp: timestamp || Date.now(),
+        callSource,
+        testUid
+      }
+      this.commandsLog.push(fresh)
+      return { entry: fresh, oldTimestamp: 0 }
+    }
+    const previous = this.commandsLog[idx] as CommandLog & {
+      _id?: number
+      id?: number
+    }
+    previous.command = command
+    previous.args = args
+    previous.result = result
+    previous.error = serializeError(error)
+    previous.timestamp = timestamp || Date.now()
+    previous.callSource = callSource
+    previous.testUid = testUid
+    return { entry: previous, oldTimestamp }
+  }
+
+  // Uses the unwrapped original to avoid recursing through the command capturer.
+  async takeScreenshot(): Promise<string | null> {
+    const driver = this.#driver
+    const originals = getDriverOriginals()
+    const fn = originals.takeScreenshot
+    if (!driver || !fn || this.#endingDrivers.has(driver)) {
+      return null
+    }
+    try {
+      const data = await fn(driver)
+      return data || null
+    } catch (err) {
+      const level = this.#endingDrivers.has(driver) ? 'debug' : 'warn'
+      log[level](`[screenshot] Failed: ${errorMessage(err)}`)
+      return null
+    }
+  }
+
+  // ---- source files --------------------------------------------------------
+
+  protected override onSourceReadError(filePath: string, err: unknown): void {
+    log.warn(`Failed to read source file ${filePath}: ${errorMessage(err)}`)
+  }
+
+  // ---- browser-side trace (script injection) -------------------------------
+
+  async injectScript(): Promise<void> {
+    const driver = this.#driver
+    const exec = getDriverOriginals().executeScript
+    if (!driver || !exec || this.isNativeAppSession) {
+      return
+    }
+    try {
+      // Three call paths reach the same document (navigation trace,
+      // post-command drain recovery, explicit re-inject); a bundle that finds
+      // a collector keeps it, so this probe only saves the round trips.
+      const present = await exec(driver, COLLECTOR_READY_SCRIPT)
+      if (present === true) {
+        return
+      }
+      const scriptContent = await loadInjectableScript()
+      // The appended script runs synchronously, so this usually answers ready.
+      const injected = await exec(
+        driver,
+        COLLECTOR_INJECT_SCRIPT,
+        scriptContent
+      )
+      const ready =
+        injected === true ||
+        (await pollUntilReady(
+          async () => {
+            const r = await exec(driver, COLLECTOR_READY_SCRIPT)
+            return r === true
+          },
+          { checkFirst: true }
+        ))
+      if (ready) {
+        log.info('✓ Script injected and collector ready')
+      } else {
+        log.warn('Script injection may have failed — collector not found')
+      }
+    } catch (err) {
+      // Driver torn down between navigation and deferred trace work.
+      const msg = errorMessage(err)
+      if (isSessionGoneError(msg)) {
+        return
+      }
+      log.error(`Failed to inject script: ${msg}`)
+    }
+  }
+
+  /** `forceAnchor` forces a full-DOM anchor of the current document before
+   *  draining, so a freshly injected collector's async anchor isn't lost. Which
+   *  action the anchor belongs to is derived from the anchor itself at ingest,
+   *  not from this call — see `reattributeDomAnchors`. */
+  async captureTrace(forceAnchor = false): Promise<void> {
+    const driver = this.#driver
+    const exec = getDriverOriginals().executeScript
+    // A native app has no document, so the drain, its recovery injection and
+    // the url read are round trips that can only fail. Inside the method
+    // rather than at its call sites, which are the live drain, the navigation
+    // hook and teardown — one of them would forget.
+    if (!driver || !exec || this.isNativeAppSession) {
+      return
+    }
+    try {
+      // Atomic check+read in one script eval so the collector can't disappear
+      // (page navigation) between the existence check and the getTraceData
+      // call. Two round-trips left a TOCTOU race that logged spurious
+      // "Cannot read properties of undefined (reading 'getTraceData')" errors.
+      let recovered = false
+      const traceData = await drainCollectorWithRecovery({
+        drain: () => exec(driver, collectorDrainExpression(forceAnchor)),
+        injectIntoCurrentDocument: async () => {
+          recovered = true
+          await this.injectScript()
+        },
+        currentUrl: async () =>
+          (await exec(driver, 'return location.href;')) as string | undefined,
+        log: (level, message) => log[level](message)
+      })
+      if (!traceData) {
+        log.debug(
+          `drain: no payload (anchor=${forceAnchor} recovered=${recovered})`
+        )
+        return
+      }
+      const drained = (traceData as { mutations?: unknown[] }).mutations ?? []
+      log.debug(
+        `drain: ${drained.length} mutations (anchor=${forceAnchor} recovered=${recovered})`
+      )
+      // Gated on what BiDi has delivered, not on its subscription: Appium's
+      // BiDi shim accepts the subscription and then sends nothing, and there
+      // the page's own streams are the only capture.
+      this.processTracePayload(traceData as Record<string, unknown>, {
+        skipConsoleLogs: this.bidiConsoleObserved,
+        skipNetworkRequests: this.bidiNetworkObserved
+      })
+    } catch (err) {
+      const msg = errorMessage(err)
+      if (isSessionGoneError(msg)) {
+        return
+      }
+      log.error(`Failed to capture trace from injected script: ${msg}`)
+    }
+  }
+
+  // ---- WebDriver browser/perf log capture ----------------------------------
+
+  /** Pulls Chrome browser logs (requires `goog:loggingPrefs: { browser: 'ALL' }`). */
+  async captureBrowserLogs(): Promise<void> {
+    const driver = this.#driver
+    const manage = getDriverOriginals().manage
+    if (!driver || !manage) {
+      return
+    }
+    try {
+      // selenium-webdriver's Options.logs() chain is untyped at our boundary;
+      // narrow the result locally rather than typing the whole chain.
+      type RawBrowserLog = {
+        level: unknown
+        message: string
+        timestamp: number
+      }
+      const logs = (
+        manage(driver) as {
+          logs: () => { get: (t: string) => Promise<RawBrowserLog[]> }
+        }
+      ).logs()
+      const entries = await logs.get('browser')
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return
+      }
+      const tagged = mapChromeBrowserLogs(entries)
+      this.consoleLogs.push(...tagged)
+      this.sendUpstream('consoleLogs', tagged)
+    } catch {
+      // logging not enabled — silent
+    }
+  }
+
+  /**
+   * Fallback path only — see `preloadRegistered`. With no document-start
+   * preload the previous page's appended `<script>` collector dies with its
+   * document, so a click/submit that navigated leaves the destination
+   * uninstrumented: re-inject on it and drain so its DOM lands in the trace.
+   * No-op for a same-document click (the collector is still present). Relies on
+   * the default `normal` page-load strategy, so a navigating click has finished
+   * loading by the time this runs.
+   */
+  async reinjectIfNavigated(): Promise<void> {
+    const driver = this.#driver
+    const exec = getDriverOriginals().executeScript
+    if (!driver || !exec || this.isNativeAppSession) {
+      return
+    }
+    try {
+      const hasCollector = await exec(driver, COLLECTOR_READY_SCRIPT)
+      if (hasCollector === true) {
+        return
+      }
+      await this.injectScript()
+      // Anchor forced: the freshly injected collector's initial anchor is async,
+      // so an unanchored drain here beats it and the destination's DOM is lost
+      // with the page.
+      await this.captureTrace(true)
+    } catch (err) {
+      const msg = errorMessage(err)
+      if (isSessionGoneError(msg)) {
+        return
+      }
+      log.warn(`Re-inject after navigation failed: ${msg}`)
+    }
+  }
+
+  /**
+   * Drain after a user command in live mode, queued behind the previous such
+   * drain. Anchored, which is also what recovers a navigation under the fallback
+   * injection: a click that replaced the document leaves no collector, so the
+   * drain re-injects into the destination and its retry anchors it — no separate
+   * `reinjectIfNavigated` pass, which would double the round trips on every
+   * DOM-mutating command and whose readiness poll pushed the queue far enough
+   * behind the test that the destination was gone before it ran. With the
+   * document-start preload there is nothing to recover: the destination has
+   * already anchored itself and this drain just collects it.
+   *
+   * Serialized because the driver patcher does not await `onCommand`: two
+   * drains can overlap, and one that falls into collector recovery pays an
+   * injection plus a readiness poll — long enough to land its batch behind a
+   * later one. The dashboard walks the mutation stream in order and stops at
+   * the first entry past the selected row's window, so an overtaken batch
+   * strands every row after it on the previous document.
+   */
+  drainAfterLiveCommand(): Promise<void> {
+    this.#liveDrain = this.#liveDrain
+      .then(() => this.captureTrace(true))
+      .catch(() => {})
+    return this.#liveDrain
+  }
+
+  isNavigationCommand(command: string): boolean {
+    const target = command.toLowerCase()
+    return NAVIGATION_COMMANDS.some((c) => target === c.toLowerCase())
+  }
+}

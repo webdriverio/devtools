@@ -1,0 +1,240 @@
+// Selenium-specific types live here. Cross-package types come from @wdio/devtools-shared.
+
+export {
+  TraceType,
+  type ActionSnapshot,
+  type CommandLog,
+  type ConsoleLog,
+  type DevToolsMode,
+  type DocumentInfo,
+  type LogLevel,
+  type Metadata,
+  type NetworkRequest,
+  type PerformanceData,
+  type SuiteStats,
+  type TestStats,
+  type TestStatus,
+  type TestMetadataMap,
+  type TraceFormat,
+  type TraceGranularity,
+  type TraceRetentionPolicy,
+  type TraceScreenshotPolicy,
+  type TraceVideoPolicy
+} from '@wdio/devtools-shared'
+
+/** Why `configure()` can no longer change port/hostname: a rerun reusing its parent's backend, or a backend start already under way. */
+export type ServerLock = 'reuse' | 'started'
+
+export interface DevToolsOptions extends BaseDevToolsOptions {
+  /** Open a Chrome window pointing at the UI. Default true. */
+  openUi?: boolean
+  /** Capture screenshots after each command. Default true. */
+  captureScreenshots?: boolean
+  /** Command template for per-test rerun. {{testName}} is substituted. */
+  rerunCommand?: string
+  /**
+   * Force the *test* browser into headless mode by injecting --headless=old
+   * into Chrome capabilities. The dashboard window (auto-opened by openUi)
+   * is unaffected. Defaults to false to preserve user-supplied options.
+   */
+  headless?: boolean
+  /** Per-test screenshot capture, recorded in the trace artifacts and attached
+   *  inline to Allure. `off` (default) | `on` | `only-on-failure`. Trace mode +
+   *  `traceGranularity: 'test'` only. */
+  screenshot?: TraceScreenshotPolicy
+  /** Per-test video (screencast) capture, retained per the given policy and
+   *  attached inline to Allure. `off` (default) or a retention policy. Trace
+   *  mode + `traceGranularity: 'test'` only. */
+  video?: TraceVideoPolicy
+}
+
+// ScreencastFrame, ScreencastOptions hoisted to @wdio/devtools-shared; re-exported
+// here for backwards compatibility with existing selenium-internal imports.
+import type {
+  BaseDevToolsOptions,
+  TestStatus,
+  TraceScreenshotPolicy,
+  TraceVideoPolicy
+} from '@wdio/devtools-shared'
+export type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
+
+/** What `detectRunner` reads off the process; `node` and `unknown` mean no runner. */
+export type DetectedRunner =
+  'mocha' | 'jest' | 'jasmine' | 'vitest' | 'cucumber' | 'node' | 'unknown'
+
+/**
+ * Minimal shape of a selenium-webdriver `WebDriver` instance that the plugin
+ * relies on. We don't import the type from selenium-webdriver to avoid a hard
+ * dependency on the user's installed version — Selenium types vary across
+ * minor versions and we only touch a small surface.
+ */
+export interface SeleniumDriverLike {
+  executeScript: (
+    script: string | Function,
+    ...args: unknown[]
+  ) => Promise<unknown>
+  takeScreenshot?: () => Promise<string>
+  getSession?: () => Promise<{ getId: () => string }>
+  getCapabilities?: () => Promise<unknown>
+  manage?: () => unknown
+  quit?: () => Promise<void>
+  close?: () => Promise<void>
+  /** Selenium 4 helper used by the screencast recorder. */
+  createCDPConnection?: (target: string) => Promise<unknown>
+  [key: string]: unknown
+}
+
+// ─── driverPatcher ──────────────────────────────────────────────────────────
+
+/** A selenium prototype (WebDriver/WebElement/Builder) whose methods are patched in place. */
+export type Patchable = Record<string | symbol, unknown>
+
+/** selenium's own `WebElementPromise`, which an element wait must still return. */
+export type WebElementPromiseCtor = new (
+  driver: unknown,
+  el: PromiseLike<unknown>
+) => object
+
+/** One `driver.wait()` call, shared by its own row and the rows its condition issues. */
+export interface WaitScope {
+  /** Each call of the condition, by `pollKey`, to the row its repeats fold into. */
+  rows: Map<string, number>
+  /** The wait's own row, which every row its condition issues names as `parentId`. */
+  rowId?: number
+  /** Waits issued inside this wait's condition, keyed by identity and order within one evaluation. */
+  nested?: Map<string, WaitScope>
+  /** When the wait was first called: a nested wait keeps it across outer polls, so the children it kept stay inside it. */
+  startTime?: number
+}
+
+/** One evaluation of a wait's condition, counting the calls it has issued so far. */
+export interface WaitPoll {
+  scope: WaitScope
+  seen: Map<string, number>
+}
+
+export interface CapturedCommand {
+  command: string
+  args: unknown[]
+  // Sanitized result safe to JSON.stringify over the wire.
+  result: unknown
+  // Raw selenium result kept by reference for in-process enrichment — must
+  // NOT be sent upstream (contains non-serialisable WebElement state).
+  rawResult?: unknown
+  error: Error | undefined
+  callSource: string | undefined
+  /** When the command COMPLETED. The page-side mutation stream is on real time,
+   *  so a row stamped at invocation replays the page from before its own effect. */
+  timestamp: number
+  /** When the command was invoked — the row's real start, so it spans its actual
+   *  duration instead of a synthetic 1ms. */
+  startTime: number
+  fromElement: boolean
+  /** The `driver.wait()` whose condition issued this command: its row is this row's parent. */
+  waitScope?: WaitScope
+  /** Names this call within its wait, so each poll's repeat of it folds into one row. */
+  pollKey?: string
+  /** Set on a wait's own row, sent running when the wait is called and replaced when it settles. */
+  wait?: WaitScope
+  /** A wait's row as sent when it is called: no outcome yet, so nothing to screenshot, drain or snapshot. */
+  running?: boolean
+  /** Locator that produced the element this command acted on. An element command
+   *  carries no locator of its own — the earlier `findElement` consumed it — so
+   *  it is recovered from the handle and threaded onto the row here. */
+  selector?: string
+}
+
+export interface DriverPatcherHooks {
+  onBeforeBuild?: (builder: unknown) => void
+  onDriverCreated: (driver: SeleniumDriverLike) => void | Promise<void>
+  onCommand: (cmd: CapturedCommand) => void
+  // Awaited before delegating to the original `driver.quit()` so async
+  // cleanup (video encode, WS flush) can run before runners that
+  // `process.exit()` after their last hook bypass node's beforeExit.
+  onBeforeQuit?: (driver: SeleniumDriverLike) => Promise<void>
+  // Gates `await new Builder().build()` on the dashboard being connected.
+  waitForReady?: () => Promise<void>
+  // Awaited before a navigation command resolves to the test, so the fallback
+  // collector is in the destination before the test's next command reaches it.
+  afterNavigation?: (command: string) => Promise<void>
+  // Awaited before an element click, sendKeys, clear or submit is sent.
+  beforeInput?: () => Promise<void>
+}
+
+// Unwrapped WebDriver methods used by the plugin's own internal calls
+// (screenshot, script injection, trace fetch) so they don't recurse through
+// the wrapper or appear in the UI command list.
+export interface DriverOriginals {
+  takeScreenshot?: (driver: SeleniumDriverLike) => Promise<string>
+  executeScript?: (
+    driver: SeleniumDriverLike,
+    script: string,
+    ...args: unknown[]
+  ) => Promise<unknown>
+  manage?: (driver: SeleniumDriverLike) => unknown
+  getCurrentUrl?: (driver: SeleniumDriverLike) => Promise<string>
+  getTitle?: (driver: SeleniumDriverLike) => Promise<string>
+  getWindowHandle?: (driver: SeleniumDriverLike) => Promise<string>
+}
+
+// Unwrapped WebElement methods for internal enrichment paths.
+export interface ElementOriginals {
+  getText?: (element: unknown) => Promise<string>
+  getTagName?: (element: unknown) => Promise<string>
+}
+
+// ─── runnerHooks ────────────────────────────────────────────────────────────
+
+export interface MochaTestCtx {
+  title?: string
+  file?: string
+  state?: TestStatus
+  duration?: number
+  parent?: { title?: string }
+  /** Mocha's authoritative retry index — 0 on the first run, +1 per retry. */
+  _currentRetry?: number
+}
+
+/** The four root hooks, in the shape of a mocha root hook plugin's `mochaHooks`. */
+export interface MochaRootHooks {
+  beforeAll: () => void
+  afterAll: () => void
+  beforeEach: (this: { currentTest?: MochaTestCtx }) => void
+  afterEach: (this: { currentTest?: MochaTestCtx }) => Promise<void>
+}
+
+export interface RunnerHookCallbacks {
+  onTestStart: (
+    name: string,
+    file?: string,
+    callSource?: string,
+    suiteName?: string,
+    suiteCallSource?: string,
+    // Authoritative per-test retry index when the runner exposes one (Mocha's
+    // `_currentRetry`); undefined leaves the heuristic tracker to decide.
+    attempt?: number
+  ) => void
+  // Async so the runner's afterEach/After awaits the full per-test artifact
+  // emit (trace slice + screenshot + video attach) before Allure closes the test.
+  onTestEnd: (state: Exclude<TestStatus, 'running'>) => void | Promise<void>
+  // Cucumber-only: scenario boundary creates a sub-suite under the feature
+  // rootSuite; subsequent onTestStart/onTestEnd attach as Gherkin steps inside.
+  onScenarioStart?: (
+    name: string,
+    file?: string,
+    callSource?: string,
+    featureName?: string,
+    featureCallSource?: string
+  ) => void
+  onScenarioEnd?: (
+    state: Exclude<TestStatus, 'running'>
+  ) => void | Promise<void>
+  // Fires from the runner's after-all hook so the dashboard suite header
+  // updates without waiting for process exit.
+  onTestRunComplete?: (summary: {
+    passed: number
+    failed: number
+    pending: number
+    durationMs: number
+  }) => void
+}

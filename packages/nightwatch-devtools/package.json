@@ -1,0 +1,79 @@
+{
+  "name": "@wdio/nightwatch-devtools",
+  "version": "2.1.0",
+  "engines": {
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
+  },
+  "description": "Nightwatch adapter for WebdriverIO DevTools - reuses existing backend, UI, and capture infrastructure",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "show-trace": "./bin/show-trace.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/nightwatch-devtools"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "nightwatch": {
+    "plugin": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "example": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs",
+    "example:retry": "nightwatch -c ../../examples/nightwatch/nightwatch.conf.cjs --retries 1",
+    "example:mobile": "nightwatch -c ../../examples/nightwatch/nightwatch.mobile.conf.cjs",
+    "example:cucumber": "nightwatch -c ../../examples/nightwatch/cucumber/nightwatch.cucumber.conf.cjs",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "nightwatch",
+    "devtools",
+    "debugging",
+    "testing"
+  ],
+  "author": "Vishnu Vardhan",
+  "license": "MIT",
+  "dependencies": {
+    "@wdio/devtools-backend": "workspace:*",
+    "@wdio/devtools-script": "workspace:*",
+    "@wdio/logger": "^10.0.0",
+    "@xmldom/xmldom": "^0.9.12",
+    "fluent-ffmpeg": "^2.1.3",
+    "import-meta-resolve": "^4.2.0",
+    "stacktrace-parser": "^0.1.11",
+    "webdriverio": "^10.0.2",
+    "ws": "^8.22.0",
+    "xpath": "^0.0.34",
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "@cucumber/cucumber": "^13.0.0",
+    "@types/node": "26.6.4",
+    "@types/ws": "^8.18.2",
+    "@wdio/devtools-core": "workspace:^",
+    "@wdio/devtools-shared": "workspace:^",
+    "nightwatch": "^3.16.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "nightwatch": ">=3.0.0"
+  }
+}

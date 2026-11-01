@@ -1,0 +1,370 @@
+/**
+ * Cucumber lifecycle for the Nightwatch plugin.
+ *
+ * Extracted from the plugin class to keep `index.ts` under the file-size cap
+ * and to isolate the cucumber-specific orchestration from the per-test
+ * (Mocha/Jasmine-style) lifecycle.
+ *
+ * The plugin passes itself as a `CucumberLifecycleCtx` — a narrow interface
+ * exposing only the fields and methods this module needs. The lifecycle
+ * helpers mutate the plugin's "current execution" state via the accessors on
+ * the ctx (they can't reach the plugin's private fields directly).
+ */
+
+import logger from '@wdio/logger'
+import { errorMessage } from '@wdio/devtools-core'
+import {
+  WS_SCOPE,
+  type CucumberPickle,
+  type CucumberPickleStep
+} from '@wdio/devtools-shared'
+
+import type { TestReporter } from './reporter.js'
+import type { TestManager } from './helpers/testManager.js'
+import type { SuiteManager } from './helpers/suiteManager.js'
+import type { BrowserProxy } from './helpers/browserProxy.js'
+import type { NightwatchBrowser, SuiteStats, TestStats } from './types.js'
+import { TEST_STATE } from './constants.js'
+import {
+  closeOpenSteps,
+  cucumberResultToTestState
+} from './helpers/cucumberResult.js'
+import { buildCucumberScenarioSuite } from './helpers/cucumberScenarioBuilder.js'
+import { captureNativeAssertions } from './helpers/nativeAssertions.js'
+import { scanFeatureFile } from './helpers/featureFileScan.js'
+import { parseCucumberScenario } from './helpers/utils.js'
+import {
+  recordTestSliceBoundary,
+  flushTestSlice,
+  type TestSliceCtx
+} from './trace-slices.js'
+
+const log = logger('@wdio/nightwatch-devtools:cucumber')
+
+/** Cucumber's result shape varies across major versions; we pin only the
+ *  status field we read. Pickle shapes come from shared. */
+export interface CucumberResult {
+  status?: string
+}
+
+export interface CucumberLifecycleCtx extends TestSliceCtx {
+  readonly testReporter: TestReporter
+  readonly testManager: TestManager
+  readonly suiteManager: SuiteManager
+  readonly browserProxy: BrowserProxy | undefined
+  setCucumberRunner(v: boolean): void
+  ensureSessionInitialized(browser: NightwatchBrowser): Promise<void>
+  wrapBrowserOnce(browser: NightwatchBrowser): void
+  incrementCount(state: TestStats['state']): void
+  testIcon(state: TestStats['state']): string
+  getCurrentScenarioSuite(): SuiteStats | null
+  setCurrentScenarioSuite(s: SuiteStats | null): void
+  setCurrentStep(s: unknown): void
+  getCurrentStep(): unknown
+  setCurrentTest(t: unknown): void
+  recordAttempt(uid: string, specFile?: string): number
+  recordOutcome(uid: string, state: TestStats['state']): void
+  /** Produces (no attach) this test's screenshot and video, core-gated to trace mode and `test` granularity. */
+  emitTestArtifacts(uid: string | undefined, failed: boolean): Promise<void>
+}
+
+type MutStep = {
+  title?: string
+  state?: string
+  start?: Date | null
+  end?: Date | null
+  _duration?: number
+}
+
+function attachScenarioToFeature(
+  ctx: CucumberLifecycleCtx,
+  featureSuite: SuiteStats,
+  scenarioSuite: SuiteStats
+): void {
+  // If a suite with this uid already exists, this is a RETRY of the same
+  // scenario — clear execution data so only the latest attempt shows.
+  const existingIdx = featureSuite.suites.findIndex(
+    (s: SuiteStats) => s.uid === scenarioSuite.uid
+  )
+  if (existingIdx !== -1) {
+    featureSuite.suites[existingIdx] = scenarioSuite
+    // Pass the specific scenario uid so only this scenario's execution data
+    // is reset — a uid-less clearExecutionData would mark ALL suites as
+    // running, destroying the previous terminal states of sibling scenarios.
+    ctx.sessionCapturer.sendUpstream(WS_SCOPE.clearExecutionData, {
+      uid: scenarioSuite.uid,
+      entryType: 'suite'
+    })
+  } else {
+    featureSuite.suites.push(scenarioSuite)
+  }
+}
+
+function createFeatureSuite(
+  ctx: CucumberLifecycleCtx,
+  featureUri: string,
+  featureName: string,
+  featureContent: string,
+  featureAbsPath: string,
+  scenarioName: string,
+  steps: Array<{ text: string }>
+): {
+  featureSuite: SuiteStats
+  scenarioLine: number
+  stepLines: number[]
+  stepKeywords: string[]
+} {
+  const featureSuite = ctx.suiteManager.getOrCreateSuite(
+    featureUri,
+    featureName,
+    featureUri,
+    []
+  )
+  ctx.suiteManager.markSuiteAsRunning(featureSuite)
+  const { featureLine, scenarioLine, stepLines, stepKeywords } =
+    parseCucumberScenario(
+      featureContent,
+      scenarioName,
+      steps.map((s) => s.text)
+    )
+  if (featureAbsPath && featureLine > 0) {
+    featureSuite.callSource = `${featureAbsPath}:${featureLine}`
+  }
+  return { featureSuite, scenarioLine, stepLines, stepKeywords }
+}
+
+function normalizeSteps(
+  pickleSteps: CucumberPickleStep[] | undefined
+): Array<{ text: string }> {
+  return (pickleSteps ?? []).map((s) => ({ text: s.text ?? '' }))
+}
+
+function captureFeatureSources(
+  ctx: CucumberLifecycleCtx,
+  paths: string[]
+): void {
+  for (const p of paths) {
+    ctx.sessionCapturer.captureSource(p).catch(() => {})
+  }
+}
+
+export async function initCucumberScenario(
+  ctx: CucumberLifecycleCtx,
+  browser: NightwatchBrowser,
+  pickle: CucumberPickle
+): Promise<void> {
+  await ctx.ensureSessionInitialized(browser)
+  const featureUri: string = pickle.uri ?? 'unknown.feature'
+  const scenarioName: string = pickle.name ?? 'Unknown Scenario'
+  const steps = normalizeSteps(pickle.steps)
+  const {
+    featureName,
+    featureContent,
+    featureAbsPath,
+    stepDefFiles,
+    capturedPaths
+  } = scanFeatureFile(featureUri)
+  captureFeatureSources(ctx, capturedPaths)
+  const { featureSuite, scenarioLine, stepLines, stepKeywords } =
+    createFeatureSuite(
+      ctx,
+      featureUri,
+      featureName,
+      featureContent,
+      featureAbsPath,
+      scenarioName,
+      steps
+    )
+  const scenarioSuite = buildCucumberScenarioSuite({
+    featureUri,
+    scenarioName,
+    featureName,
+    featureAbsPath,
+    stepDefFiles,
+    steps,
+    stepLines,
+    stepKeywords,
+    scenarioLine,
+    parentFeatureSuiteUid: featureSuite.uid,
+    recordAttempt: (uid, specFile) => ctx.recordAttempt(uid, specFile)
+  })
+  attachScenarioToFeature(ctx, featureSuite, scenarioSuite)
+  // The scenario is the `test` unit; its steps are the leaf metadata entries.
+  recordTestSliceBoundary(ctx, featureUri, scenarioSuite.uid)
+  ctx.setCurrentScenarioSuite(scenarioSuite)
+  ctx.setCurrentStep(null)
+  ctx.setCurrentTest(null)
+  ctx.testReporter.updateSuites()
+  ctx.wrapBrowserOnce(browser)
+  log.info(`🥒 Scenario: ${scenarioName}`)
+}
+
+export async function finalizeCucumberScenario(
+  ctx: CucumberLifecycleCtx,
+  _browser: NightwatchBrowser,
+  result: CucumberResult,
+  pickle: CucumberPickle | undefined
+): Promise<void> {
+  try {
+    const scenarioState = cucumberResultToTestState(result)
+    const scenario = ctx.getCurrentScenarioSuite()
+    if (scenario) {
+      const now = new Date()
+      const duration =
+        now.getTime() - (scenario.start?.getTime() ?? now.getTime())
+      scenario.state = scenarioState
+      scenario.end = now
+      scenario._duration = duration
+      // Stamp this attempt's real outcome so spec/session retention doesn't
+      // collapse to the retry-stable suite's last-overwritten state.
+      ctx.recordOutcome(scenario.uid, scenarioState)
+      closeOpenSteps(scenario, scenarioState, now)
+
+      const featureUri: string = pickle?.uri ?? 'unknown.feature'
+      ctx.testManager.markTestAsProcessed(featureUri, pickle?.name ?? '')
+
+      const featureSuite = ctx.suiteManager.getSuite(featureUri)
+      if (featureSuite) {
+        // Finalize is not called until all scenarios are done — just update state.
+        ctx.suiteManager.finalizeSuiteState(featureSuite)
+      }
+
+      ctx.incrementCount(scenarioState)
+      const icon = ctx.testIcon(scenarioState)
+      log.info(
+        `  ${icon} ${pickle?.name ?? 'Unknown'} (${(duration / 1000).toFixed(2)}s)`
+      )
+
+      ctx.testReporter.updateSuites()
+      ctx.setCurrentScenarioSuite(null)
+      ctx.setCurrentStep(null)
+      ctx.setCurrentTest(null)
+    }
+    // The trace capture, slice flush, and per-test artifacts need a live
+    // WebDriver session — by this hook (cucumber After order:-1) the browser is
+    // already quit. They run in captureCucumberScenarioBeforeQuit (order:1000,
+    // pre-quit); this hook keeps only the settled-outcome bookkeeping.
+  } catch (err) {
+    log.error(`Failed to finalize Cucumber scenario: ${errorMessage(err)}`)
+  }
+}
+
+/**
+ * Live-session work for a cucumber scenario — runs at the cucumber `After`
+ * `order:1000` hook, BEFORE Nightwatch quits the browser (its quit hook is
+ * `order:0`; `finalizeCucumberScenario` is `order:-1`, after quit, so it reads
+ * the settled outcome). Trace capture, the slice flush, and per-test artifacts
+ * all need a live WebDriver session — at finalize the session is gone and the
+ * flush bails, writing no zip. Trace test-state may be pre-outcome for a
+ * scenario that fails on a Nightwatch assertion (see CLAUDE.md known debt).
+ */
+export async function captureCucumberScenarioBeforeQuit(
+  ctx: CucumberLifecycleCtx,
+  browser: NightwatchBrowser,
+  result: CucumberResult
+): Promise<void> {
+  const scenario = ctx.getCurrentScenarioSuite()
+  try {
+    ctx.browserProxy?.closeUnrunWaits()
+    // Emit native asserts (assert.titleContains, …) while the session is live —
+    // Nightwatch's afterEach path skips the cucumber runner, so this is the only
+    // place scenario asserts get captured. drainNativeAssertCalls() is empty when
+    // captureAssertions is off. `currentTest` is undefined because a cucumber run
+    // installs Nightwatch's no-op SimplifiedReporter and never fills a results
+    // bag; each row's pass/fail comes from its own settled promise instead
+    // (`observedAssertOutcome`).
+    const assertCalls = ctx.browserProxy?.drainNativeAssertCalls() ?? []
+    if (assertCalls.length > 0) {
+      await captureNativeAssertions(
+        ctx.sessionCapturer,
+        browser,
+        undefined,
+        scenario?.uid,
+        assertCalls
+      )
+    }
+    await ctx.sessionCapturer.captureTraceAtTestEnd(browser)
+    flushTestSlice(ctx)
+    await ctx.emitTestArtifacts(
+      scenario?.uid,
+      cucumberResultToTestState(result) === TEST_STATE.FAILED
+    )
+  } catch (err) {
+    log.error(
+      `Failed to capture Cucumber scenario before quit: ${errorMessage(err)}`
+    )
+  }
+}
+
+export async function cucumberBeforeStep(
+  ctx: CucumberLifecycleCtx,
+  _browser: NightwatchBrowser,
+  pickleStep: CucumberPickleStep,
+  _pickle: CucumberPickle
+): Promise<void> {
+  const scenario = ctx.getCurrentScenarioSuite()
+  if (!scenario) {
+    return
+  }
+  // Reset per-step dedup tracking so commands in step N are never
+  // mistaken for retries of identically-signatured commands from step N-1.
+  ctx.browserProxy?.resetCommandTracking()
+
+  const stepText: string = pickleStep?.text ?? ''
+  const step = (scenario.tests as Array<MutStep | string>).find(
+    (t): t is MutStep =>
+      typeof t !== 'string' &&
+      (t.title?.endsWith(stepText) === true || t.title === stepText)
+  )
+  if (step) {
+    step.state = TEST_STATE.RUNNING
+    step.start = new Date()
+    step.end = null
+    ctx.setCurrentStep(step)
+    ctx.testReporter.updateSuites()
+  }
+}
+
+export async function cucumberAfterStep(
+  ctx: CucumberLifecycleCtx,
+  _browser: NightwatchBrowser,
+  result: CucumberResult,
+  pickleStep: CucumberPickleStep,
+  _pickle: CucumberPickle
+): Promise<void> {
+  const step = ctx.getCurrentStep() as MutStep | null
+  if (!step) {
+    return
+  }
+  const status = String(result?.status ?? 'UNKNOWN').toUpperCase()
+  const stepState: TestStats['state'] =
+    status === 'PASSED'
+      ? TEST_STATE.PASSED
+      : status === 'SKIPPED'
+        ? TEST_STATE.SKIPPED
+        : TEST_STATE.FAILED
+  step.state = stepState
+  step.end = new Date()
+  step._duration = Date.now() - (step.start?.getTime() ?? Date.now())
+  ctx.setCurrentStep(null)
+  ctx.testReporter.updateSuites()
+  void pickleStep
+}
+
+export async function cucumberBefore(
+  ctx: CucumberLifecycleCtx,
+  browser: NightwatchBrowser,
+  pickle: CucumberPickle
+): Promise<void> {
+  ctx.setCucumberRunner(true)
+  await initCucumberScenario(ctx, browser, pickle)
+}
+
+export async function cucumberAfter(
+  ctx: CucumberLifecycleCtx,
+  browser: NightwatchBrowser,
+  result: CucumberResult,
+  pickle: CucumberPickle
+): Promise<void> {
+  await finalizeCucumberScenario(ctx, browser, result, pickle)
+}

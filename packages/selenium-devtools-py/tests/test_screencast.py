@@ -1,0 +1,346 @@
+import os
+import shutil
+import tempfile
+import unittest
+
+from selenium_devtools.capturer import SessionCapturer
+from selenium_devtools.screencast import ScreencastRecorder
+
+from wire_contract import RecordingTransport
+
+# 16x16 PNG — a real decodable frame with even dimensions so libvpx/yuv420p can
+# actually encode a video (odd/1px dimensions make ffmpeg reject the stream).
+_PNG_FRAME = (
+    "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAEElEQVR4"
+    "nGNgGAWjYBTAAAADEAABPywr7AAAAABJRU5ErkJggg=="
+)
+
+
+def _stub_shots(*values):
+    """A screenshot fn returning each value in turn, then the last forever."""
+    seq = list(values)
+
+    def fn():
+        return seq.pop(0) if len(seq) > 1 else seq[0]
+
+    return fn
+
+
+class TestBuffering(unittest.TestCase):
+    def test_capture_buffers_frames_per_call(self):
+        # Frames are captured synchronously, one per capture(). start() arms the
+        # recorder and buffers nothing.
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=_stub_shots("a", "b", "c"))
+        rec.capture()
+        rec.capture()
+        self.assertGreaterEqual(len(rec.frames), 2)
+        self.assertTrue(all("data" in f and "timestamp" in f for f in rec.frames))
+
+    def test_capture_is_noop_after_stop(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "x")
+        rec.stop()
+        rec.stop()  # no raise
+        count_after_stop = len(rec.frames)
+        self.assertFalse(rec.capture())  # disarmed → no frame
+        self.assertEqual(len(rec.frames), count_after_stop)
+        self.assertFalse(rec.is_recording)
+
+    def test_stays_armed_when_seed_screenshot_fails(self):
+        # A failed seed (page still loading) must not disable the recorder — a
+        # later capture can still succeed. The old poll loop died on first miss.
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: None)
+        self.assertTrue(rec.is_recording)
+        self.assertEqual(rec.frames, [])
+
+    def test_transient_failure_does_not_stop_recording(self):
+        calls = {"n": 0}
+
+        def flaky():
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("session busy")
+            return "shot"
+
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=flaky)  # arms only, takes no frame
+        self.assertTrue(rec.capture())  # call 1 succeeds
+        self.assertFalse(rec.capture())  # call 2 raises → skipped, not fatal
+        self.assertTrue(rec.is_recording)  # still armed
+        self.assertTrue(rec.capture())  # call 3 succeeds
+        self.assertEqual(len(rec.frames), 2)
+
+    # The recorder is armed on the first command, BEFORE that command runs, so
+    # on a fresh driver the page is still about:blank. A seed frame there is a
+    # page the test never saw, and the encoder holds each frame for its real
+    # inter-frame duration — so it played as several seconds of blank across the
+    # opening navigation.
+    def test_start_buffers_no_frame_of_the_page_before_the_first_command(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "about-blank")
+
+        self.assertTrue(rec.is_recording)
+        self.assertEqual(rec.frames, [])
+
+    def test_the_first_frame_is_the_first_commands_screenshot(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "about-blank")
+        rec.add_frame("first-real-page")
+
+        self.assertEqual([f["data"] for f in rec.frames], ["first-real-page"])
+
+    def test_duration_zero_below_two_frames(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "only")
+        rec.stop()
+        self.assertEqual(rec.duration, 0)
+
+    def test_uses_driver_screenshot_when_no_fn(self):
+        class Driver:
+            def get_screenshot_as_base64(self):
+                return "shot"
+
+        # Bound to a name on purpose: the recorder holds the driver WEAKLY, so
+        # a temporary would be collected the moment start() returned and the
+        # capture below would find nothing. A real run holds its own driver.
+        driver = Driver()
+        rec = ScreencastRecorder()
+        rec.start(driver)
+        self.assertTrue(rec.is_recording)
+        self.assertEqual(rec.frames, [])  # armed, nothing buffered yet
+
+        rec.capture()  # the driver's own method is what gets called
+        self.assertEqual([f["data"] for f in rec.frames], ["shot"])
+
+    def test_start_skips_when_driver_has_no_screenshot(self):
+        rec = ScreencastRecorder()
+        rec.start(object())  # no get_screenshot_as_base64
+        self.assertFalse(rec.is_recording)
+
+    def test_add_frame_buffers_precaptured_screenshot(self):
+        # add_frame reuses a screenshot the caller already took (for the command
+        # entry) instead of paying for a second round-trip.
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "seed")
+        self.assertTrue(rec.add_frame("reused"))
+        self.assertEqual(rec.frames[-1]["data"], "reused")
+
+    def test_add_frame_noop_when_disarmed_or_empty(self):
+        rec = ScreencastRecorder()
+        self.assertFalse(rec.add_frame("x"))  # not started
+        rec.start(driver=None, screenshot_fn=lambda: "seed")
+        self.assertFalse(rec.add_frame(None))  # empty payload
+        self.assertFalse(rec.add_frame(""))
+
+
+class TestFinalize(unittest.TestCase):
+    def test_finalize_empty_frames_returns_none(self):
+        rec = ScreencastRecorder()
+        self.assertIsNone(rec.finalize("sess-1"))
+
+    # Removing the pre-command seed frame left a one-command session holding a
+    # single frame. The floor was 2, which only ever passed because that seed
+    # padded it — so a short run would have lost its artifact entirely. core's
+    # `finalizeScreencast` defaults to 1 and Python now matches.
+    def test_the_default_floor_keeps_a_single_frame_session(self):
+        from selenium_devtools.constants import SCREENCAST_MIN_FRAMES
+
+        self.assertEqual(SCREENCAST_MIN_FRAMES, 1)
+
+    def test_finalize_below_min_frames_returns_none(self):
+        rec = ScreencastRecorder()
+        rec.start(driver=None, screenshot_fn=lambda: "one")
+        rec.stop()
+        # Only the seed frame captured → below the 2-frame minimum.
+        self.assertIsNone(rec.finalize("sess-1", min_frames=2))
+
+    def test_finalize_skips_encode_without_ffmpeg(self):
+        rec = ScreencastRecorder(ffmpeg_path=None)
+        rec._ffmpeg = None  # force "ffmpeg unavailable"
+        rec._frames = [{"data": "a", "timestamp": 1}, {"data": "b", "timestamp": 2}]
+        self.assertIsNone(rec.finalize("sess-1"))
+
+
+class TestCapturerSend(unittest.TestCase):
+    def test_send_screencast_builds_scoped_frame(self):
+        cap = SessionCapturer(RecordingTransport())
+        cap.session_id = "sess-9"
+        cap.send_screencast(
+            video_path="/tmp/v.webm", video_file="v.webm",
+            frame_count=5, duration=1000, start_time=42,
+        )
+        frames_sent = [d for s, d in cap._tx.sent if s == "screencast"]
+        self.assertEqual(len(frames_sent), 1)
+        info = frames_sent[0]
+        self.assertEqual(info["sessionId"], "sess-9")
+        self.assertEqual(info["videoFile"], "v.webm")
+        self.assertEqual(info["frameCount"], 5)
+        self.assertEqual(info["startTime"], 42)
+
+    def test_send_screencast_noop_without_session(self):
+        cap = SessionCapturer(RecordingTransport())
+        cap.send_screencast(
+            video_path="/tmp/v.webm", video_file="v.webm",
+            frame_count=5, duration=1000, start_time=42,
+        )
+        self.assertEqual(cap._tx.sent, [])
+
+    def test_screencast_frame_carries_videopath_for_backend_registry(self):
+        # The backend intercepts scope=='screencast', registers `videoPath`, and
+        # serves that file at /api/video/:sessionId — so the frame MUST carry
+        # videoPath alongside sessionId.
+        cap = SessionCapturer(RecordingTransport())
+        cap.session_id = "sess-9"
+        cap.send_screencast(
+            video_path="/abs/v.webm", video_file="v.webm",
+            frame_count=5, duration=1000, start_time=42,
+        )
+        info = [d for s, d in cap._tx.sent if s == "screencast"][0]
+        self.assertEqual(info["videoPath"], "/abs/v.webm")
+        self.assertEqual(info["sessionId"], "sess-9")
+
+
+class TestScreencastDeliveryEndToEnd(unittest.TestCase):
+    """finalize → send_screencast must yield a frame pointing at a real file."""
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg not on PATH")
+    def test_finalize_encodes_and_delivers_frame(self):
+        out_dir = tempfile.mkdtemp(prefix="screencast-test-")
+        self.addCleanup(lambda: shutil.rmtree(out_dir, ignore_errors=True))
+        rec = ScreencastRecorder()
+        rec._frames = [
+            {"data": _PNG_FRAME, "timestamp": 1000},
+            {"data": _PNG_FRAME, "timestamp": 1200},
+        ]
+        info = rec.finalize("sess-7", output_dir=out_dir)
+        self.assertIsNotNone(info)
+        self.assertTrue(os.path.isfile(info["video_path"]))
+        self.assertEqual(info["frame_count"], 2)
+
+        cap = SessionCapturer(RecordingTransport())
+        cap.session_id = "sess-7"
+        cap.send_screencast(**info)
+        frame = [d for s, d in cap._tx.sent if s == "screencast"][0]
+        # videoPath is what the backend reads off disk to serve the video.
+        self.assertTrue(os.path.isfile(frame["videoPath"]))
+        self.assertEqual(frame["sessionId"], "sess-7")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class TestTheBufferIsBounded(unittest.TestCase):
+    """Per-command capture is bounded by the test's own length — one frame per
+    command. A pushed stream is not, so the recorder caps what it holds."""
+
+    def _armed(self, cap):
+        rec = ScreencastRecorder(max_frames=cap)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        return rec
+
+    def test_the_buffer_stops_growing_at_the_cap(self):
+        rec = self._armed(8)
+
+        for i in range(200):
+            rec.add_frame(f"frame-{i}")
+
+        self.assertLessEqual(len(rec.frames), 8)
+
+    def test_the_whole_run_stays_covered_not_just_its_end(self):
+        # The property that matters, and the one endpoints alone cannot check:
+        # truncating the tail still leaves frame-0 and whatever arrived since the
+        # last decimation, so it LOOKS like both ends survived. What separates a
+        # video of the run from a video of its last moments is whether anything
+        # from the middle is still there.
+        rec = self._armed(6)
+
+        for i in range(40):
+            rec.add_frame(f"frame-{i}")
+        kept = [int(f["data"].split("-")[1]) for f in rec.frames]
+
+        self.assertEqual(kept[0], 0)
+        middle = [k for k in kept if 10 <= k <= 30]
+        self.assertTrue(middle, f"nothing from the middle of the run: {kept}")
+
+    def test_the_end_of_a_long_run_survives(self):
+        # At the real cap the stride only starts thinning after the buffer is
+        # full, so the newest frame — the state the run ended in — is kept.
+        rec = self._armed(2000)
+
+        for i in range(12000):
+            rec.add_frame(f"frame-{i}")
+        kept = [int(f["data"].split("-")[1]) for f in rec.frames]
+
+        self.assertEqual(kept[0], 0)
+        self.assertEqual(kept[-1], 11999)
+        self.assertLessEqual(len(kept), 2000)
+
+    def test_a_run_under_the_cap_keeps_every_frame_in_order(self):
+        rec = self._armed(100)
+
+        for i in range(10):
+            rec.add_frame(f"frame-{i}")
+
+        self.assertEqual(
+            [f["data"] for f in rec.frames], [f"frame-{i}" for i in range(10)]
+        )
+
+
+class TestTheVideoEndsWhereTheRunDid(unittest.TestCase):
+    """Thinning the incoming frames keeps the buffer's coverage even, but it also
+    means the last frame offered is only kept when the run happens to end on a
+    stride position. The end is what a failure is usually inspected for, so it
+    cannot be left to that coincidence."""
+
+    def _run(self, cap, count):
+        rec = ScreencastRecorder(max_frames=cap)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(count):
+            rec.add_frame(f"frame-{i}")
+        rec.stop()
+        return [int(f["data"].split("-")[1]) for f in rec.frames]
+
+    def test_a_run_ending_between_stride_positions_still_ends_on_its_last_frame(self):
+        # 41 frames at a cap of 6 leaves the final frame off a stride position,
+        # which used to discard it and end the video on an already-stale state.
+        for cap, count in ((6, 41), (8, 201), (6, 40), (2000, 11997)):
+            with self.subTest(cap=cap, count=count):
+                kept = self._run(cap, count)
+                self.assertEqual(kept[-1], count - 1)
+                self.assertLessEqual(len(kept), cap + 1)
+
+    def test_the_run_stays_covered_as_well_as_ending_correctly(self):
+        # Keeping the tail must not come at the cost of the spread — otherwise
+        # the fix trades one end of the video for the middle of it.
+        kept = self._run(6, 41)
+
+        self.assertEqual(kept[0], 0)
+        self.assertTrue(
+            [k for k in kept if 10 <= k <= 30], f"nothing from the middle: {kept}"
+        )
+
+    def test_stopping_twice_does_not_duplicate_the_final_frame(self):
+        rec = ScreencastRecorder(max_frames=6)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(41):
+            rec.add_frame(f"frame-{i}")
+
+        rec.stop()
+        rec.stop()
+        kept = [f["data"] for f in rec.frames]
+
+        self.assertEqual(kept.count("frame-40"), 1)
+
+    def test_a_run_that_never_hit_the_cap_is_unchanged_by_stopping(self):
+        rec = ScreencastRecorder(max_frames=100)
+        rec.start(None, screenshot_fn=lambda: _PNG_FRAME)
+        for i in range(10):
+            rec.add_frame(f"frame-{i}")
+        before = [f["data"] for f in rec.frames]
+
+        rec.stop()
+
+        self.assertEqual([f["data"] for f in rec.frames], before)

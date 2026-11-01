@@ -1,0 +1,94 @@
+/**
+ * Example + config-sweep harness for @wdio/selenium-devtools (Mocha runner).
+ *
+ * Walk the live/trace ladder by editing ONLY the DevTools.configure({...})
+ * block below. The suite carries a passing pair, an always-failing test (for
+ * retain-on-failure), a wait that times out (a failed wait row), and a flaky
+ * fail-then-pass test with a per-test retry (for on-first-retry / attempt
+ * capture).
+ *
+ * Run from the package root:  pnpm example:mocha
+ */
+
+import { strict as assert } from 'node:assert'
+import { Builder, By, until } from 'selenium-webdriver'
+import { DevTools } from '@wdio/selenium-devtools'
+
+// ── Config ladder — change this block per rung ──────────────────────────────
+// 1 live:    { mode: 'live' }
+// 2 trace:   { mode: 'trace' }
+// 3 per-test:{ mode: 'trace', traceGranularity: 'test' }
+// 4 fail:    { mode: 'trace', traceGranularity: 'test', tracePolicy: 'retain-on-failure' }
+// 5 retry:   { mode: 'trace', traceGranularity: 'test', tracePolicy: 'on-first-retry' }
+DevTools.configure({
+  // Trace by default (regen); DEVTOOLS_MODE=live flips to live for live-parity recording.
+  mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
+  traceGranularity: 'session',
+  tracePolicy: 'retain-on-first-failure',
+  headless: true
+})
+
+const BASE_URL = (
+  process.env.DEVTOOLS_EXAMPLE_BASE_URL || 'https://the-internet.herokuapp.com'
+).replace(/\/+$/, '')
+const LOGIN_URL = `${BASE_URL}/login`
+
+// Survives Mocha's in-process retry so the flaky test fails once, then passes.
+let flakyAttempts = 0
+
+describe('selenium-devtools smoke test', function () {
+  let driver
+
+  before(async function () {
+    driver = await new Builder().forBrowser('chrome').build()
+  })
+
+  after(async function () {
+    if (driver) {
+      await driver.quit()
+    }
+  })
+
+  it('loads the login page and reads the heading', async function () {
+    await driver.get(LOGIN_URL)
+    await driver.sleep(1500)
+    const heading = await driver.wait(until.elementLocated(By.css('h2')), 10000)
+    const text = await heading.getText()
+    assert.equal(text, 'Login Page')
+  })
+
+  it('navigates and reads the page title', async function () {
+    await driver.get(BASE_URL)
+    await driver.sleep(1500)
+    const title = await driver.getTitle()
+    assert.match(title, /The Internet/)
+  })
+
+  it('fails on a wrong heading (retain-on-failure target)', async function () {
+    await driver.get(LOGIN_URL)
+    await driver.sleep(1000)
+    const heading = await driver.wait(until.elementLocated(By.css('h2')), 10000)
+    const text = await heading.getText()
+    assert.equal(text, 'This Is Not The Heading')
+  })
+
+  it('times out waiting for an element the page never renders (failed wait target)', async function () {
+    await driver.get(LOGIN_URL)
+    await driver.wait(
+      until.elementLocated(By.css('#devtools-never-rendered')),
+      1000
+    )
+  })
+
+  it('flaky: fails the first attempt, then passes (retry target)', async function () {
+    this.retries(1)
+    await driver.get(LOGIN_URL)
+    await driver.sleep(1000)
+    flakyAttempts += 1
+    if (flakyAttempts === 1) {
+      throw new Error('intentional first-attempt failure — should retry')
+    }
+    const title = await driver.getTitle()
+    assert.match(title, /The Internet/)
+  })
+})

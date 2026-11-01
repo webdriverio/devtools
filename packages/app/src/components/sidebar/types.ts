@@ -1,0 +1,52 @@
+export interface TestEntry {
+  uid: string
+  state?: string
+  label: string
+  callSource?: string
+  children: TestEntry[]
+  type: 'suite' | 'test'
+  specFile?: string
+  fullTitle?: string
+  featureFile?: string
+  featureLine?: number
+  suiteType?: string
+}
+
+export type { RunCapabilities, RunnerOptions } from '@wdio/devtools-shared'
+
+export interface TestRunDetail {
+  uid: string
+  entryType: 'suite' | 'test'
+  specFile?: string
+  fullTitle?: string
+  label?: string
+  callSource?: string
+  configFile?: string
+  featureFile?: string
+  featureLine?: number
+  suiteType?: string
+  preserveBaseline?: boolean
+}
+
+import type { TestStatus } from '@wdio/devtools-shared'
+
+/** Detail for the `app-status-filter` event: the single status the tree is
+ *  narrowed to, or null when no status filter is active. */
+export interface StatusFilterDetail {
+  status: TestStatus | null
+}
+
+/**
+ * Enum-style accessor for the canonical TestStatus values. Use the
+ * shared TestStatus type for type annotations; this object is for
+ * readable value comparisons (`state === TestState.PASSED`).
+ */
+export const TestState = {
+  PASSED: 'passed',
+  FAILED: 'failed',
+  RUNNING: 'running',
+  SKIPPED: 'skipped',
+  PENDING: 'pending'
+} as const satisfies Record<string, TestStatus>
+
+export type { TestStatus } from '@wdio/devtools-shared'

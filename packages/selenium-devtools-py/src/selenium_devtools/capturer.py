@@ -1,0 +1,214 @@
+"""Session capturer — the Python analogue of core's ``SessionCapturerBase``.
+
+Owns the transport, a per-session command counter, and the normalize→send
+path. Deliberately thin: it turns already-captured data into wire frames and
+pushes them. No driver knowledge lives here (that's instrumentation.py); no
+post-processing lives here (that's the backend's job, per the architecture).
+"""
+
+from __future__ import annotations
+
+import secrets
+import threading
+from typing import Any, List, Optional, Protocol
+
+from . import frames, rerun
+from ._contract import (
+    SCOPE_COMMANDS,
+    SCOPE_CONSOLE_LOGS,
+    SCOPE_METADATA,
+    SCOPE_MUTATIONS,
+    SCOPE_NETWORK_REQUESTS,
+    SCOPE_REPLACE_COMMAND,
+    SCOPE_SCREENCAST,
+    SCOPE_SOURCES,
+    SCOPE_SUITES,
+)
+from .types import CommandLog, SuiteStats, Viewport
+from .utils import now_ms, to_jsonable
+
+
+class Transport(Protocol):
+    connected: bool
+
+    def send_json(self, scope: str, data: Any) -> bool: ...
+    def close(self) -> None: ...
+
+
+class SessionCapturer:
+    def __init__(self, transport: Transport) -> None:
+        self._tx = transport
+        # Ids must not repeat across processes sharing a dashboard (xdist, reruns); core's range, under 2**53.
+        self._command_counter = secrets.randbelow(2**32) * 2**20
+        self._lock = threading.Lock()
+        self._metadata_sent: set = set()  # session ids already announced
+        self.session_id: Optional[str] = None
+        #: The test every command captured from now on belongs to. Set by
+        #: whichever runner integration knows about tests; None for a plain
+        #: script, whose commands belong to the run rather than to a test.
+        self.test_uid: Optional[str] = None
+
+    # ── metadata ───────────────────────────────────────────────────────────────
+
+    def ensure_metadata(
+        self,
+        session_id: str,
+        capabilities: Optional[dict],
+        url: Optional[str],
+        viewport: Optional[Viewport] = None,
+    ) -> None:
+        """Announce a session once. Keyed by id, not a boolean: one process can
+        drive several sessions (a function-scoped pytest fixture makes a driver
+        per test), and the UI keys metadata by sessionId so each one is kept
+        rather than overwriting the first."""
+        if not session_id or session_id in self._metadata_sent:
+            return
+        self._metadata_sent.add(session_id)
+        self.session_id = session_id
+        self._tx.send_json(
+            SCOPE_METADATA,
+            frames.metadata(
+                session_id,
+                to_jsonable(capabilities or {}),
+                url,
+                run_options=rerun.run_options(),
+                viewport=viewport,
+            ),
+        )
+
+    # ── commands ───────────────────────────────────────────────────────────────
+
+    def capture_command(
+        self,
+        *,
+        command: str,
+        args: Any,
+        result: Any = None,
+        error: Optional[BaseException] = None,
+        start_time: int,
+        call_source: Optional[str],
+        screenshot: Optional[str] = None,
+        selector: Optional[str] = None,
+        replaces: Optional[CommandLog] = None,
+        parent_id: Optional[int] = None,
+        timestamp: Optional[int] = None,
+    ) -> CommandLog:
+        """Report a command, or with ``replaces`` swap that row for this one,
+        keeping its id, which is how a wait's repeated poll stays one row.
+        ``timestamp`` defaults to now, the completion stamp; a running wait
+        passes its start."""
+        if replaces is not None:
+            command_id = replaces["id"]
+        else:
+            with self._lock:
+                command_id = self._command_counter
+                self._command_counter += 1
+        norm_args = args if isinstance(args, list) else ([] if args is None else [args])
+        entry = frames.command_log(
+            command=command,
+            args=to_jsonable(norm_args),
+            result=to_jsonable(result),
+            error=error,
+            timestamp=now_ms() if timestamp is None else timestamp,
+            start_time=start_time,
+            call_source=call_source,
+            command_id=command_id,
+            screenshot=screenshot,
+            selector=selector,
+            test_uid=self.test_uid,
+            parent_id=parent_id,
+        )
+        if replaces is not None:
+            self.send_replace_command(replaces["timestamp"], entry)
+        else:
+            self._tx.send_json(SCOPE_COMMANDS, [entry])
+        # Returned so a caller that learns more about the command AFTER it was
+        # reported — a navigation's timings, which only the page can answer for
+        # — can enrich this exact row and replace it.
+        return entry
+
+    def send_replace_command(self, old_timestamp: int, entry: CommandLog) -> None:
+        """Swap an already-reported row for an enriched copy of itself.
+
+        The dashboard matches the row's `id` first and falls back to this
+        timestamp, so the row being replaced must keep its id.
+        """
+        self._tx.send_json(
+            SCOPE_REPLACE_COMMAND, {"oldTimestamp": old_timestamp, "command": entry}
+        )
+
+    # ── console / network ────────────────────────────────────────────────────────
+
+    def capture_console(self, level: str, args: List[Any], source: str = "browser") -> None:
+        self._tx.send_json(
+            SCOPE_CONSOLE_LOGS,
+            [frames.console_log(level=level, args=to_jsonable(args),
+                                timestamp=now_ms(), source=source)],
+        )
+
+    def capture_network(self, **kwargs: Any) -> None:
+        self._tx.send_json(SCOPE_NETWORK_REQUESTS, [frames.network_request(**kwargs)])
+
+    # ── screencast ─────────────────────────────────────────────────────────────
+
+    def send_screencast(
+        self,
+        *,
+        video_path: str,
+        video_file: str,
+        frame_count: int,
+        duration: int,
+        start_time: Optional[int],
+        session_id: Optional[str] = None,
+    ) -> None:
+        # Keyed to the session the frames came from. `session_id` is passed
+        # explicitly when finalizing a session that has already been replaced,
+        # so the video is not filed under whichever session is current.
+        target = session_id or self.session_id
+        if not target:
+            return
+        self._tx.send_json(
+            SCOPE_SCREENCAST,
+            frames.screencast(
+                session_id=target,
+                video_path=video_path,
+                video_file=video_file,
+                frame_count=frame_count,
+                duration=duration,
+                start_time=start_time,
+            ),
+        )
+
+    # ── sources / mutations ──────────────────────────────────────────────────────
+
+    def send_sources(self, sources: dict) -> None:
+        """Send a ``{absolute_path: source_text}`` map — the Source tab shows the
+        file a command's ``callSource`` points at. Empty map is a no-op."""
+        if sources:
+            self._tx.send_json(SCOPE_SOURCES, sources)
+
+    def send_mutations(self, mutations: List[Any]) -> None:
+        """Forward DOM mutations captured by the injected browser script
+        (packages/script) — the UI renders them into the snapshot iframe."""
+        if mutations:
+            self._tx.send_json(SCOPE_MUTATIONS, mutations)
+
+    def send_network_requests(self, requests: List[Any]) -> None:
+        """Forward network entries the injected browser script captured (its
+        patched fetch/XHR calls and the document's Resource Timing), already in
+        the wire shape, so they go as built rather than through `frames`."""
+        if requests:
+            self._tx.send_json(SCOPE_NETWORK_REQUESTS, requests)
+
+    # ── suites ───────────────────────────────────────────────────────────────────
+
+    def send_suites(self, suites: List[SuiteStats]) -> None:
+        # The UI expects Record<uid, SuiteStats>[] — one single-key record per
+        # suite — mirroring core's TestReporterBase.sendUpstream. A plain array
+        # of suites won't render. Empty-payload guard matches the JS behavior.
+        payload = [{s["uid"]: s} for s in suites if s.get("uid")]
+        if payload:
+            self._tx.send_json(SCOPE_SUITES, payload)
+
+    def close(self) -> None:
+        self._tx.close()

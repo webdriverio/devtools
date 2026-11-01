@@ -1,0 +1,521 @@
+import fs from 'node:fs'
+
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest
+} from 'fastify'
+import staticServer from '@fastify/static'
+import rateLimit from '@fastify/rate-limit'
+import websocket from '@fastify/websocket'
+import getPort from 'get-port'
+import logger from '@wdio/logger'
+import { WebSocket } from 'ws'
+
+import { getCollectorSource, getDevtoolsApp } from './utils.js'
+import { DEFAULT_PORT } from './constants.js'
+import { testRunner } from './runner.js'
+import { baselineStore } from './baselineStore.js'
+import { createWorkerMessageHandler } from './worker-message-handler.js'
+import { resolveByteRange } from './video-range.js'
+import { registerTraceRoutes, type TraceServe } from './trace-routes.js'
+import {
+  BASELINE_API,
+  BASELINE_WS_SCOPE,
+  COLLECTOR_API,
+  COLLECTOR_CONTENT_TYPE,
+  ELEMENT_SCRIPTS_API,
+  ELEMENT_SCRIPTS_CONTENT_TYPE,
+  buildElementScripts,
+  buildPageScripts,
+  isTestRunnerId,
+  PAGE_SCRIPTS_API,
+  PAGE_SCRIPTS_CONTENT_TYPE,
+  WORKER_WS_QUERY,
+  WS_PATHS,
+  WS_SCOPE,
+  type BaselinePreserveRequest,
+  type BaselineClearRequest,
+  type BaselineGetParams,
+  type BaselineGetQuery,
+  type BaselineSavedWsPayload,
+  type BaselineClearedWsPayload,
+  type RunnerRequestBody,
+  type SocketMessage,
+  dashboardSocketSource,
+  playerCsp
+} from '@wdio/devtools-shared'
+
+let server: FastifyInstance | undefined
+
+/** With `trace` or `traceRun` set, the server runs in trace-serve mode for
+ *  `pnpm show-trace` and no worker ever connects. */
+interface DevtoolsBackendOptions extends TraceServe {
+  port?: number
+  hostname?: string
+}
+
+const log = logger('@wdio/devtools-backend')
+const clients = new Set<WebSocket>()
+
+// Notify the worker when a UI client connects so the plugin can unblock
+// Builder.build() instead of finishing the run before the dashboard appears.
+//
+// `parentWorkerSocket` is the long-lived worker (the original test runner
+// holding the keep-alive on shutdown). `workerSocket` tracks whichever worker
+// most recently connected — typically a rerun child while it runs. Outbound
+// signals like `clientDisconnected` go to the PARENT, otherwise a closed
+// rerun-child leaves the parent unreachable and `clientDisconnected` is lost.
+let workerSocket: WebSocket | undefined
+let parentWorkerSocket: WebSocket | undefined
+
+// Run the accumulated state belongs to. Compared against each connecting
+// worker's `runId` so a new spec's worker is told apart from a new run.
+let activeRunId: string | undefined
+
+// sessionId → absolute path of the encoded .webm; queried by /api/video/:sessionId.
+const videoRegistry = new Map<string, string>()
+
+// Replay buffer for clients connecting after the worker has already streamed.
+// Required for plugins where the dashboard window spawns asynchronously and
+// may attach after a fast run has already completed.
+const MESSAGE_BUFFER_LIMIT = 10000
+const messageBuffer: string[] = []
+
+export function broadcastToClients(message: string) {
+  messageBuffer.push(message)
+  if (messageBuffer.length > MESSAGE_BUFFER_LIMIT) {
+    messageBuffer.shift()
+  }
+  clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message)
+    }
+  })
+}
+
+function replayBufferedMessages(socket: WebSocket) {
+  for (const msg of messageBuffer) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(msg)
+    }
+  }
+}
+
+function serveVideo(
+  sessionId: string,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const videoPath = videoRegistry.get(sessionId)
+  if (!videoPath) {
+    return reply.code(404).send({ error: 'Video not found' })
+  }
+  if (!fs.existsSync(videoPath)) {
+    return reply.code(404).send({ error: 'Video file missing from disk' })
+  }
+  const total = fs.statSync(videoPath).size
+  reply.header('Content-Type', 'video/webm')
+  // Range support is what makes the <video> seekable — without a 206 the
+  // browser plays linearly but `video.seekable` stays empty and any
+  // currentTime set snaps back to 0. The scrubber/markers depend on it.
+  reply.header('Accept-Ranges', 'bytes')
+
+  const range = resolveByteRange(request.headers.range, total)
+  if (range.kind === 'unsatisfiable') {
+    return reply.code(416).header('Content-Range', `bytes */${total}`).send()
+  }
+  if (range.kind === 'full') {
+    reply.header('Content-Length', total)
+    return reply.send(fs.createReadStream(videoPath))
+  }
+  const { start, end } = range
+  return reply
+    .code(206)
+    .header('Content-Range', `bytes ${start}-${end}/${total}`)
+    .header('Content-Length', end - start + 1)
+    .send(fs.createReadStream(videoPath, { start, end }))
+}
+
+async function handleTestRun(
+  body: RunnerRequestBody,
+  host: string,
+  port: number,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  if (!body?.uid || !body.entryType) {
+    return reply.code(400).send({ error: 'Invalid run payload' })
+  }
+  // Logged through fastify so it survives a config `logLevel` that silences
+  // @wdio/logger: a rerun that filters to nothing reports only "spec skipped",
+  // and these fields are what decide the filter.
+  reply.log.info(
+    `run ${body.entryType} uid=${body.uid} framework=${body.framework} spec=${body.specFile} title=${JSON.stringify(body.fullTitle)}`
+  )
+  // Broadcast a clear so popouts (which only see WS events) wipe too.
+  // `runStart` says this clear is a run beginning rather than one entry
+  // resetting mid-run, which the receiver cannot tell from the uid alone.
+  broadcastToClients(
+    JSON.stringify({
+      scope: WS_SCOPE.clearExecutionData,
+      data: { uid: body.uid, entryType: body.entryType, runStart: true }
+    })
+  )
+  // Plain Rerun hides the Compare tab by dropping all baselines.
+  if (!body.preserveBaseline) {
+    const clearedUids = baselineStore.clearAll()
+    for (const testUid of clearedUids) {
+      broadcastToClients(
+        JSON.stringify({
+          scope: BASELINE_WS_SCOPE.cleared,
+          data: { testUid }
+        })
+      )
+    }
+  }
+  try {
+    await testRunner.run({ ...body, devtoolsHost: host, devtoolsPort: port })
+    return reply.send({ ok: true })
+  } catch (error) {
+    log.error(`Failed to start test run: ${(error as Error).message}`)
+    return reply.code(500).send({ error: (error as Error).message })
+  }
+}
+
+function registerTestRoutes(
+  s: FastifyInstance,
+  host: string,
+  port: number
+): void {
+  s.post(
+    '/api/tests/run',
+    (request: FastifyRequest<{ Body: RunnerRequestBody }>, reply) =>
+      handleTestRun(request.body, host, port, reply)
+  )
+
+  s.post('/api/tests/stop', async (_request, reply) => {
+    testRunner.stop()
+    broadcastTestStopped()
+    reply.send({ ok: true })
+  })
+
+  testRunner.onEarlyExit((reason) => broadcastTestStopped(reason))
+}
+
+function broadcastTestStopped(reason?: string): void {
+  const message: SocketMessage<'testStopped'> = {
+    scope: WS_SCOPE.testStopped,
+    data: {
+      stopped: true,
+      timestamp: Date.now(),
+      ...(reason ? { reason } : {})
+    }
+  }
+  broadcastToClients(JSON.stringify(message))
+}
+
+async function handleBaselinePreserve(
+  body: Partial<BaselinePreserveRequest>,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  const { testUid, scope } = body || {}
+  if (!testUid || (scope !== 'test' && scope !== 'suite')) {
+    return reply.code(400).send({
+      error: 'Invalid preserve payload: testUid and scope required'
+    })
+  }
+  const attempt = baselineStore.preserve(testUid, scope)
+  if (!attempt) {
+    return reply
+      .code(409)
+      .send({ error: 'No captured data for the requested uid' })
+  }
+  const payload: BaselineSavedWsPayload = { testUid, attempt }
+  broadcastToClients(
+    JSON.stringify({ scope: BASELINE_WS_SCOPE.saved, data: payload })
+  )
+  return reply.send({ ok: true, attempt })
+}
+
+async function handleBaselineClear(
+  body: Partial<BaselineClearRequest>,
+  reply: FastifyReply
+): Promise<FastifyReply> {
+  const { testUid } = body || {}
+  if (!testUid) {
+    return reply.code(400).send({ error: 'testUid required' })
+  }
+  const removed = baselineStore.clear(testUid)
+  if (removed) {
+    const payload: BaselineClearedWsPayload = { testUid }
+    broadcastToClients(
+      JSON.stringify({ scope: BASELINE_WS_SCOPE.cleared, data: payload })
+    )
+  }
+  return reply.send({ ok: true, removed })
+}
+
+function registerBaselineRoutes(s: FastifyInstance): void {
+  s.post(
+    BASELINE_API.preserve,
+    (
+      request: FastifyRequest<{ Body: Partial<BaselinePreserveRequest> }>,
+      reply
+    ) => handleBaselinePreserve(request.body, reply)
+  )
+  s.post(
+    BASELINE_API.clear,
+    (request: FastifyRequest<{ Body: Partial<BaselineClearRequest> }>, reply) =>
+      handleBaselineClear(request.body, reply)
+  )
+  s.get(
+    BASELINE_API.get,
+    async (
+      request: FastifyRequest<{
+        Params: BaselineGetParams
+        Querystring: BaselineGetQuery
+      }>,
+      reply
+    ) => {
+      const { testUid } = request.params
+      const scope = request.query.scope === 'suite' ? 'suite' : 'test'
+      return reply.send(baselineStore.getPair(testUid, scope))
+    }
+  )
+}
+
+function handleClientWsClose(socket: WebSocket): void {
+  clients.delete(socket)
+  // Last dashboard window closed — tell the worker so it can wind down. Lets
+  // the user close Chrome to end an interactive review session under any
+  // runner. Route to the PARENT worker — it owns the keep-alive + shutdown
+  // handler. The `workerSocket` ref may point at a rerun child that's about
+  // to exit; falling back to `parentWorkerSocket` handles that (and a fresh
+  // post-rerun click before the child fully closes).
+  const target =
+    parentWorkerSocket?.readyState === WebSocket.OPEN
+      ? parentWorkerSocket
+      : workerSocket?.readyState === WebSocket.OPEN
+        ? workerSocket
+        : undefined
+  if (clients.size === 0 && target) {
+    target.send(
+      JSON.stringify({ scope: WS_SCOPE.clientDisconnected, data: {} })
+    )
+  }
+}
+
+function registerClientWebSocket(s: FastifyInstance): void {
+  s.get(
+    WS_PATHS.client,
+    { websocket: true },
+    (socket: WebSocket, _req: FastifyRequest) => {
+      log.info(
+        `client connected (replaying ${messageBuffer.length} buffered message(s))`
+      )
+      replayBufferedMessages(socket)
+      clients.add(socket)
+      socket.on('close', () => handleClientWsClose(socket))
+      if (workerSocket?.readyState === WebSocket.OPEN) {
+        workerSocket.send(
+          JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} })
+        )
+      }
+    }
+  )
+}
+
+function registerWorkerWebSocket(s: FastifyInstance): void {
+  s.get(
+    WS_PATHS.worker,
+    { websocket: true },
+    (socket: WebSocket, req: FastifyRequest) => {
+      // Don't drop the message buffer for rerun-child connects (the dashboard
+      // tree dedupes by uid and stale state must survive). Same applies to
+      // baselineStore.activeRun — keep it across reruns so Preserve & Rerun on
+      // a different failed test still finds data; #updateNode handles window
+      // expansion across reruns of the same test.
+      const isRerunChild = testRunner.consumeRerunChildFlag()
+      const query = req.query as { reconnect?: string; runId?: string }
+      // A mid-run session-change reconnect (e.g. after `browser.end()`) reopens
+      // this socket; keep the accumulated run state so earlier tests' commands
+      // survive for Preserve & Rerun instead of being wiped.
+      const isReconnect = query?.[WORKER_WS_QUERY.reconnect] === '1'
+      // A run opens one worker socket per spec file, so the second spec's
+      // worker is a fresh connect with neither flag set. Its run id matches,
+      // which is what keeps earlier specs preservable.
+      const runId = query?.[WORKER_WS_QUERY.runId]
+      const isSameRun = Boolean(runId) && runId === activeRunId
+      if (!isRerunChild && !isReconnect && !isSameRun) {
+        messageBuffer.length = 0
+        baselineStore.resetActiveRun()
+        // Rerun children report their own id; leaving it unrecorded keeps the
+        // parent run's identity, so its later workers still read as same-run.
+        activeRunId = runId
+      }
+      workerSocket = socket
+      if (!isRerunChild) {
+        parentWorkerSocket = socket
+      }
+      socket.on('close', () => {
+        if (workerSocket === socket) {
+          workerSocket = undefined
+        }
+        if (parentWorkerSocket === socket) {
+          parentWorkerSocket = undefined
+        }
+      })
+      if (clients.size > 0) {
+        socket.send(
+          JSON.stringify({ scope: WS_SCOPE.clientConnected, data: {} })
+        )
+      }
+      socket.on(
+        'message',
+        createWorkerMessageHandler({
+          baselineStore,
+          testRunner,
+          videoRegistry,
+          broadcastToClients,
+          clientCount: () => clients.size,
+          replyToWorker: (message) => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(message)
+            }
+          }
+        })
+      )
+    }
+  )
+}
+
+function registerVideoRoute(s: FastifyInstance): void {
+  s.get(
+    '/api/video/:sessionId',
+    {
+      preHandler: s.rateLimit({
+        max: 30,
+        timeWindow: '1 minute'
+      })
+    },
+    async (
+      request: FastifyRequest<{ Params: { sessionId: string } }>,
+      reply
+    ) => {
+      return serveVideo(request.params.sessionId, request, reply)
+    }
+  )
+}
+
+/**
+ * Serve the page-side collector so an adapter can inject it without owning a
+ * copy. Read once at registration: the bundle cannot change while the process
+ * runs, and this keeps a per-navigation fetch off the disk.
+ */
+function registerCollectorRoute(s: FastifyInstance, source: string): void {
+  s.get(COLLECTOR_API.get, async (_request, reply) =>
+    reply.type(COLLECTOR_CONTENT_TYPE).send(source)
+  )
+}
+
+/**
+ * Serve the page-side element scripts, generated per runner.
+ *
+ * The collector route above exists because an adapter cannot be expected to
+ * carry its own copy of page code; these are the same thing for the element
+ * tree. Generated per request rather than read once like the collector, because
+ * the scripts bake in the caller's locator dialect — the runner decides whether
+ * a text locator comes out as `a*=Logout` or as XPath.
+ */
+function registerElementScriptsRoute(s: FastifyInstance): void {
+  s.get(
+    ELEMENT_SCRIPTS_API.get,
+    async (
+      request: FastifyRequest<{ Querystring: { runner?: string } }>,
+      reply
+    ) => {
+      const raw = request.query?.runner
+      // Narrowed, never trusted: an unknown value would otherwise reach
+      // locatorDialect and silently pick a dialect for a runner that is not one.
+      const runner = isTestRunnerId(raw) ? raw : undefined
+      return reply
+        .type(ELEMENT_SCRIPTS_CONTENT_TYPE)
+        .send(JSON.stringify(buildElementScripts(runner)))
+    }
+  )
+}
+
+/** Serve the readiness probe, injection, drain and performance read the JS
+ *  adapters import from shared. Built once: unlike the element scripts, none
+ *  of them depends on the caller. */
+function registerPageScriptsRoute(s: FastifyInstance): void {
+  const body = JSON.stringify(buildPageScripts())
+  s.get(PAGE_SCRIPTS_API.get, async (_request, reply) =>
+    reply.type(PAGE_SCRIPTS_CONTENT_TYPE).send(body)
+  )
+}
+
+export async function start(
+  opts: DevtoolsBackendOptions = {}
+): Promise<{ server: FastifyInstance; port: number }> {
+  const host = opts.hostname || 'localhost'
+  const preferredPort = opts.port || DEFAULT_PORT
+  const port = await getPort({ port: preferredPort })
+  if (opts.port && port !== opts.port) {
+    log.warn(`Port ${opts.port} is already in use, using port ${port} instead`)
+  }
+
+  const appPath = await getDevtoolsApp()
+  // Resolved before the server binds: a backend that cannot serve the collector
+  // should fail at startup, not when an adapter first asks for it mid-run.
+  const collectorSource = await getCollectorSource()
+  server = Fastify({ logger: true })
+  await server.register(rateLimit, { max: 100, timeWindow: '1 minute' })
+  await server.register(websocket)
+  await server.register(staticServer, { root: appPath })
+  // The dashboard and show-trace replay recorded pages too, so they get the hosted player's policy.
+  server.addHook('onSend', async (request, reply, payload) => {
+    if (String(reply.getHeader('content-type') ?? '').startsWith('text/html')) {
+      reply.header(
+        'Content-Security-Policy',
+        playerCsp(dashboardSocketSource(request.headers.host))
+      )
+    }
+    return payload
+  })
+
+  registerTraceRoutes(server, opts)
+  registerCollectorRoute(server, collectorSource)
+  registerElementScriptsRoute(server)
+  registerPageScriptsRoute(server)
+  registerTestRoutes(server, host, port)
+  registerBaselineRoutes(server)
+  registerClientWebSocket(server)
+  registerWorkerWebSocket(server)
+  registerVideoRoute(server)
+
+  log.info(`Starting WebdriverIO Devtools application on port ${port}`)
+  await server.listen({ port, host })
+  return { server, port }
+}
+
+export async function stop() {
+  if (!server) {
+    return
+  }
+
+  log.info('Shutting down WebdriverIO Devtools application')
+
+  // Close all WebSocket connections first
+  clients.forEach((client) => {
+    if (
+      client.readyState === WebSocket.OPEN ||
+      client.readyState === WebSocket.CONNECTING
+    ) {
+      client.terminate()
+    }
+  })
+  clients.clear()
+
+  await server.close()
+}

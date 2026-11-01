@@ -1,0 +1,115 @@
+/**
+ * Selenium WebDriver methods we don't want to surface as user commands.
+ * These are either internal lifecycle (quit, close, getSession), capability
+ * inspection (getCapabilities), or low-level helpers (sleep, schedule).
+ */
+export const INTERNAL_DRIVER_METHODS = [
+  'constructor',
+  'getSession',
+  'getCapabilities',
+  'getExecutor',
+  'execute',
+  'schedule',
+  'manage',
+  'navigate',
+  'switchTo',
+  'actions',
+  'wait',
+  'sleep',
+  'setFileDetector',
+  'getNetworkConnection',
+  'setNetworkConnection',
+  'on',
+  'once',
+  'addListener',
+  'removeListener',
+  'emit',
+  'eventNames',
+  /* Plumbing — selenium-webdriver itself calls these during BiDi/CDP setup. */
+  'getBidi',
+  'getCdpTargets',
+  'createCDPConnection',
+  'getWsUrl',
+  /* These are wrapped separately — see patchSelenium quit/close interceptors. */
+  'quit',
+  'close'
+] as const
+
+/**
+ * WebElement methods we DO surface (everything else is skipped).
+ * Whitelist approach because WebElement's prototype carries fewer interesting
+ * action methods than WebDriver's, and skipping is cheaper.
+ */
+export const TRACKED_ELEMENT_METHODS = [
+  'click',
+  'sendKeys',
+  'clear',
+  'submit',
+  'getText',
+  'getAttribute',
+  'getCssValue',
+  'getRect',
+  'getTagName',
+  'isDisplayed',
+  'isEnabled',
+  'isSelected'
+] as const
+
+/** Driver methods whose first argument is the locator that produces an element
+ *  handle — the only place a selector is observable, since the handle carries none. */
+export const ELEMENT_LOCATOR_METHODS = ['findElement', 'findElements'] as const
+
+export const NAVIGATION_COMMANDS = [
+  'get',
+  'navigate',
+  'to',
+  'back',
+  'forward',
+  'refresh'
+] as const
+
+// Console capture constants are defined in @wdio/devtools-core; re-exported
+// here so existing imports from ./constants.js continue to work.
+export { ANSI_REGEX, CONSOLE_METHODS, LOG_SOURCES } from '@wdio/devtools-core'
+
+export { SPINNER_RE } from '@wdio/devtools-core'
+
+import { DEFAULTS_BASE, TIMING_BASE } from '@wdio/devtools-shared'
+import type { TestRunnerId } from '@wdio/devtools-shared'
+
+export const DEFAULTS = {
+  ...DEFAULTS_BASE,
+  SESSION_TITLE: 'Selenium Session',
+  FILE_NAME: 'selenium'
+} as const
+
+export const TIMING = {
+  ...TIMING_BASE,
+  /** Selenium boots fast — 2s is enough for the dashboard to attach. */
+  UI_CONNECTION_WAIT: 2000
+} as const
+
+export { TEST_STATE } from '@wdio/devtools-shared'
+
+export { LOG_LEVEL_PATTERNS } from '@wdio/devtools-core'
+
+// SCREENCAST_DEFAULTS hoisted to @wdio/devtools-shared; re-exported for
+// backwards compatibility with existing selenium-internal imports.
+export { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+
+/** Test-state environment markers used by the rerun handshake. */
+export { REUSE_ENV } from '@wdio/devtools-shared'
+
+/**
+ * Decoded JPEG bytes below which a frame is treated as blank/uniform
+ * (Chrome's about:blank — solid colour compresses to <2KB; real renders >5KB).
+ */
+export const BLANK_FRAME_THRESHOLD_BYTES = 4_000
+
+/** Per-prototype "already patched" guard for driverPatcher / assertPatcher. */
+export const PATCHED_SYMBOL = Symbol.for('@wdio/selenium-devtools/patched')
+
+/** This adapter's runner identity — one value regardless of which test runner
+ *  drives it (mocha/jest/cucumber), since the driver API is what the capture and
+ *  the locator dialect depend on. */
+export const SELENIUM_RUNNER_ID: TestRunnerId = 'selenium-webdriver'

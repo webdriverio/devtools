@@ -1,0 +1,29 @@
+{
+  "name": "@wdio/devtools-script",
+  "version": "1.8.0",
+  "description": "Script to be injected into a page to trace the page",
+  "author": "Christian Bromann <mail@bromann.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/devtools-script"
+  },
+  "type": "module",
+  "types": "./types.d.ts",
+  "exports": "./dist/script.js",
+  "typeScriptVersion": "^5.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
+  },
+  "devDependencies": {
+    "@wdio/devtools-shared": "workspace:^",
+    "typescript": "6.0.3",
+    "vite": "^8.3.2",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,538 @@
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse
+} from 'node:http'
+import type { AddressInfo } from 'node:net'
+
+import {
+  BIDI_PATH,
+  BIDI_RESULTS,
+  BLANK_PNG,
+  BROKEN_PATH,
+  COLLECTOR_SIGNATURE,
+  DOCUMENT_MIME,
+  ELEMENT_KEY,
+  ELEMENT_TEXT,
+  NAVIGATION_HALF_MS,
+  PAGE_TITLES,
+  PAGES,
+  PERFORMANCE_SIGNATURE,
+  SUBRESOURCES,
+  WINDOW_HANDLE
+} from './constants.js'
+import {
+  attachFakeBidi,
+  networkEvents,
+  remoteValue,
+  type FakeBidi
+} from './fake-bidi.js'
+import {
+  anchorOf,
+  rendered,
+  resourceTimingRow,
+  runInPage
+} from './fake-page.js'
+import type {
+  ActionMethod,
+  BidiAnswer,
+  BidiMode,
+  BrowserRequest,
+  FailedNavigation,
+  BrowserTruth,
+  PageDocument,
+  ScriptForm
+} from './types.js'
+
+interface Element {
+  selector: string
+  document: PageDocument
+}
+
+/** `action` marks a user action, stamped as completed when its response is sent. */
+type Reply = {
+  status?: number
+  value: unknown
+  action?: ActionMethod
+  /** Set on a refused navigation, so an immediate repeat can be read as the client's own retry. */
+  failedNavigation?: string
+  retried?: boolean
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** A W3C WebDriver over a two-page model with one late-rendered element; without a preload its collector anchors only when a drain forces it. */
+export class FakeWebDriver {
+  readonly origin: string
+  #server: Server
+  #bidi: BidiMode
+  /** Whether a session was handed the socket: the mode offers one and the session asked for it. */
+  #bidiServed = false
+  #socket: FakeBidi | undefined
+  #preloaded = false
+  #preloads = 0
+  #documents: PageDocument[] = []
+  #failedNavigations: FailedNavigation[] = []
+  #requests: BrowserRequest[] = []
+  #requestSeq = 0
+  #actions: Record<ActionMethod, number[]> = {
+    navigate: [],
+    click: [],
+    fill: []
+  }
+  #elements = new Map<string, Element>()
+  #lastFailedNavigation: string | undefined
+
+  private constructor(server: Server, bidi: BidiMode) {
+    this.#server = server
+    this.#bidi = bidi
+    this.origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  }
+
+  /** With a BiDi socket, a registered preload puts the collector in every later document from birth. */
+  static async start({
+    bidi = 'off'
+  }: { bidi?: BidiMode } = {}): Promise<FakeWebDriver> {
+    const server = createServer()
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const driver = new FakeWebDriver(server, bidi)
+    server.on('request', (req, res) => void driver.#handle(req, res))
+    if (bidi !== 'off') {
+      driver.#socket = attachFakeBidi(server, (method, params) =>
+        driver.#bidiCommand(method, params)
+      )
+    }
+    return driver
+  }
+
+  url(path: string): string {
+    return `${this.origin}${path}`
+  }
+
+  truth(): BrowserTruth {
+    return {
+      documents: this.#documents.map(({ url, bornAt }) => ({ url, bornAt })),
+      failedNavigations: [...this.#failedNavigations],
+      actions: {
+        navigate: [...this.#actions.navigate],
+        click: [...this.#actions.click],
+        fill: [...this.#actions.fill]
+      },
+      requests: [...this.#requests],
+      bidi: this.#bidiServed ? this.#bidi : 'off'
+    }
+  }
+
+  close(): Promise<void> {
+    this.#endBidi()
+    return new Promise((r) => this.#server.close(() => r()))
+  }
+
+  #endBidi(): void {
+    this.#socket?.close()
+    this.#socket = undefined
+  }
+
+  get #current(): PageDocument | undefined {
+    return this.#documents.at(-1)
+  }
+
+  async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    let body = ''
+    for await (const chunk of req) {
+      body += chunk
+    }
+    const params = body ? (JSON.parse(body) as Record<string, unknown>) : {}
+    const path = (req.url ?? '').replace(/^\/session\/[^/]+/, '')
+    const reply = this.#complete(
+      await this.#route(req.method ?? 'GET', path, params)
+    )
+    res.writeHead(reply.status ?? 200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ value: reply.value }))
+  }
+
+  /** Stamps a user action as completed when its reply goes out, over either protocol. */
+  #complete(reply: Reply): Reply {
+    if (reply.action) {
+      const completions = this.#actions[reply.action]
+      // The user's one action completes with the client's last attempt.
+      if (reply.retried) {
+        completions[completions.length - 1] = Date.now()
+      } else {
+        completions.push(Date.now())
+      }
+    }
+    // A retry run ends with the next user action; the reads and scripts an adapter issues in between are not one.
+    if (reply.failedNavigation !== undefined || reply.action) {
+      this.#lastFailedNavigation = reply.failedNavigation
+    }
+    return reply
+  }
+
+  #session(
+    method: string,
+    path: string,
+    params: Record<string, unknown>
+  ): Reply | undefined {
+    if (method === 'POST' && path === '/session') {
+      const wantsBidi = JSON.stringify(params).includes('"webSocketUrl":true')
+      const capabilities: Record<string, unknown> = { browserName: 'chrome' }
+      if (this.#bidi !== 'off' && wantsBidi) {
+        capabilities.webSocketUrl = `${this.origin.replace('http', 'ws')}${BIDI_PATH}`
+        this.#bidiServed = true
+      }
+      return { value: { sessionId: 'conformance', capabilities } }
+    }
+    if (method === 'DELETE' && path === '') {
+      // A browser drops its BiDi socket with the session; one left open holds the adapter's process.
+      this.#endBidi()
+      return { value: null }
+    }
+    return undefined
+  }
+
+  // An endpoint not listed answers null, which every caller reads as "nothing to report".
+  async #route(
+    method: string,
+    path: string,
+    params: Record<string, unknown>
+  ): Promise<Reply> {
+    const session = this.#session(method, path, params)
+    if (session) {
+      return session
+    }
+    if (method === 'POST' && path === '/url') {
+      return {
+        ...(await this.#navigate(new URL(String(params.url)).pathname)),
+        action: 'navigate'
+      }
+    }
+    if (method === 'GET' && path === '/url') {
+      return { value: this.#current?.url ?? 'about:blank' }
+    }
+    if (method === 'GET' && path === '/title') {
+      return { value: PAGE_TITLES[this.#current?.path ?? ''] ?? '' }
+    }
+    if (method === 'POST' && (path === '/element' || path === '/elements')) {
+      return this.#find(String(params.value), path === '/elements')
+    }
+    const element = path.match(/^\/element\/([^/]+)\/(value|click|clear|text)$/)
+    if (element) {
+      return this.#onElement(element[1], element[2], params)
+    }
+    if (method === 'POST' && path.startsWith('/execute/')) {
+      return this.#executeReply(params)
+    }
+    if (path === '/screenshot') {
+      return { value: BLANK_PNG }
+    }
+    if (path === '/window/rect') {
+      return { value: { x: 0, y: 0, width: 1280, height: 720 } }
+    }
+    if (path === '/window') {
+      return { value: WINDOW_HANDLE }
+    }
+    if (path === '/window/handles') {
+      return { value: [WINDOW_HANDLE] }
+    }
+    return { value: null }
+  }
+
+  async #navigate(path: string): Promise<Reply> {
+    await sleep(NAVIGATION_HALF_MS)
+    if (path === BROKEN_PATH) {
+      const url = this.url(path)
+      const message = `net::ERR_FAILED at ${path}`
+      // A client re-issues a refused navigation on its own (Nightwatch's transport retries a failed
+      // protocol action, measured 3 attempts 1 s apart); the user issued one, so a repeat counts once.
+      const retried = this.#lastFailedNavigation === url
+      if (!retried) {
+        this.#failedNavigations.push({ url, message })
+      }
+      return {
+        status: 500,
+        // A driver's native frames ride along beside the message, as chromedriver sends them.
+        value: {
+          error: 'unknown error',
+          message,
+          stacktrace: '#0 0x55d0 <unknown>'
+        },
+        failedNavigation: url,
+        retried
+      }
+    }
+    const url = this.url(path)
+    const bornAt = Date.now()
+    // A preloaded collector anchors its document at birth, as `packages/script` does in Chrome.
+    const preloaded = this.#preloaded
+    const doc: PageDocument = {
+      path,
+      url,
+      bornAt,
+      collector: preloaded,
+      anchored: preloaded,
+      buffer: preloaded ? [anchorOf(url, bornAt)] : [],
+      network: []
+    }
+    this.#documents.push(doc)
+    this.#load(doc)
+    await sleep(NAVIGATION_HALF_MS)
+    return { value: null }
+  }
+
+  /** Loads a document's requests: into the truth, into the page's Resource Timing, and over BiDi where it is live. */
+  #load(doc: PageDocument): void {
+    const loads = [
+      [doc.url, DOCUMENT_MIME],
+      ...Object.entries(SUBRESOURCES).map(([path, mime]) => [
+        this.url(path),
+        mime
+      ])
+    ]
+    for (const [url, mime] of loads) {
+      const id = ++this.#requestSeq
+      this.#requests.push({ url, document: doc.url, at: doc.bornAt })
+      doc.network.push(resourceTimingRow(id, url, mime, doc))
+      if (this.#bidi === 'live') {
+        for (const [event, params] of networkEvents(
+          id,
+          url,
+          mime,
+          doc.bornAt
+        )) {
+          this.#socket?.emit(event, params)
+        }
+      }
+    }
+  }
+
+  #find(selector: string, many: boolean): Reply {
+    const doc = this.#current
+    if (!doc || !rendered(doc, selector)) {
+      return many
+        ? { value: [] }
+        : {
+            status: 404,
+            value: {
+              error: 'no such element',
+              message: `no element ${selector}`,
+              stacktrace: ''
+            }
+          }
+    }
+    const id = `el-${this.#elements.size + 1}`
+    this.#elements.set(id, { selector, document: doc })
+    const ref = { [ELEMENT_KEY]: id }
+    return { value: many ? [ref] : ref }
+  }
+
+  async #onElement(
+    id: string,
+    action: string,
+    params: Record<string, unknown>
+  ): Promise<Reply> {
+    const el = this.#elements.get(id)
+    if (!el || el.document !== this.#current) {
+      return {
+        status: 404,
+        value: { error: 'stale element reference', message: id, stacktrace: '' }
+      }
+    }
+    if (action === 'value' && el.document.collector) {
+      el.document.buffer.push({
+        type: 'attributes',
+        target: el.selector,
+        attributeName: 'value',
+        attributeValue: String(params.text ?? ''),
+        addedNodes: [],
+        removedNodes: [],
+        timestamp: Date.now()
+      })
+    }
+    // A text read is not counted: an adapter may read an element's text itself, to describe it.
+    const kind: ActionMethod | undefined =
+      action === 'value' ? 'fill' : action === 'click' ? 'click' : undefined
+    const destination =
+      action === 'click' ? PAGES[el.document.path][el.selector] : null
+    if (destination) {
+      return { ...(await this.#navigate(destination)), action: kind }
+    }
+    return {
+      value:
+        action === 'text'
+          ? (ELEMENT_TEXT[el.document.path]?.[el.selector] ?? '')
+          : null,
+      action: kind
+    }
+  }
+
+  // A script that throws in the page answers as a browser's does, with a javascript error rather than a dropped request.
+  async #executeReply(params: Record<string, unknown>): Promise<Reply> {
+    try {
+      const script = String(params.script)
+      const args = JSON.stringify(params.args ?? [])
+      // A script that returns nothing answers null over WebDriver.
+      return { value: (await this.#execute(script, args)) ?? null }
+    } catch (err) {
+      return {
+        status: 500,
+        value: {
+          error: 'javascript error',
+          message: String(err),
+          stacktrace: ''
+        }
+      }
+    }
+  }
+
+  // Recognised by the collector's own API, not by how any one adapter phrases its scripts.
+  #execute(script: string, args: string, form: ScriptForm = 'body'): unknown {
+    const doc = this.#current
+    if (!doc) {
+      return null
+    }
+    if (COLLECTOR_SIGNATURE.test(script) || COLLECTOR_SIGNATURE.test(args)) {
+      // A fresh collector starts unanchored, as the real one does, so injecting twice can anchor twice.
+      doc.collector = true
+      doc.anchored = false
+      return true
+    }
+    // Run as the page would run it, so a script that does not return its reading answers nothing.
+    if (PERFORMANCE_SIGNATURE.test(script)) {
+      return runInPage(doc, script, form)
+    }
+    if (script.includes('getTraceData')) {
+      return this.#drain(doc, script.includes('captureCurrentDom'))
+    }
+    if (script.includes('wdioTraceCollector')) {
+      return doc.collector
+    }
+    if (script.includes('document.URL')) {
+      return doc.url
+    }
+    return null
+  }
+
+  #drain(doc: PageDocument, forceAnchor: boolean): unknown {
+    if (!doc.collector) {
+      return null
+    }
+    if (forceAnchor && !doc.anchored) {
+      doc.anchored = true
+      doc.buffer.unshift(anchorOf(doc.url, doc.bornAt))
+    }
+    const mutations = doc.buffer.splice(0)
+    // The buffer holds every load since the document was born, whenever the collector arrived.
+    const networkRequests = doc.network.splice(0)
+    return {
+      errors: [],
+      mutations,
+      consoleLogs: [],
+      networkRequests,
+      traceLogs: [],
+      metadata: {}
+    }
+  }
+
+  // What WebdriverIO routes over BiDi once a session offers it; anything else is acknowledged.
+  async #bidiCommand(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<BidiAnswer> {
+    if (method === 'script.addPreloadScript') {
+      // Only the collector's own source counts; an unrelated preload instruments nothing.
+      if (COLLECTOR_SIGNATURE.test(String(params.functionDeclaration ?? ''))) {
+        this.#preloaded = true
+      }
+      return { result: { script: `preload-${++this.#preloads}` } }
+    }
+    if (method === 'browsingContext.getTree') {
+      const context = {
+        context: WINDOW_HANDLE,
+        url: this.#current?.url ?? 'about:blank',
+        children: [],
+        parent: null,
+        userContext: 'default'
+      }
+      return { result: { contexts: [context] } }
+    }
+    if (method === 'browsingContext.navigate') {
+      return this.#bidiNavigate(String(params.url))
+    }
+    if (method === 'browsingContext.locateNodes') {
+      return this.#bidiLocateNodes(
+        params.locator as { type: string; value: string }
+      )
+    }
+    if (method === 'script.callFunction' || method === 'script.evaluate') {
+      return this.#bidiScript(method, params)
+    }
+    if (method === 'browsingContext.captureScreenshot') {
+      return { result: { data: BLANK_PNG } }
+    }
+    return { result: BIDI_RESULTS[method] ?? {} }
+  }
+
+  // A script that throws in the page is a BiDi exception result, as a browser reports it.
+  async #bidiScript(
+    method: string,
+    params: Record<string, unknown>
+  ): Promise<BidiAnswer> {
+    const realm = 'realm-1'
+    try {
+      const value = await this.#execute(
+        String(params.functionDeclaration ?? params.expression ?? ''),
+        JSON.stringify(params.arguments ?? []),
+        method === 'script.callFunction' ? 'declaration' : 'expression'
+      )
+      return { result: { type: 'success', result: remoteValue(value), realm } }
+    } catch (err) {
+      const text = String(err)
+      return {
+        result: {
+          type: 'exception',
+          exceptionDetails: {
+            text,
+            columnNumber: 0,
+            lineNumber: 0,
+            stackTrace: { callFrames: [] },
+            exception: remoteValue(text)
+          },
+          realm
+        }
+      }
+    }
+  }
+
+  async #bidiNavigate(url: string): Promise<BidiAnswer> {
+    const reply = this.#complete({
+      ...(await this.#navigate(new URL(url).pathname)),
+      action: 'navigate'
+    })
+    if (reply.status) {
+      return reply.value as { error: string; message: string }
+    }
+    // No result at all: given one, WebdriverIO waits for the network events of its navigation id, which this browser never emits.
+    return { result: null }
+  }
+
+  #bidiLocateNodes(locator: { type: string; value: string }): BidiAnswer {
+    if (locator.type !== 'css') {
+      return {
+        error: 'unsupported operation',
+        message: `no ${locator.type} locator`
+      }
+    }
+    const refs = this.#find(locator.value, true).value as Record<
+      string,
+      string
+    >[]
+    const nodes = refs.map((ref) => ({
+      type: 'node',
+      sharedId: ref[ELEMENT_KEY],
+      value: { nodeType: 1, childNodeCount: 0 }
+    }))
+    return { result: { nodes } }
+  }
+}

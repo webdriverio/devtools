@@ -1,0 +1,789 @@
+import { randomInt } from 'node:crypto'
+import fs from 'node:fs/promises'
+import { WebSocket } from 'ws'
+import type {
+  CommandLog,
+  ConsoleLog,
+  LogLevel,
+  LogSource,
+  Metadata,
+  NetworkRequest,
+  SerializedError,
+  TraceMutation
+} from '@wdio/devtools-shared'
+import {
+  NETWORK_CAPTURE_SOURCE,
+  WORKER_WS_QUERY,
+  WS_PATHS,
+  WS_SCOPE
+} from '@wdio/devtools-shared'
+import {
+  isNativeAppSession,
+  mapCommandToAction,
+  sessionHasDocument
+} from '@wdio/devtools-shared'
+import { resolveRunId } from './run-id.js'
+import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
+import {
+  CONSOLE_METHODS,
+  LOG_SOURCES,
+  SPINNER_RE,
+  createConsoleLogEntry,
+  detectLogLevel,
+  isInternalStreamLine,
+  stripAnsi
+} from '@wdio/devtools-shared'
+import { TerminalLineThrottle } from './terminal-throttle.js'
+
+/**
+ * Foundation class for adapter SessionCapturers. Owns the cross-framework
+ * scaffolding (WS connection, console/stream patching, command id
+ * bookkeeping). Framework-specific event handling stays in subclasses.
+ *
+ * Step 2 of {@link file://./../../../SESSIONCAPTURER_EXTRACTION_PLAN.md}.
+ * **Not yet consumed by any adapter** — published so a future session can
+ * migrate adapter SessionCapturer classes one at a time.
+ */
+
+export interface SessionCapturerOptions {
+  hostname?: string
+  port?: number
+  /**
+   * Set when this capturer reconnects mid-run (e.g. after `browser.end()` opens
+   * a new session). Tells the backend to keep the accumulated run state instead
+   * of resetting it — otherwise earlier tests' commands are wiped and Preserve
+   * & Rerun on those tests finds nothing. Every socket also carries the run id,
+   * which covers the same-run case a process can't flag: the next spec's worker.
+   */
+  reconnect?: boolean
+}
+
+type ConsoleMethod = (typeof CONSOLE_METHODS)[number]
+
+export abstract class SessionCapturerBase {
+  /** Ceiling on messages held while the socket connects. High enough that a
+   *  normal bringup never reaches it, low enough that a dashboard which never
+   *  answers cannot retain a run's worth of traffic. */
+  static readonly MAX_PENDING_UPSTREAM = 1000
+
+  // ── State (mostly private; subclasses access shared ws via `this.ws`) ────
+  /**
+   * Exposed as `protected` so subclasses with framework-specific close/wait
+   * semantics (e.g. nightwatch's `closeWebSocket` with timeout) can operate
+   * on the socket directly. Default lifecycle is fully managed by the base.
+   */
+  protected ws: WebSocket | undefined
+  #hasConnected = false
+  #originalConsoleMethods: Record<ConsoleMethod, typeof console.log>
+  #originalStdoutWrite = process.stdout.write.bind(process.stdout)
+  #originalStderrWrite = process.stderr.write.bind(process.stderr)
+  // Two flags (not one): prevents re-entrant capture when console.* writes to
+  // stdout, OR when stream forwarding wants to log via console.
+  #isCapturingConsole = false
+  #isCapturingStream = false
+  // Collapses high-frequency identical terminal lines (e.g. WDIO's per-command
+  // COMMAND/RESULT logger frames reprinted every ~100ms during an expect poll)
+  // so they don't flood the console lane. Terminal-source only — user
+  // console.* is source='test' and never throttled.
+  #terminalThrottle = new TerminalLineThrottle()
+
+  // Command bookkeeping — used by adapters that emit commands themselves
+  // (nightwatch, selenium). The WDIO service adapter doesn't call sendCommand
+  // (WDIO owns the command lifecycle), so this state is harmless overhead.
+  // `protected` (not `#`) so subclasses can override the send/replace flow
+  // while still sharing the counter and de-dup set with base helpers.
+  // A row's public `id` must not repeat across processes: a rerun child's rows join its parent's in the backend's accumulator, and test workers share one dashboard.
+  protected commandCounter = randomInt(2 ** 32) * 2 ** 20
+  protected sentCommandIds = new Set<number>()
+
+  // Map of file path → source text. Populated by `captureSource` (also
+  // accessed by adapter-specific source-discovery flows, e.g. service's
+  // `ensureSourceLoaded` which parses `file://` locations first).
+  sources = new Map<string, string>()
+
+  // Captured trace payload — populated by `processTracePayload` (driven from
+  // adapter-specific `captureTrace` flows) and by direct pushes from BiDi/CDP
+  // listeners. Mutations stay `unknown[]` here because the canonical
+  // `TraceMutation` shape is a browser-only DOM type (script package); cross-
+  // package consumers treat the array as opaque.
+  commandsLog: CommandLog[] = []
+  consoleLogs: ConsoleLog[] = []
+  networkRequests: NetworkRequest[] = []
+  mutations: TraceMutation[] = []
+  traceLogs: string[] = []
+  metadata?: Metadata
+
+  /** Whether this session drove an app rather than a browser. Resolved from
+   *  the published metadata because selenium's own `getCapabilities()` is
+   *  async, and a guard cannot await it where it has to decide.
+   *
+   *  Answers from the startup bag, so it stays true for a hybrid app that has
+   *  switched into a webview. Guards protecting a PAGE-side call want
+   *  {@link hasDocument} instead. */
+  get isNativeAppSession(): boolean {
+    return isNativeAppSession(this.metadata?.capabilities)
+  }
+
+  /** The Appium context last observed, fed by the adapter's command hook. The
+   *  switch command carries the new context in its own arguments, so following
+   *  it costs no round trip — undefined means none was ever seen, which for a
+   *  native session is the native context it started in. */
+  currentContext: string | undefined
+
+  /** Whether there is a web document to run page script in RIGHT NOW: true for
+   *  any browser session, and for a native one only while it sits in a webview
+   *  context. The question a capture guard should ask — `isNativeAppSession`
+   *  cannot change after session start, so a hybrid app's webview portion was
+   *  captured as if it had no DOM. */
+  get hasDocument(): boolean {
+    return sessionHasDocument(this.metadata?.capabilities, this.currentContext)
+  }
+
+  // ── Construction ────────────────────────────────────────────────────────
+  constructor(opts: SessionCapturerOptions = {}) {
+    const { hostname, port, reconnect } = opts
+    if (hostname && port) {
+      const query = new URLSearchParams({
+        [WORKER_WS_QUERY.runId]: resolveRunId(),
+        ...(reconnect ? { [WORKER_WS_QUERY.reconnect]: '1' } : {})
+      })
+      this.ws = new WebSocket(
+        `ws://${hostname}:${port}${WS_PATHS.worker}?${query}`
+      )
+      this.ws.on('open', () => {
+        this.#hasConnected = true
+        this.#flushPending()
+        this.onWsOpen()
+      })
+      this.ws.on('error', (err: unknown) => {
+        this.#discardPending()
+        this.onWsError(err)
+      })
+      this.ws.on('close', () => {
+        this.#discardPending()
+        this.onWsClose()
+      })
+      this.ws.on('message', (raw: Buffer | string) => {
+        try {
+          const parsed = JSON.parse(raw.toString())
+          this.onWsMessage(parsed)
+        } catch {
+          // ignore non-JSON
+        }
+      })
+    }
+
+    this.#originalConsoleMethods = {
+      log: console.log,
+      info: console.info,
+      warn: console.warn,
+      error: console.error
+    }
+  }
+
+  // ── Public API ──────────────────────────────────────────────────────────
+  /**
+   * Send a typed event to the dashboard. No-op if the WS isn't open. Catches
+   * send-time exceptions so a transient socket error never aborts the host
+   * runner. Subclasses that want diagnostics on drop or error override
+   * {@link onUpstreamDrop}.
+   */
+  sendUpstream(event: string, data: unknown): void {
+    if (!this.ws) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    // A socket that has not opened YET is not a lost dashboard: a session's
+    // metadata and its first suites are published while the driver is still
+    // being created, and against Appium that is ~11 s before the worker socket
+    // opens. Dropping them silently cost the live dashboard the whole run —
+    // `metadata.type` gates the test-suite pane and `metadata.device` the
+    // mobile layout, so both were simply absent with nothing logged.
+    if (this.ws.readyState === WebSocket.CONNECTING) {
+      this.#buffer(event, data)
+      return
+    }
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    try {
+      this.ws.send(JSON.stringify({ scope: event, data }))
+    } catch (err) {
+      this.notifyDrop(event, 'send-error', err)
+    }
+  }
+
+  /** Messages published before the socket opened, in the order they were
+   *  published. Capped: a dashboard that never connects must not grow this
+   *  without bound for the length of a run. */
+  #pending: { event: string; data: unknown }[] = []
+
+  #buffer(event: string, data: unknown): void {
+    if (this.#pending.length >= SessionCapturerBase.MAX_PENDING_UPSTREAM) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    this.#pending.push({ event, data })
+  }
+
+  #inDropHandler = false
+
+  /**
+   * Report a drop, at most one level deep.
+   *
+   * An adapter's handler naturally wants to log, and `patchConsole` forwards
+   * console output upstream — so a handler that logs re-enters `sendUpstream`,
+   * drops again and recurses until the stack blows. Measured as "Maximum call
+   * stack size exceeded" raised inside the user's own spec, which points
+   * nowhere near this code.
+   */
+  protected notifyDrop(
+    event: string,
+    reason: 'closed' | 'send-error',
+    err?: unknown
+  ): void {
+    if (this.#inDropHandler) {
+      return
+    }
+    this.#inDropHandler = true
+    try {
+      this.onUpstreamDrop(event, reason, err)
+    } finally {
+      this.#inDropHandler = false
+    }
+  }
+
+  /** A socket that dies before it ever opens is a dashboard that is not coming,
+   *  so its buffer is reported as dropped and released. Without this the
+   *  payloads — screenshots among them — were retained for the run's length and
+   *  the adapter's drop warning never fired, which is the silence the buffer
+   *  exists to end, not to relocate. */
+  #discardPending(): void {
+    const pending = this.#pending
+    this.#pending = []
+    for (const { event } of pending) {
+      this.notifyDrop(event, 'closed')
+    }
+  }
+
+  /** Publish what was buffered while connecting, oldest first — order matters,
+   *  since the app folds each metadata message into the previous one. */
+  #flushPending(): void {
+    const pending = this.#pending
+    this.#pending = []
+    for (const { event, data } of pending) {
+      this.sendUpstream(event, data)
+    }
+  }
+
+  /**
+   * Hook fired when a {@link sendUpstream} call can't deliver. Default: silent
+   * (matches the historical behavior of service/selenium). Nightwatch overrides
+   * this to log a warning — useful when a runner drops mid-test and the user
+   * needs to know why captured data is incomplete.
+   */
+  protected onUpstreamDrop(
+    _event: string,
+    _reason: 'closed' | 'send-error',
+    _err?: unknown
+  ): void {
+    // no-op
+  }
+
+  /**
+   * Store a metadata fragment AND publish the merged result. The only writer of
+   * `this.metadata`, which is what the exporter serializes into the zip's
+   * `context-options` — `sendUpstream` merely transmits, so a value resolved on
+   * the driver (a native session's viewport, capabilities and device: it has no
+   * page-side collector to report them) reached a live dashboard and was then
+   * dropped before the zip.
+   *
+   * Merging rather than replacing is what lets a producer contribute the one
+   * field it knows: a later push naming only a url cannot wipe the device.
+   */
+  mergeMetadata(partial: Partial<Metadata>): void {
+    this.metadata = { ...this.metadata, ...partial } as Metadata
+    this.sendUpstream('metadata', this.metadata)
+  }
+
+  /** True once the WS has opened at least once and is currently OPEN. */
+  isConnected(): boolean {
+    return Boolean(this.ws) && this.ws?.readyState === WebSocket.OPEN
+  }
+
+  /** Property-style alias for {@link isConnected} — used by tests that
+   *  read it as a getter while mutating `ws.readyState` directly. */
+  get isReportingUpstream(): boolean {
+    return this.isConnected()
+  }
+
+  /** Subclasses can read this to gate retry/reconnect logic. */
+  protected hasEverConnected(): boolean {
+    return this.#hasConnected
+  }
+
+  /**
+   * Send a CommandLog over the WS. If the entry already has an `_id` (set by
+   * the adapter's `captureCommand` during buffering), use it; otherwise
+   * allocate a fresh one. The `_id` is the de-dup key and is stripped from
+   * the broadcast payload — it's adapter-internal bookkeeping.
+   * Returns the id, or 0 if the entry had no `_id` and none could be assigned.
+   */
+  sendCommand(command: CommandLog & { _id?: number }): number {
+    if (command._id === undefined) {
+      command._id = this.commandCounter++
+    }
+    const id = command._id
+    if (this.sentCommandIds.has(id)) {
+      return id
+    }
+    this.sentCommandIds.add(id)
+    const toSend = { ...command }
+    delete toSend._id
+    this.sendUpstream('commands', [toSend])
+    return id
+  }
+
+  /**
+   * Emit a `replaceCommand` event swapping an earlier entry in-place. Strips
+   * the adapter-internal `_id` field before sending — that's bookkeeping for
+   * the local `sentCommandIds` set and shouldn't reach the UI.
+   */
+  sendReplaceCommand(
+    oldTimestamp: number,
+    command: CommandLog & { _id?: number }
+  ): void {
+    const toSend = { ...command }
+    delete toSend._id
+    this.sendUpstream(WS_SCOPE.replaceCommand, {
+      oldTimestamp,
+      command: toSend
+    })
+  }
+
+  /**
+   * Mark the most recent user action of a test as failed — for framework
+   * failures that aren't captured as their own command. Broadcasts the swap so
+   * live mode highlights it too. Returns false when no eligible action is found,
+   * OR when that most-recent action already carries an error: the failure is
+   * then already represented (e.g. an expect matcher captured as its own row via
+   * afterAssertion), so it must not bleed onto an earlier *passing* action.
+   */
+  failLastAction(testUid: string | undefined, error: SerializedError): boolean {
+    for (let i = this.commandsLog.length - 1; i >= 0; i--) {
+      const command = this.commandsLog[i]
+      if (!mapCommandToAction(command.command)) {
+        continue
+      }
+      if (testUid && command.testUid !== testUid) {
+        continue
+      }
+      // First (most-recent) action for this test. If it's already failed, the
+      // failure is captured — stop rather than marking an earlier passing one.
+      if (command.error) {
+        return false
+      }
+      command.error = error
+      this.sendReplaceCommand(command.timestamp, command)
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Read a file from disk, store in `sources`, and broadcast to the UI via
+   * `sendUpstream('sources', { [path]: text })`. Idempotent — a cached path is
+   * a no-op. Read errors are logged via `onSourceReadError` (default: silent)
+   * so a missing source never aborts capture.
+   */
+  async captureSource(filePath: string): Promise<void> {
+    if (this.sources.has(filePath)) {
+      return
+    }
+    try {
+      const source = (await fs.readFile(filePath, 'utf-8')).toString()
+      this.sources.set(filePath, source)
+      this.sendUpstream('sources', { [filePath]: source })
+    } catch (err) {
+      this.onSourceReadError(filePath, err)
+    }
+  }
+
+  /**
+   * Hook fired when `captureSource` can't read a file. Default: silent.
+   * Subclasses (nightwatch, selenium) override to log a warning.
+   */
+  protected onSourceReadError(_filePath: string, _err: unknown): void {
+    // no-op — service silently swallows; subclasses can opt into a log line.
+  }
+
+  /**
+   * The action a document born at `time` belongs to, or undefined when the
+   * anchor already sits where it should and must be left alone.
+   *
+   * Derived from the anchor rather than from the draining call, because the
+   * post-command hooks fire at command START in some adapters: a navigation's
+   * own drain then runs against the document it is leaving, and whichever later
+   * drain does see the destination would otherwise be credited with it.
+   *
+   * Answers only when NO logged command completed after `time`. A command that
+   * completed after the document was born is the one that navigated there, and
+   * its own row already resolves the anchor — pulling the anchor earlier then
+   * mis-credits it to a preceding action and steals the DOM from rows that were
+   * genuinely still on the previous page. That is the whole difference between
+   * an adapter that stamps commands at invocation and one that stamps them at
+   * completion, so it stays a property of the data rather than a per-adapter flag.
+   */
+  protected anchorOwnerTimestamp(time: number): number | undefined {
+    let best: number | undefined
+    for (const cmd of this.commandsLog) {
+      if (cmd.timestamp > time) {
+        return undefined
+      }
+      if (best === undefined || cmd.timestamp > best) {
+        best = cmd.timestamp
+      }
+    }
+    return best
+  }
+
+  /**
+   * Ingest the `{ mutations, traceLogs, consoleLogs, networkRequests, metadata }`
+   * payload returned by the page-side `wdioTraceCollector.getTraceData()`.
+   * Tags console logs with `source: 'browser'`, pushes each array into the
+   * matching local field, and broadcasts via the appropriate WS scopes.
+   *
+   * `skipConsoleLogs` / `skipNetworkRequests` opt out when an out-of-band
+   * channel (BiDi) is already delivering those streams — without the gate
+   * the dashboard would see each entry twice. `skipResourceTimingRequests`
+   * drops only the page's Resource Timing entries: a driver-side source
+   * reports the same loads with their headers, while the collector's patched
+   * fetch/XHR rows still carry the bodies nothing else captures.
+   */
+  protected processTracePayload(
+    payload: {
+      mutations?: unknown
+      traceLogs?: unknown
+      consoleLogs?: unknown
+      networkRequests?: unknown
+      metadata?: unknown
+    },
+    opts: {
+      skipConsoleLogs?: boolean
+      skipNetworkRequests?: boolean
+      skipResourceTimingRequests?: boolean
+      /** The command this batch's anchors were CAUSED by, when the caller
+       *  observed the document being replaced right after it. Causal knowledge,
+       *  so it overrides the timestamp inference below. */
+      anchorTimestamp?: number
+    } = {}
+  ): void {
+    const { mutations, traceLogs, consoleLogs, networkRequests, metadata } =
+      payload
+
+    if (metadata && typeof metadata === 'object') {
+      // Page-side trace data is a JS bag; only fields that match Metadata
+      // survive at runtime, but TS can't prove that. Cast to Partial<Metadata>
+      // so the merge stays type-checked while accepting incomplete payloads.
+      this.mergeMetadata(metadata as Partial<Metadata>)
+    }
+
+    const tagged = opts.skipConsoleLogs
+      ? []
+      : this.#tagBrowserConsoleLogs(consoleLogs)
+    if (tagged.length > 0) {
+      this.consoleLogs.push(...tagged)
+      this.sendUpstream('consoleLogs', tagged)
+    }
+
+    this.recordNetworkRequests(
+      this.#acceptedNetworkRequests(networkRequests, opts)
+    )
+
+    if (Array.isArray(mutations) && mutations.length > 0) {
+      const batch = mutations as TraceMutation[]
+      reattributeDomAnchors(
+        batch,
+        (anchorOwnTime) =>
+          opts.anchorTimestamp ?? this.anchorOwnerTimestamp(anchorOwnTime),
+        this.mutations[this.mutations.length - 1]?.timestamp ?? 0
+      )
+      this.mutations.push(...batch)
+      this.sendUpstream('mutations', batch)
+    }
+
+    if (Array.isArray(traceLogs) && traceLogs.length > 0) {
+      const logs = traceLogs as string[]
+      this.traceLogs.push(...logs)
+      this.sendUpstream('logs', logs)
+    }
+  }
+
+  #tagBrowserConsoleLogs(consoleLogs: unknown): ConsoleLog[] {
+    if (!Array.isArray(consoleLogs)) {
+      return []
+    }
+    return (consoleLogs as ConsoleLog[]).map((entry) => ({
+      ...entry,
+      source: LOG_SOURCES.BROWSER as LogSource
+    }))
+  }
+
+  /** Lists network rows and sends them in one message; a re-sent id replaces its row, as the dashboard does. */
+  recordNetworkRequests(reqs: NetworkRequest[]): void {
+    if (reqs.length === 0) {
+      return
+    }
+    for (const req of reqs) {
+      this.#upsertNetworkRequest(req)
+    }
+    this.sendUpstream('networkRequests', reqs)
+  }
+
+  /** Row index by request id; checked against the row before use, since adapters also write rows by index. */
+  #networkRequestIndex = new Map<string, number>()
+
+  #upsertNetworkRequest(req: NetworkRequest): void {
+    let at = req.id ? this.#networkRequestIndex.get(req.id) : undefined
+    // A row moved since it was indexed: find it once, rather than list it twice.
+    if (at !== undefined && this.networkRequests[at]?.id !== req.id) {
+      at = this.networkRequests.findIndex((r) => r.id === req.id)
+    }
+    if (at !== undefined && at !== -1) {
+      this.networkRequests[at] = req
+      this.#networkRequestIndex.set(req.id, at)
+      return
+    }
+    if (req.id) {
+      this.#networkRequestIndex.set(req.id, this.networkRequests.length)
+    }
+    this.networkRequests.push(req)
+  }
+
+  #acceptedNetworkRequests(
+    networkRequests: unknown,
+    opts: {
+      skipNetworkRequests?: boolean
+      skipResourceTimingRequests?: boolean
+    }
+  ): NetworkRequest[] {
+    if (opts.skipNetworkRequests || !Array.isArray(networkRequests)) {
+      return []
+    }
+    return (networkRequests as NetworkRequest[]).filter(
+      (req) =>
+        !opts.skipResourceTimingRequests ||
+        req.source !== NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
+    )
+  }
+
+  /**
+   * Resolve when the WS reaches OPEN state, or `false` on timeout / error.
+   * Returns immediately if already open. Used by adapters that need a
+   * synchronization barrier before injecting page-side scripts.
+   */
+  async waitForConnection(timeoutMs = 5000): Promise<boolean> {
+    if (!this.ws) {
+      return false
+    }
+    if (this.ws.readyState === WebSocket.OPEN) {
+      return true
+    }
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(false), timeoutMs)
+      this.ws!.once('open', () => {
+        clearTimeout(timeout)
+        resolve(true)
+      })
+      this.ws!.once('error', () => {
+        clearTimeout(timeout)
+        resolve(false)
+      })
+    })
+  }
+
+  /**
+   * Gracefully close the WS, waiting up to 2s for buffered messages to flush.
+   * Call before process exit in reuse mode (or after dashboard close) so the
+   * backend sees a clean close instead of an abrupt TCP reset.
+   */
+  async closeWebSocket(): Promise<void> {
+    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+      return
+    }
+    return new Promise<void>((resolve) => {
+      const timeout = setTimeout(resolve, 2000)
+      this.ws!.once('close', () => {
+        clearTimeout(timeout)
+        resolve()
+      })
+      this.ws!.close()
+    })
+  }
+
+  /**
+   * Restore console/streams. Does NOT close the WS — that's the subclass's
+   * call (see `closeWebSocket` on nightwatch/selenium). Closing here would
+   * break the wait-for-dashboard-close flow, since the worker WS is the
+   * channel the backend uses to signal `clientDisconnected`.
+   */
+  cleanup(): void {
+    this.restoreConsole()
+    this.restoreStreams()
+  }
+
+  // ── Patching (call from subclass constructor) ───────────────────────────
+  /** Patch `console.log/info/warn/error` to forward through `onLine`. */
+  protected patchConsole(): void {
+    CONSOLE_METHODS.forEach((method) => {
+      const original = this.#originalConsoleMethods[method]
+      console[method] = (...args: unknown[]) => {
+        this.#isCapturingConsole = true
+        const result = original.apply(console, args)
+        this.#isCapturingConsole = false
+
+        const serialized = args.map((a) =>
+          typeof a === 'object' && a !== null ? safeStringify(a) : String(a)
+        )
+        const joined = stripAnsi(serialized.join(' ')).trim()
+        if (!joined || this.isInternalStreamLine(joined)) {
+          return result
+        }
+        // Pass the per-arg serialized array (`['payload', '{"x":1}']`) rather
+        // than the joined string. The dashboard's `#formatArgs` joins on its
+        // own; preserving the array form is lossless and lets future consumers
+        // group/style individual args.
+        this.onLine(method as LogLevel, serialized, LOG_SOURCES.TEST)
+        return result
+      }
+    })
+  }
+
+  /**
+   * Wrap `process.stdout.write` and `process.stderr.write` to forward chunks
+   * through `onLine`. The base's `#isCapturingConsole` flag prevents
+   * re-entrance when console patching itself writes to stdout.
+   */
+  protected patchStreams(): void {
+    const captureChunk = (raw: string | Uint8Array) => {
+      if (this.#isCapturingStream) {
+        return
+      }
+      const text = typeof raw === 'string' ? raw : raw.toString()
+      if (!text?.trim()) {
+        return
+      }
+      this.#isCapturingStream = true
+      try {
+        for (const rawLine of text.split('\n')) {
+          // Strip CR-overwrites so progress bars don't show partial frames.
+          const segments = rawLine.split('\r').filter((s) => s.trim())
+          const lastSegment = segments[segments.length - 1] ?? rawLine
+          const clean = stripAnsi(lastSegment).trim()
+          if (
+            !clean ||
+            this.isInternalStreamLine(clean) ||
+            SPINNER_RE.test(clean) ||
+            !this.#terminalThrottle.shouldEmit(clean)
+          ) {
+            continue
+          }
+          this.onLine(detectLogLevel(clean), [clean], LOG_SOURCES.TERMINAL)
+        }
+      } finally {
+        this.#isCapturingStream = false
+      }
+    }
+
+    // `stream.write` has Node's complex multi-overload signature that
+    // doesn't unify with a generic `unknown[]` rest type — keep the
+    // original ref typed by the stream itself.
+    const wrap = (
+      stream: NodeJS.WriteStream,
+      original: NodeJS.WriteStream['write']
+    ) => {
+      const capturer = this
+      // `stream.write` has Node's multi-overload signature that's hard to
+      // satisfy with a single function expression — cast to the stream's
+      // own `write` member type rather than `any`.
+      stream.write = function (chunk: unknown, ...rest: unknown[]): boolean {
+        // Cast original to a permissive shape — Node's multi-overload
+        // signature for `stream.write` can't be unified with the `unknown`-
+        // typed chunk we receive at the wrap boundary.
+        const writeAny = original as unknown as (...a: unknown[]) => boolean
+        const result = writeAny.call(stream, chunk, ...rest)
+        if (chunk && !capturer.#isCapturingConsole) {
+          captureChunk(chunk as string | Uint8Array)
+        }
+        return result
+      } as typeof stream.write
+    }
+
+    wrap(process.stdout, this.#originalStdoutWrite)
+    wrap(process.stderr, this.#originalStderrWrite)
+  }
+
+  protected restoreConsole(): void {
+    CONSOLE_METHODS.forEach((method) => {
+      console[method] = this.#originalConsoleMethods[method]
+    })
+  }
+
+  protected restoreStreams(): void {
+    // Restoring the pre-patch references — the typed write signature differs
+    // slightly from the runtime instance type after `.bind()`, hence the cast
+    // through the stream's own `write` member type.
+    process.stdout.write = this
+      .#originalStdoutWrite as typeof process.stdout.write
+    process.stderr.write = this
+      .#originalStderrWrite as typeof process.stderr.write
+  }
+
+  // ── Hooks (subclasses override) ─────────────────────────────────────────
+  /**
+   * Build a ConsoleLog entry from the captured line, push it into the local
+   * `consoleLogs` array (so it ends up in any future trace export), and
+   * broadcast it live via the `consoleLogs` WS scope.
+   *
+   * Args is passed as an array (matching the original console.* call shape:
+   * `console.log('a', 'b')` → `args = ['a', 'b']`) so the multi-argument
+   * structure is preserved for the UI.
+   */
+  protected onLine(type: LogLevel, args: string[], source: LogSource): void {
+    const entry = createConsoleLogEntry(type, args, source)
+    this.consoleLogs.push(entry)
+    this.sendUpstream('consoleLogs', [entry])
+  }
+
+  /**
+   * Default delegates to {@link isInternalStreamLine} from `./console.js`.
+   * Subclasses can override to add framework-specific filters.
+   */
+  protected isInternalStreamLine(line: string): boolean {
+    return isInternalStreamLine(line)
+  }
+
+  /** Hook: WS opened. Subclasses override to send a handshake, etc. */
+  protected onWsOpen(): void {}
+
+  /** Hook: WS errored before opening (likely no backend listening). */
+  protected onWsError(_err: unknown): void {}
+
+  /** Hook: WS closed (after open, or as a result of cleanup). */
+  protected onWsClose(): void {}
+
+  /**
+   * Hook: WS message received from the backend. Currently used by selenium's
+   * `awaitClientConnected` to know when a dashboard tab has subscribed.
+   */
+  protected onWsMessage(_msg: unknown): void {}
+}
+
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}

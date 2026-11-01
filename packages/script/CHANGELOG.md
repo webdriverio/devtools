@@ -1,0 +1,83 @@
+# @wdio/devtools-script
+
+## 1.8.0
+
+### Minor Changes
+
+- 146e214: Capture network requests on browsers without WebDriver BiDi: Safari, and every session Appium serves. Network capture rode on BiDi (or, in Nightwatch, Chrome's performance log), so those sessions showed an empty Network tab. The injected page collector now also reads the document's Resource Timing buffer, which every browser keeps: the document, scripts, styles, images and fonts, each with its timing phases and size, and on Chromium its status. It reads the buffer at install, so loads made before the collector existed are included, then observes. The collector's existing `fetch`/`XMLHttpRequest` patch keeps supplying headers, status and bodies for the calls the page makes, and a request both saw is listed once.
+
+  What Resource Timing cannot see is stated rather than left blank: the detail card of such a request names that this browser exposes no headers or body for it (and on Safari no status), a request with no status is coloured as unknown rather than as still in flight, the method column is a dash where the browser names none, and the trace's `trace.network` entry carries `_source: "resource-timing"` and the captured `_resourceType` so a reopened trace renders the same row rather than a failed request. When BiDi is serving a session, the Resource Timing rows are dropped at ingest, so Chrome sessions are unchanged. Serving means delivering, not subscribed: against Appium 3.7's XCUITest driver the BiDi inspectors attach and then send no event, so each adapter now counts BiDi as a source only once a network event has arrived (the Selenium adapter applies the same rule to its console gate). Nightwatch's performance log, which is read after the page is drained, now upgrades the page's row for each load in place with the headers and status it has, so a Chrome session lists each request once and a Safari or Appium session whose capabilities still name a performance log is not left with an empty tab. A native app session has no document and still has no network capture, because the driver exposes none. A mobile Chrome session, which opens on the browser's own new-tab page before the first navigation, no longer lists that page, and a second injection of the collector into a document keeps the first one instead of replacing it and dropping what it had buffered. A `driver.wait()` in a Selenium test now shows as the one command the test made rather than a row per poll. Safari delivers synthesized clicks only to its frontmost window and reports success either way, so once the live dashboard took the front every click reached nothing. The Selenium adapter now brings the session's own window forward before each element click, key input, clear or submit on Safari, and opens its dashboard behind it; the WDIO service, Nightwatch and Python bring Safari forward once after the session starts. The collector injected into a loaded page no longer waits for an animation frame before it starts listening, which on Safari under automation could be never, so a live run on Safari no longer replays an unchanging page with empty fields. On a browser without document-start injection (Safari, Appium), the Selenium adapter's navigation now resolves only once the collector is in the destination, so typing that follows a navigation is captured instead of racing the injection, and the collector's DOM anchor carries each form control's current value and checked state, so a form typed into before the collector arrived no longer replays empty.
+
+## 1.7.5
+
+### Patch Changes
+
+- dc2ae05: Serialize the live DOM directly instead of writing it out as HTML and parsing that back. The collector already stands in the document, so the round trip bought nothing and cost a 148 KB HTML parser plus a view library inside a script injected into every page: 92% of the bundle, which drops from 213 KB to 10 KB.
+
+  That size was not merely wasteful. The bundle is registered as a BiDi preload, and headed Chrome 154 degrades superlinearly with a preload's size (measured: 50 KB doubled the first navigation, 100 KB never completed), so a run with the service attached could hang outright. Reading the DOM also describes the page the browser actually built rather than what a second parser makes of its markup, which is what `localName` and already-adjusted attribute names give for free.
+
+- 954faec: Keep waiting for a `<body>` however late it arrives. The collector checked for a body on one animation frame only, then gave up after 10 seconds. It runs as a document-start preload, so a page whose `<head>` blocked on a slow asset (measured: 30 seconds behind a 503) got no DOM anchor and no form-field capture. Every action on that page then replayed an earlier document instead, and typed values never showed. The collector now checks on every frame, and on `DOMContentLoaded` for a background tab that paints none, with no timeout. A body still missing after 10 seconds is logged, so a page that never gets one shows up in the collector's logs instead of going uncaptured silently.
+
+## 1.7.4
+
+### Patch Changes
+
+- f2305b4: Declare the build-time libraries as devDependencies, so installing the dashboard no longer installs the toolchain that built it. Both packages ship a bundle with everything already inlined — lit, preact, codemirror and the iconify set for the app; htm, parse5 and preact for the page script — yet listed them as runtime dependencies, and the script additionally listed a vite plugin, which pulled vite, rolldown and lightningcss onto every machine that installed the backend. The app also declared the WebdriverIO adapter it never imports.
+
+  Measured against the registry: installing `@wdio/devtools-backend` went from 338 packages and 264 MB to roughly 85 and 27 MB. That cost fell on every adapter, and hardest on the Python one, which fetches the backend at runtime.
+
+## 1.7.3
+
+### Patch Changes
+
+- 993cb61: Observe `documentElement` rather than `body`, so a stylesheet injected into `<head>` after load is captured. The anchor is serialized as soon as `body` exists — before a bundler appends its lazily loaded `<style>` or `<link rel="stylesheet">` — so a body-rooted observer reported neither insertion and the replay held no stylesheet at all, rendering every route as raw HTML while its `body` content replayed correctly.
+
+## 1.7.2
+
+### Patch Changes
+
+- 4993f4a: Stop the trace player from stacking a page on top of itself. Every record in a `MutationObserver` batch is serialized at CALLBACK time, so a `childList` record's subtree is captured with all the descendants the same batch went on to insert — while those insertions still carry records of their own. Replaying both grafted the same content in once per nesting level. The HTML parser fills a document in a single batch, so a document-start collector saw the whole page as one nested chain: measured on the example runs, the Selenium trace replayed 7 username inputs, 7 password inputs and 4 copies of the form, and the WDIO trace duplicated the password field, with the wrong DOM showing at 67 of 138 and 65 of 82 selectable indices. Records already covered by another record's payload are now dropped, which takes both to 0.
+
+## 1.7.1
+
+### Patch Changes
+
+- aeb3804: A trace records the same thing whichever runner produced it, and the player reads it back in that runner's own terms.
+
+  **Locators you can paste into your own test.** The accessibility tree and element overlay used to hand back `a*=Logout` to everyone — WebdriverIO syntax, which Selenium's `By.css` and Nightwatch's `'css selector'` both reject. Each trace now carries its runner, and a captured locator is written in that runner's dialect: WebdriverIO keeps its text form, Selenium gets XPath, and Nightwatch prefers a native CSS locator (`button[type="submit"]`) because it is the one runner that reads a bare selector string under a default strategy. Where an XPath locator is genuinely the best available, the A11y panel names the call that resolves it. The player also resolves XPath now, so those rows draw their overlay boxes, and traces recorded before this still resolve their old locators.
+
+  **Rows name the element they acted on.** Selenium consumes a locator at `findElement` and hands back an opaque handle, so its element rows reached the player with nothing to box or mark — no click points at all. Both Selenium and Nightwatch now carry the element's locator onto the row, including for assertions, which name no element of their own: a `node:assert` resolves its target from the value it was given, and a Nightwatch native assert reads it from the call. A page-level read records that its value belongs to no element, so a title assertion cannot inherit the box of an element that happens to read the same text. WebdriverIO stamps the element a command actually acted on rather than the last one resolved, which was wrong whenever two handles were resolved before either was used.
+
+  **Every document instruments itself.** Selenium now registers its page collector at document start over BiDi, as the WebdriverIO and Nightwatch adapters already did, instead of appending a script after each navigation. On a fast two-page form that recovers input events that were being dropped while the collector came up, and anchors destination pages that previously lived and died unrecorded. Nightwatch re-establishes the same instrumentation when it replaces a session mid-run, which also restores network capture that was silently absent for every session after the first.
+
+  **The action tree matches the run.** Nightwatch's `describe/it` interface showed one group for a whole module; each `it` is now its own group. A Cucumber scenario is named instead of showing a generated id, and nests under its feature. A group no longer repeats its parent's name. `traceGranularity: 'session'` covers a whole Nightwatch run rather than only its last browser session, and `'test'` remains the recommendation for Cucumber.
+
+  **Live mode replays the right page.** The player bounded a row's DOM by the next row in arrival order, which is not the next row in time — a Nightwatch native assert, held back until its outcome is known, could bound a row that ran seconds later. Selenium additionally drained the page only at navigation in live mode, leaving nothing to replay between them. Both are fixed; trace-mode replay is unchanged.
+
+  **Fewer swallowed failures.** A screenshot poll landing inside a click could make the click report success while doing nothing; the recorder now stands aside while an input command is in flight. A driver error is no longer mistaken for a probe result, which could put an error object into a screencast frame and lose the run's entire trace at export. A Nightwatch wait that times out produces a row, so the failure appears in the timeline and the Errors tab rather than only in console text, and Cucumber assertions carry a real pass/fail instead of rendering neutral.
+
+- acc22dc: Correctness pass over the dashboard and trace player, driven by a new component-test suite that ran the UI in a real browser for the first time.
+
+  - **DOM replay** now reproduces what the page actually did: a boolean attribute is replayed by presence rather than by value (`checked="false"` no longer replays as checked, and a `disabled="false"` the page set stays disabled), an attribute the page removed replays as removed instead of being recreated empty, a removed `value` empties a field that was never typed into while keeping text that was, and a text-only DOM change is captured and replayed at all.
+  - **Trace slices keep their step names**: a per-test slice dropped the metadata its step titles lived under, so every Gherkin step rendered as `stable-…:step:1` instead of its own text.
+  - **Network panel**: resource-type dots are coloured for a reconstructed trace, whose HAR reports no MIME type; a request that failed at the transport level reads `ERR` in both the list and the detail card rather than the dash that means "still in flight"; capture, wire and UI now share one request-type vocabulary.
+  - **Errors panel** no longer mangles assertion failures — each row is headed by what failed, a multi-line failure stays inside its own bullet, and one failure site is resolved per step.
+  - **Compare tab** appears only for the selected test, is windowed to that test's own uid, and keeps its toolbar on one line.
+  - **Run state survives a run's worker sockets**, so Preserve & Rerun no longer 409s on every spec but the last, and a dashboard opened mid-run replays the whole run instead of the current spec. Rerun filters also match the runner's own full-title form, so a rerun no longer reports the test as skipped.
+  - **Sidebar**: a running test can be stopped, a suite carries no verdict until one of its children settles, a Run All refusal is judged against `canRunAll` and says why, and the selection feeds the selected-test context.
+  - **Player**: listeners are torn down on disconnect, the viewport is shown, and the theme is honoured per instance.
+  - **Capture**: DOM capture recovers on a document that missed script injection, and Nightwatch cucumber runs now produce traces with native assertions captured.
+  - **Empty panels** explain why they are empty instead of drawing a loading skeleton forever.
+
+## 1.7.0
+
+### Minor Changes
+
+- b28de26: Trace mode: a portable `trace.zip` artifact and first-party `show-trace` player, at parity across WebdriverIO, Selenium, and Nightwatch.
+
+  - **Trace mode** (`mode: 'trace'`) writes a portable artifact under `test-results/` with no dashboard window — `traceFormat` (`zip` | `ndjson-directory`), `traceGranularity` (`session` | `spec` | `test`), and retry-aware `tracePolicy` retention.
+  - **Trace player** (`show-trace`): DOM time-travel replayed from the mutation stream, an A11y tab and pick-locator element overlay, a Transcript tab with Copy-for-LLM, Errors/Console/Network/Source panels, and a scrubbable filmstrip timeline.
+  - **Per-test artifacts**: `screenshot` and `video` at `traceGranularity: 'test'`, a dense `filmstrip` into the trace, an `emitArtifactsManifest` index for CI, and inline Allure attachment (WebdriverIO + Selenium).
+  - **Assertion capture** (`captureAssertions`, on by default): `node:assert` and framework matchers render as trace action rows.
+
+  The trace format and player are identical across all three adapters; capture completeness varies per adapter (see the cross-framework support docs).

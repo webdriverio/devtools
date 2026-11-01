@@ -1,0 +1,190 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`should be able serialize DOM 1`] = `
+[
+  {
+    "addedNodes": [
+      {
+        "props": {
+          "children": [
+            {
+              "props": {
+                "children": [
+                  "
+    ",
+                  {
+                    "props": {
+                      "charset": "UTF-8",
+                      "data-wdio-ref": "3",
+                    },
+                    "type": "meta",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "data-wdio-ref": "4",
+                      "href": "/favicon.svg",
+                      "rel": "icon",
+                      "type": "image/svg+xml",
+                    },
+                    "type": "link",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "content": "width=device-width, initial-scale=1.0",
+                      "data-wdio-ref": "5",
+                      "name": "viewport",
+                    },
+                    "type": "meta",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "children": "Vitest Browser Runner",
+                      "data-wdio-ref": "6",
+                    },
+                    "type": "title",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "children": "
+      html {
+        overflow: hidden;
+        padding: 0;
+        margin: 0;
+      }
+      body {
+        padding: 0;
+        margin: 0;
+      }
+      #vitest-ui {
+        width: 100vw;
+        height: 100vh;
+        border: none;
+      }
+    ",
+                      "data-wdio-ref": "7",
+                    },
+                    "type": "style",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "crossorigin": "",
+                      "data-wdio-ref": "8",
+                      "src": "/__vitest_browser__/index-7107c1a2.js",
+                      "type": "module",
+                    },
+                    "type": "script",
+                  },
+                  "
+  ",
+                ],
+                "data-wdio-ref": "2",
+              },
+              "type": "head",
+            },
+            "
+  ",
+            {
+              "props": {
+                "children": [
+                  "
+    ",
+                  {
+                    "props": {
+                      "data-wdio-ref": "10",
+                      "id": "vitest-ui",
+                      "src": "/__vitest__/",
+                    },
+                    "type": "iframe",
+                  },
+                  "
+    ",
+                  {
+                    "props": {
+                      "children": "
+      const moduleCache = new Map()
+
+      // this method receives a module object or \\"import\\" promise that it resolves and keeps track of
+      // and returns a hijacked module object that can be used to mock module exports
+      function wrapModule(module) {
+        if (module instanceof Promise) {
+          moduleCache.set(module, { promise: module, evaluated: false })
+          return module
+            // TODO: add a test
+            .then(m => '__vi_inject__' in m ? m.__vi_inject__ : m)
+            .finally(() => moduleCache.delete(module))
+        }
+        return '__vi_inject__' in module ? module.__vi_inject__ : module
+      }
+
+      function exportAll(exports, sourceModule) {
+        // #1120 when a module exports itself it causes
+        // call stack error
+        if (exports === sourceModule)
+          return
+
+        if (Object(sourceModule) !== sourceModule || Array.isArray(sourceModule))
+          return
+
+        for (const key in sourceModule) {
+          if (key !== 'default') {
+            try {
+              Object.defineProperty(exports, key, {
+                enumerable: true,
+                configurable: true,
+                get: () => sourceModule[key],
+              })
+            }
+            catch (_err) { }
+          }
+        }
+      }
+
+      window.__vi_export_all__ = exportAll
+
+      // TODO: allow easier rewriting of import.meta.env
+      window.__vi_import_meta__ = {
+        env: {},
+        url: location.href,
+      }
+
+      window.__vi_module_cache__ = moduleCache
+      window.__vi_wrap_module__ = wrapModule
+    ",
+                      "data-wdio-ref": "11",
+                    },
+                    "type": "script",
+                  },
+                  "
+    
+  
+
+",
+                ],
+                "data-wdio-ref": "9",
+              },
+              "type": "body",
+            },
+          ],
+          "data-wdio-ref": "1",
+          "lang": "en",
+        },
+        "type": "html",
+      },
+    ],
+    "removedNodes": [],
+    "type": "childList",
+  },
+]
+`;
+
+exports[`should be able to properly serialize changes 1`] = `"<div id=\\"change\\" data-wdio-ref=\\"12\\">some <i data-wdio-ref=\\"13\\">real</i> change</div>"`;

@@ -1,0 +1,55 @@
+{
+  "name": "@wdio/devtools-core",
+  "version": "1.0.2",
+  "private": true,
+  "author": "Vishnu Vardhan",
+  "description": "Framework-agnostic capture/reporter logic shared by @wdio/devtools-* adapters. Workspace-internal, never published — code is inlined into each consuming adapter at build time.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    },
+    "./locators": {
+      "types": "./src/locators/index.ts",
+      "default": "./src/locators/index.ts"
+    },
+    "./element-snapshot": {
+      "types": "./src/element-snapshot.ts",
+      "default": "./src/element-snapshot.ts"
+    },
+    "./element-scripts": {
+      "types": "./src/element-scripts.ts",
+      "default": "./src/element-scripts.ts"
+    },
+    "./element-types": {
+      "types": "./src/element-types.ts",
+      "default": "./src/element-types.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint . --fix"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "@wdio/devtools-script": "workspace:*",
+    "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
+    "@xmldom/xmldom": "^0.9.12",
+    "stacktrace-parser": "^0.1.11",
+    "ws": "^8.22.0",
+    "xpath": "^0.0.34"
+  }
+}

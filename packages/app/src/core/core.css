@@ -1,0 +1,73 @@
+@import url('./colors.css');
+@import url('./scrollbars.css');
+
+@layer base {
+  :host {
+    line-height: 1.5;
+    font-weight: 400;
+
+    color-scheme: light dark;
+    color: var(--vscode-foreground);
+    font-family: var(--vscode-font-family);
+
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer base {
+  :host {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  :host input {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+  }
+}
+
+svg {
+  width: 100%;
+  height: 100%;
+}
+
+button[data-draggable-id]::after {
+  content: '';
+  position: absolute;
+  background: transparent;
+  transition:
+    background 0.12s,
+    width 0.12s,
+    height 0.12s;
+  pointer-events: none;
+}
+/* The 10px handle is centered on the pane boundary (position − 5px, see
+   DragController), so the line sits on the boundary at the handle's center. */
+button[data-draggable-id].cursor-col-resize::after {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+button[data-draggable-id].cursor-row-resize::after {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+button[data-draggable-id]:hover::after,
+button[data-draggable-id][data-dragging='dragging']::after {
+  background: var(--accent);
+}
+button[data-draggable-id].cursor-col-resize:hover::after,
+button[data-draggable-id].cursor-col-resize[data-dragging='dragging']::after {
+  width: 2px;
+}
+button[data-draggable-id].cursor-row-resize:hover::after,
+button[data-draggable-id].cursor-row-resize[data-dragging='dragging']::after {
+  height: 2px;
+}

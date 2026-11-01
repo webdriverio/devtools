@@ -1,0 +1,46 @@
+{
+  "source": "examples-smoke CI artifact, run 40774299701 at 14977b93, 2026-10-28 (wdio-mocha/1)",
+  "runner": "mocha",
+  "browserName": "chrome",
+  "commands": {
+    "count": 11,
+    "failed": 0,
+    "titles": [
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#username\")",
+      "Element.fill(\"#username\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "expect.toBeExisting()",
+      "expect.toHaveText(\"You logged into a secure area!\")",
+      "expect.toHaveText(\"Your username is invalid!\")"
+    ],
+    "withSnapshotText": 11,
+    "withCallSource": 10
+  },
+  "consoleLogs": 3,
+  "networkRequests": {
+    "count": 4,
+    "urls": [
+      "http://127.0.0.1:4567/login",
+      "http://127.0.0.1:4567/secure"
+    ]
+  },
+  "mutations": {
+    "count": 46,
+    "documentAnchors": 4
+  },
+  "frames": [
+    "7d988f14b29194d3731015f773597fdf90d23930",
+    "fbb6a64d1f669e9ec0ff80c091fadb3a0b9607e3",
+    "7d988f14b29194d3731015f773597fdf90d23930",
+    "66d600759c3fda30844627f3f3b9f6b6c0103811"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/wdio/mocha/specs/login.e2e.ts"
+  ],
+  "transcript": true
+}

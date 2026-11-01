@@ -1,0 +1,6 @@
+# Extra dependency for `pnpm demo:python:mobile` only. The desktop Python
+# examples need none of this — plain Selenium reaches a local browser, while an
+# Appium session is built through the Appium client.
+#
+#   pip install -r examples/selenium-py/requirements-mobile.txt
+Appium-Python-Client>=4.0.0

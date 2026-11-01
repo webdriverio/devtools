@@ -1,0 +1,8 @@
+{
+  "testEnvironment": "node",
+  "testMatch": [
+    "<rootDir>/example.js"
+  ],
+  "testTimeout": 60000,
+  "transform": {}
+}

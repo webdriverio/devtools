@@ -1,0 +1,280 @@
+/**
+ * @vitest-environment happy-dom
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import {
+  waitForBody,
+  assignRef,
+  getRef,
+  parseFragment,
+  parseDocument,
+  SLOW_BODY_NOTICE_MS
+} from '../src/utils.js'
+import { clearLogs, getLogs } from '../src/logger.js'
+
+const slowBodyNotices = () =>
+  getLogs().filter((line) => line.includes('no <body> after'))
+
+/** The serialized children of a vnode, as `{ props }` records. */
+const childProps = (tree: unknown): Record<string, unknown>[] =>
+  (
+    (tree as { props: { children: { props: Record<string, unknown> }[] } })
+      .props.children ?? []
+  ).map((child) => child.props)
+
+describe('DOM mutation capture utilities', () => {
+  beforeEach(() => {
+    clearLogs()
+    if (!document.body) {
+      const body = document.createElement('body')
+      document.documentElement.appendChild(body)
+    }
+    document.body.innerHTML = ''
+  })
+
+  it('should wait for body to exist before capturing mutations', async () => {
+    await expect(waitForBody()).resolves.toBeUndefined()
+  })
+
+  it('resolves at once for a body that already exists, without a frame', async () => {
+    // A `<script>`-injected collector lands in a loaded document whose window
+    // may never paint (Safari under automation); its listeners cannot wait.
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation(() => 0)
+    try {
+      const settled = await Promise.race([
+        waitForBody().then(() => 'resolved'),
+        new Promise<string>((r) => setTimeout(() => r('timed out'), 200))
+      ])
+      expect(settled).toBe('resolved')
+      expect(raf).not.toHaveBeenCalled()
+    } finally {
+      raf.mockRestore()
+    }
+  })
+
+  it('resolves for a body parsed after the first animation frame', async () => {
+    // A document-start preload runs before <body> exists, and a slow <head>
+    // lets the browser paint frames before the parser reaches it.
+    document.body.remove()
+    const waiting = waitForBody()
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve))
+    )
+    document.documentElement.appendChild(document.createElement('body'))
+
+    const outcome = await Promise.race([
+      waiting.then(() => 'resolved'),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1000))
+    ])
+    expect(outcome).toBe('resolved')
+  })
+
+  it('resolves for a body parsed long after the page started loading', async () => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame'
+      ]
+    })
+    try {
+      document.body.remove()
+      let resolved = false
+      const waiting = waitForBody().then(() => {
+        resolved = true
+      })
+      // A <head> blocked on assets the server answers 30 s later.
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(resolved).toBe(false)
+      // Still waiting, but the late body is on record for whoever reads the logs.
+      expect(slowBodyNotices()).toHaveLength(1)
+
+      document.documentElement.appendChild(document.createElement('body'))
+      await vi.advanceTimersByTimeAsync(50)
+      await waiting
+      expect(resolved).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('logs nothing for a body that arrives promptly', async () => {
+    vi.useFakeTimers({
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'requestAnimationFrame',
+        'cancelAnimationFrame'
+      ]
+    })
+    try {
+      const waiting = waitForBody()
+      await vi.advanceTimersByTimeAsync(50)
+      await waiting
+      await vi.advanceTimersByTimeAsync(SLOW_BODY_NOTICE_MS * 2)
+      expect(slowBodyNotices()).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('should assign trackable refs to DOM elements for mutation identification', () => {
+    const parent = document.createElement('div')
+    const child1 = document.createElement('span')
+    const child2 = document.createElement('p')
+    parent.appendChild(child1)
+    parent.appendChild(child2)
+
+    assignRef(parent)
+
+    const parentRef = getRef(parent)
+    const child1Ref = getRef(child1)
+    const child2Ref = getRef(child2)
+
+    // Each element should get unique ref
+    expect(parentRef).toBeTruthy()
+    expect(child1Ref).toBeTruthy()
+    expect(child2Ref).toBeTruthy()
+    expect(parentRef).not.toBe(child1Ref)
+    expect(child1Ref).not.toBe(child2Ref)
+  })
+
+  it('should maintain stable refs across multiple assignments', () => {
+    const div = document.createElement('div')
+    assignRef(div)
+    const firstRef = getRef(div)
+
+    assignRef(div)
+    const secondRef = getRef(div)
+
+    expect(firstRef).toBe(secondRef)
+  })
+
+  it('should serialize DOM elements to transmittable VNode structure', () => {
+    const button = document.createElement('button')
+    button.id = 'submit'
+    button.className = 'btn-primary'
+    button.textContent = 'Submit'
+
+    const vnode = parseFragment(button)
+
+    // VNode should be serializable (has type and props)
+    expect(vnode).toHaveProperty('type')
+    expect(vnode).toHaveProperty('props')
+    expect(JSON.stringify(vnode)).toBeTruthy()
+  })
+
+  it('carries a field’s typed value and checked state, which no attribute holds', () => {
+    // A collector that arrives after the typing anchors the form as it is now;
+    // without this the replay of a page typed into before injection is empty.
+    const form = document.createElement('form')
+    form.innerHTML =
+      '<input id="u" value="initial"><textarea id="t"></textarea>' +
+      '<input id="c" type="checkbox"><input id="d" type="checkbox" checked>'
+    ;(form.querySelector('#u') as HTMLInputElement).value = 'tomsmith'
+    ;(form.querySelector('#t') as HTMLTextAreaElement).value = 'notes'
+    ;(form.querySelector('#c') as HTMLInputElement).checked = true
+    ;(form.querySelector('#d') as HTMLInputElement).checked = false
+
+    const props = childProps(parseDocument(form as unknown as HTMLElement))
+    expect(props[0]).toMatchObject({ id: 'u', value: 'tomsmith' })
+    expect(props[1]).toMatchObject({ id: 't', value: 'notes' })
+    expect(props[2]).toMatchObject({ id: 'c', checked: '' })
+    expect(props[3]).not.toHaveProperty('checked')
+  })
+
+  it('leaves an untouched field’s attributes as they are', () => {
+    const div = document.createElement('div')
+    div.innerHTML = '<input id="u" value="initial"><input id="e">'
+    const props = childProps(parseDocument(div as unknown as HTMLElement))
+    expect(props[0]).toMatchObject({ value: 'initial' })
+    expect(props[1]).not.toHaveProperty('value')
+  })
+
+  it('should serialize complete document hierarchy for initial capture', () => {
+    const div = document.createElement('div')
+    div.innerHTML = '<header><h1>App</h1></header><main><p>Content</p></main>'
+
+    const vnode = parseDocument(div)
+
+    // Document parsing wraps in html element
+    expect(vnode).toHaveProperty('type')
+    expect(vnode).toHaveProperty('props')
+    expect(JSON.stringify(vnode)).toBeTruthy()
+  })
+
+  it('should serialize a text child as its data, not as an element', () => {
+    // Only an Element has `outerHTML`. Handed a Text node, parse5 threw on
+    // `undefined` and the catch below serialized its own stack trace onto the
+    // wire — which the replay then inserted into the page as a visible div.
+    const text = document.createTextNode('hello world')
+
+    expect(parseFragment(text as unknown as Element)).toBe('hello world')
+  })
+
+  it('should drop a comment child, the same as one inside a parsed tree', () => {
+    const comment = document.createComment('build stamp')
+
+    expect(parseFragment(comment as unknown as Element)).toBe('')
+  })
+
+  it('should handle parsing errors without breaking mutation capture', () => {
+    const fragmentResult = parseFragment(null as any)
+    const documentResult = parseDocument(null as any)
+
+    // Should return error containers instead of throwing
+    expect(typeof fragmentResult).toBe('object')
+    expect(typeof documentResult).toBe('object')
+
+    if (typeof fragmentResult === 'object') {
+      expect(fragmentResult.type).toBe('div')
+      expect(fragmentResult.props.class).toBe('parseFragmentWrapper')
+    }
+
+    if (typeof documentResult === 'object') {
+      expect(documentResult.type).toBe('div')
+      expect(documentResult.props.class).toBe('parseDocument')
+    }
+  })
+
+  it('should support complete mutation tracking workflow: assign ref → serialize → transmit', () => {
+    // Simulate what happens in index.ts when MutationObserver detects changes
+    const addedNode = document.createElement('article')
+    addedNode.innerHTML = '<h2>New Section</h2><p>New content</p>'
+
+    // Step 1: Assign ref so we can track this node
+    assignRef(addedNode)
+    const nodeRef = getRef(addedNode)
+
+    // Step 2: Serialize for transmission to backend
+    const serialized = parseFragment(addedNode)
+
+    // Step 3: Verify we can identify and serialize the mutation
+    expect(nodeRef).toBeTruthy()
+    expect(serialized).toHaveProperty('type')
+    expect(serialized).toHaveProperty('props')
+
+    // The serialized VNode should be transmittable as JSON
+    const json = JSON.stringify(serialized)
+    expect(json).toBeTruthy()
+    expect(() => JSON.parse(json)).not.toThrow()
+  })
+
+  it('should support mutation removal tracking via refs', () => {
+    const target = document.createElement('div')
+    const child = document.createElement('span')
+    target.appendChild(child)
+
+    assignRef(target)
+
+    // When mutation observer detects removals, we can get refs
+    const targetRef = getRef(target)
+    const childRef = getRef(child)
+
+    expect(targetRef).not.toBeNull()
+    expect(childRef).not.toBeNull()
+  })
+})

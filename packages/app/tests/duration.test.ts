@@ -1,0 +1,123 @@
+import { describe, it, expect } from 'vitest'
+
+import {
+  formatDuration,
+  durationHeat,
+  entryDuration,
+  stepDurations
+} from '../src/components/workbench/actionItems/duration.js'
+import type { CommandLog, TraceMutation } from '@wdio/devtools-shared'
+
+describe('formatDuration', () => {
+  it('shows milliseconds below a second', () => {
+    expect(formatDuration(0)).toBe('0ms')
+    expect(formatDuration(276)).toBe('276ms')
+    expect(formatDuration(999)).toBe('999ms')
+  })
+
+  it('shows seconds with two decimals below a minute', () => {
+    expect(formatDuration(1430)).toBe('1.43s')
+    expect(formatDuration(10760)).toBe('10.76s')
+  })
+
+  it('switches unit AT each boundary, not one millisecond past it', () => {
+    // A `>` test left the first value of each unit rendered in the unit below:
+    // a four-digit `1000ms`, and a minute-long step reported as `60.00s`.
+    expect(formatDuration(1000)).toBe('1.00s')
+    expect(formatDuration(60_000)).toBe('1m 0s')
+  })
+
+  it('truncates seconds rather than rounding into the next bucket', () => {
+    // `durationHeat` calls 1999ms mid and 2000ms slow. Rounding printed `2.00s`
+    // for both, so the two buckets showed the same label in different colours.
+    expect(formatDuration(1999)).toBe('1.99s')
+    expect(formatDuration(2000)).toBe('2.00s')
+    expect(formatDuration(59_999)).toBe('59.99s')
+  })
+
+  it('shows minutes and seconds above a minute', () => {
+    expect(formatDuration(60001)).toBe('1m 0s')
+    expect(formatDuration(150000)).toBe('2m 30s')
+  })
+
+  it('rounds fractional milliseconds from reconstructed traces', () => {
+    expect(formatDuration(1.02978515625)).toBe('1ms')
+    expect(formatDuration(22.4)).toBe('22ms')
+    expect(formatDuration(0.4)).toBe('0ms')
+    expect(formatDuration(999.7)).toBe('1.00s')
+    expect(formatDuration(5049.9)).toBe('5.05s')
+    expect(formatDuration(60000.6)).toBe('1m 0s')
+  })
+})
+
+describe('durationHeat', () => {
+  it('is fast below 500ms', () => {
+    expect(durationHeat(0)).toBe('fast')
+    expect(durationHeat(499)).toBe('fast')
+  })
+
+  it('is mid from 500ms up to 2s', () => {
+    expect(durationHeat(500)).toBe('mid')
+    expect(durationHeat(1999)).toBe('mid')
+  })
+
+  it('is slow at 2s and above', () => {
+    expect(durationHeat(2000)).toBe('slow')
+    expect(durationHeat(10760)).toBe('slow')
+  })
+})
+
+describe('stepDurations', () => {
+  it('uses the gap to the next entry for all but the last', () => {
+    expect(stepDurations([0, 100, 350, 1350])).toEqual([100, 250, 1000, 1000])
+  })
+
+  it('falls back to the previous gap for the final entry so it is never blank', () => {
+    // last entry (1350) has no next → reuses the prior gap (1350 - 350 = 1000)
+    const out = stepDurations([0, 350, 1350])
+    expect(out[out.length - 1]).toBe(1000)
+  })
+
+  it('returns undefined for a single lone entry', () => {
+    expect(stepDurations([42])).toEqual([undefined])
+  })
+
+  it('handles an empty timeline', () => {
+    expect(stepDurations([])).toEqual([])
+  })
+
+  it('keeps 0ms gaps for same-timestamp commands', () => {
+    expect(stepDurations([0, 0, 0, 500])).toEqual([0, 0, 500, 500])
+  })
+})
+
+describe('entryDuration', () => {
+  const cmd = (over: Partial<CommandLog> = {}): CommandLog => ({
+    command: 'expect.toExist',
+    args: [],
+    timestamp: 10603,
+    ...over
+  })
+
+  it('uses the command execution span (timestamp − startTime) when present', () => {
+    // Regression: an assertion whose internal polling is suppressed sits after a
+    // long navigation gap; the row must show its own 603ms runtime, not the gap.
+    expect(entryDuration(cmd({ startTime: 10000 }), 10650)).toBe(603)
+  })
+
+  it('falls back to the inter-action gap when the command has no startTime', () => {
+    expect(entryDuration(cmd(), 420)).toBe(420)
+  })
+
+  it('falls back to the gap for a mutation entry (no startTime field)', () => {
+    const mutation = {
+      type: 'childList',
+      timestamp: 5
+    } as unknown as TraceMutation
+    expect(entryDuration(mutation, 42)).toBe(42)
+  })
+
+  it('returns undefined when neither a span nor a gap is available', () => {
+    expect(entryDuration(cmd(), undefined)).toBeUndefined()
+  })
+})

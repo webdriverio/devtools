@@ -1,0 +1,136 @@
+# Contributing
+
+Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clone to a reviewable PR.
+
+## Prerequisites
+
+- **Node.js** 22.23.4, 24.22.1, 26.12.1 or a later release of these lines
+- **pnpm** ≥ 9 (this is a pnpm workspace / monorepo)
+
+## Setup
+
+[**Fork**](https://github.com/webdriverio/devtools/fork) the repo on GitHub, then clone your fork and add the upstream remote:
+
+```bash
+git clone https://github.com/<your-username>/devtools
+cd devtools
+
+pnpm install
+pnpm build
+```
+
+You'll push branches to **your fork** (`origin`) and open pull requests against `webdriverio/devtools`. Keep your fork current with:
+
+```bash
+git fetch upstream && git rebase upstream/main
+```
+
+> Maintainers with write access to `webdriverio/devtools` can clone it directly and skip the fork.
+
+## Development workflow
+
+Run from the repo root:
+
+| Command | What it does |
+|---|---|
+| `pnpm build` | Build all packages (`pnpm -r build`). |
+| `pnpm dev` | Run all packages in parallel dev/watch mode. |
+| `pnpm test` | Run the vitest suite once. |
+| `pnpm test:watch` | vitest in watch mode. |
+| `pnpm test:coverage` | vitest with coverage — the thresholds in `vitest.config.ts` are the floor; drops fail CI. |
+| `pnpm lint` | Lint all packages. |
+| `pnpm demo:wdio` / `:nightwatch` / `:selenium` | Run a per-framework example project — the harness for manual UI/runtime verification. |
+
+Type-checks and unit tests verify code correctness, not feature correctness — for any UI or runtime change, verify it in `examples/<framework>/`.
+
+## Where does my change go?
+
+Read **[ARCHITECTURE.md](./ARCHITECTURE.md)** for the package map and the full decision tree. The short version:
+
+- **Shared type / constant / contract** → `packages/shared`
+- **Framework-agnostic capture / reporting logic** → `packages/core`
+- **Framework-specific glue** → the matching adapter (`service` = WebdriverIO, `selenium-devtools`, `nightwatch-devtools`)
+- **Server route / WS handler** → `packages/backend` (define the contract in `shared` first)
+- **UI** → `packages/app`
+- **Code that runs in the page under test** → `packages/script`
+
+Resolving question: *who else would want this?* If "any future adapter would," it's `core`. If "only this framework's API needs it," it's the adapter. **Any change that would otherwise land in two or more adapters belongs in `core`.**
+
+## Conventions
+
+**[CLAUDE.md](./CLAUDE.md)** is the source of truth for how code is written here — single source of truth per concept, thin/isolated adapters, typed boundaries (no `any` across a package boundary), naming, file/function size, and comment style. Please skim it before your first PR; the linter enforces some of it, but not all.
+
+## Tests
+
+- `shared` and `core`: unit-test every exported function and type guard.
+- Bug fixes: add a regression test that fails before the fix and passes after. If a real test is genuinely impossible (needs a live browser the CI lacks), say so in the PR description.
+- New HTTP/WS contracts: exercise the contract end-to-end at least once.
+- Coverage only ratchets upward — never lower the thresholds.
+
+## Changesets
+
+This repo publishes with [changesets](https://github.com/changesets/changesets). **If your change touches a published package, add a changeset** — without one the release won't bump or publish it.
+
+```bash
+pnpm changeset      # or: npx changeset
+```
+
+Then pick:
+
+- **Packages** — only the **published** ones you changed: `@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`, `@wdio/devtools-backend`, `@wdio/devtools-app`, `@wdio/devtools-script`, `@wdio/elements`. Do **not** select `@wdio/devtools-shared` or `@wdio/devtools-core` — they're private and inlined into their consumers, so a change there just means bumping the consumers (a released package that depends on them).
+- **Level** — by impact: **major** = a breaking change (removed/renamed option, changed default), **minor** = a backward-compatible feature, **patch** = a backward-compatible fix.
+
+Commit the generated `.changeset/*.md` with your change. You don't edit `CHANGELOG.md` or version numbers — the release generates those from your changeset. Publishing itself is a **manual step a maintainer runs** (the "Manual NPM Publish" GitHub Action), so your job ends at landing the changeset.
+
+### The Python adapter has its own
+
+**If your change touches `packages/selenium-devtools-py/src/`, add a change fragment** — a file under `packages/selenium-devtools-py/changes/`:
+
+```md
+---
+minor
+---
+
+Serve the page collector from the backend, so DOM replay works from a published install.
+```
+
+The frontmatter is the bump level alone (`patch`, `minor`, `major`); the body is what a user reading the changelog needs to know. CI refuses a branch that changes `src/` and documents nothing. As with changesets you don't edit the version or `CHANGELOG.md` — the release consumes the fragments, takes the strongest level pending, bumps `__version__`, writes the changelog section and tags `py-v<version>`.
+
+```bash
+python3 packages/selenium-devtools-py/scripts/changes.py next-version   # what a release would publish
+```
+
+**You don't bump `BACKEND_NPM_VERSION`.** That constant names the backend a
+`pip install` user actually runs, so it can only move once that backend is on
+npm — the npm release opens the bump as its own PR, fragment included. If a
+Python CI run fails on *"Pinned backend serves this adapter's contract"*, the
+answer is that the backend has not been released yet, not that your branch is
+wrong. Raise it by hand only when you are also releasing the backend.
+
+## Adding a feature
+
+Every user-facing feature is listed in [`packages/conformance/src/features.ts`](./packages/conformance/src/features.ts), with what each of the four adapters (WebdriverIO, Selenium, Nightwatch, Python) does with it. The capability tables in this README and on the docs site are generated from it.
+
+1. Add an entry: an id, a name, the tables it appears in, and a cell for every adapter.
+2. A supported cell names its evidence with the helpers in `capability-helpers.ts` beside it: `tested(rules)` for conformance rules that check it, `covered(path)` for a test file in that adapter's own tests (or `core`, `trace` or `backend` when the adapter adds no logic of its own), or `byHand(reason)` saying how to check it by hand. A partial or unsupported cell names the reason, which becomes the table's footnote.
+3. Run `pnpm docs:capabilities` to regenerate the README tables. `pnpm docs:capabilities --parity` lists every feature some adapter lacks.
+
+CI fails when an adapter is missing from an entry, a reason or evidence is missing, a test file does not exist or sits outside those tests, a new option or conformance rule maps to no feature, or the README tables are out of date.
+
+## Before you push
+
+- `pnpm build`, `pnpm test`, and `pnpm lint` all green — don't push red.
+- UI / runtime changes verified in `examples/<framework>/`.
+- A changeset added if a published package changed (`pnpm changeset`), or a change fragment under `packages/selenium-devtools-py/changes/` if the Python adapter's `src/` changed.
+- User-facing changes (a new option, CLI, flag, output, or workflow) update the relevant README **and** are mirrored to the [WebdriverIO devtools webpage](https://webdriver.io/docs/devtools) in the same change.
+
+## Pull requests
+
+- **One concern per PR** — a refactor and a feature are two PRs.
+- Commit messages in imperative mood; the message explains *why*, the diff shows *what*.
+- A PR that touches more than one adapter package answers in its description: *why isn't this in `core`?*
+- Don't use `--no-verify` to skip hooks — if a hook fails, fix the underlying issue.
+
+## License
+
+By contributing, you agree that your contributions are licensed under the project's [MIT License](./LICENSE).

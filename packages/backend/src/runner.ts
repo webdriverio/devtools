@@ -1,0 +1,481 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import url from 'node:url'
+import kill from 'tree-kill'
+import logger from '@wdio/logger'
+import { parse as shellParse, quote as shellQuote } from 'shell-quote'
+import {
+  NIGHTWATCH_CONFIG_FILENAMES,
+  RERUN_SLOT,
+  REUSE_ENV,
+  RUNNER_ENV,
+  WDIO_CONFIG_FILENAMES,
+  parseInitialArgs,
+  type RunnerRequestBody
+} from '@wdio/devtools-shared'
+import {
+  escapeFilterRegex,
+  getFilterBuilder,
+  runAllFilters,
+  type RunAllSelection
+} from './framework-filters.js'
+import { resolveNightwatchBin, resolveWdioBin } from './bin-resolver.js'
+
+const log = logger('@wdio/devtools-runner')
+
+/**
+ * Detect a `--name "{{testName}}"` slot anywhere in `template`, with optional
+ * surrounding whitespace. Uses linear-time string scanning (split/indexOf) so
+ * the user-supplied rerun template can't trigger backtracking regardless of
+ * how many spaces it contains. See CodeQL js/polynomial-redos for context.
+ */
+const NAME_SLOT = `--name "${RERUN_SLOT.testName}"`
+function hasNameTestNameSlot(template: string): boolean {
+  return template.includes(NAME_SLOT)
+}
+function stripNameTestNameSlot(template: string): string {
+  const idx = template.indexOf(NAME_SLOT)
+  if (idx === -1) {
+    return template
+  }
+  // Trim adjacent whitespace on the left of the slot so we don't leave a
+  // double space behind. The right side is left intact — the caller appends
+  // the feature path after this segment.
+  let leftEdge = idx
+  while (leftEdge > 0 && /\s/.test(template[leftEdge - 1])) {
+    leftEdge--
+  }
+  return template.slice(0, leftEdge) + template.slice(idx + NAME_SLOT.length)
+}
+
+/** The selection the run that started this backend was launched with; both are written in this process. */
+function runAllSelection(): RunAllSelection {
+  const wdioSpecs = (process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] ?? '')
+    .split(path.delimiter)
+    .filter(Boolean)
+  const raw = process.env[RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS]
+  const nightwatchArgs = parseInitialArgs(raw)
+  if (raw && !nightwatchArgs) {
+    log.warn(
+      `Ignoring ${RUNNER_ENV.NIGHTWATCH_INITIAL_ARGS}: not a JSON array of strings`
+    )
+  }
+  return { wdioSpecs, nightwatchArgs: nightwatchArgs ?? [] }
+}
+
+class TestRunner {
+  #child?: ChildProcess
+  #lastPayload?: RunnerRequestBody
+  #registeredConfigFile?: string
+  #baseDir = process.cwd()
+  // Set on rerun spawn; consumed once by the next worker handshake so the
+  // accumulated suite tree is preserved instead of wiped.
+  #expectingRerunChild = false
+  #onEarlyExit?: (reason: string) => void
+  /** Fires when a spawned run exits before any worker connected. */
+  onEarlyExit(listener: (reason: string) => void) {
+    this.#onEarlyExit = listener
+  }
+  consumeRerunChildFlag(): boolean {
+    const v = this.#expectingRerunChild
+    this.#expectingRerunChild = false
+    return v
+  }
+
+  registerConfigFile(configFile: string) {
+    if (configFile && fs.existsSync(configFile)) {
+      this.#registeredConfigFile = configFile
+    }
+  }
+
+  #buildReuseEnv(payload: RunnerRequestBody): NodeJS.ProcessEnv {
+    const childEnv: NodeJS.ProcessEnv = { ...process.env }
+    if (payload.devtoolsHost && payload.devtoolsPort) {
+      childEnv[REUSE_ENV.HOST] = payload.devtoolsHost
+      childEnv[REUSE_ENV.PORT] = String(payload.devtoolsPort)
+      childEnv[REUSE_ENV.REUSE] = '1'
+    }
+    // Deleted when this payload carries none: `childEnv` starts from our own
+    // environment, so a backend that inherited the variable would otherwise
+    // hand a stale command to every child it spawns.
+    if (payload.launchCommand) {
+      childEnv[REUSE_ENV.LAUNCH_COMMAND] = payload.launchCommand
+    } else {
+      delete childEnv[REUSE_ENV.LAUNCH_COMMAND]
+    }
+    return childEnv
+  }
+
+  #spawnGeneric(
+    payload: RunnerRequestBody,
+    childEnv: NodeJS.ProcessEnv
+  ): ChildProcess {
+    const command = this.#resolveGenericCommand(payload)
+    this.#baseDir = process.env[RUNNER_ENV.RUNNER_CWD] || process.cwd()
+    const { file, args } = this.#parseGenericCommand(command)
+    log.info(`rerun: ${file} ${args.join(' ')}`)
+    return spawn(file, args, {
+      cwd: this.#baseDir,
+      env: childEnv,
+      stdio: 'inherit',
+      detached: false
+    })
+  }
+
+  #spawnFramework(
+    payload: RunnerRequestBody,
+    childEnv: NodeJS.ProcessEnv,
+    isNightwatch: boolean
+  ): ChildProcess {
+    const configPath = this.#resolveConfigPath(payload)
+    this.#baseDir =
+      process.env[RUNNER_ENV.RUNNER_CWD] || path.dirname(configPath)
+    const args: string[] = isNightwatch
+      ? [
+          // Beside the config finds an install nested under it, the launch directory one under a shared config.
+          resolveNightwatchBin(path.dirname(configPath), this.#baseDir),
+          '--config',
+          configPath,
+          ...this.#buildFilters(payload)
+        ].filter(Boolean)
+      : [
+          // Resolved here, not at module scope: it throws when @wdio/cli is
+          // absent, which at import time killed the whole backend before it
+          // served anything — for Nightwatch, Selenium and Python users who
+          // never reach this branch, with an error naming a WDIO env var they
+          // have never heard of. Mirrors resolveNightwatchBin above.
+          resolveWdioBin(),
+          'run',
+          configPath,
+          ...this.#buildFilters(payload)
+        ].filter(Boolean)
+    if (isNightwatch) {
+      if (payload.entryType === 'test' && payload.label) {
+        childEnv[REUSE_ENV.RERUN_ENTRY_TYPE] = 'test'
+        childEnv[REUSE_ENV.RERUN_LABEL] = payload.label
+      } else {
+        delete childEnv[REUSE_ENV.RERUN_ENTRY_TYPE]
+        delete childEnv[REUSE_ENV.RERUN_LABEL]
+      }
+    }
+    // A filter that matches nothing makes the runner report the spec as
+    // skipped with no other output, so the resolved argv is the only way to
+    // tell a bad spec path from a bad name filter.
+    log.info(`rerun: ${process.execPath} ${args.join(' ')}`)
+    return spawn(process.execPath, args, {
+      cwd: this.#baseDir,
+      env: childEnv,
+      stdio: 'inherit',
+      detached: false
+    })
+  }
+
+  #waitForSpawn(child: ChildProcess): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      child.once('spawn', resolve)
+      child.once('error', (error) => {
+        this.#child = undefined
+        this.#lastPayload = undefined
+        this.#baseDir = process.cwd()
+        this.#expectingRerunChild = false
+        reject(error)
+      })
+    })
+  }
+
+  async run(payload: RunnerRequestBody) {
+    if (this.#child) {
+      this.stop()
+      await new Promise<void>((resolve) => setTimeout(resolve, 500))
+    }
+    // devtoolsHost/Port in the payload = REUSE handshake (rerun child).
+    this.#expectingRerunChild = Boolean(
+      payload.devtoolsHost && payload.devtoolsPort
+    )
+    const isNightwatch = (payload.framework || '')
+      .toLowerCase()
+      .startsWith('nightwatch')
+    // Plugins that supply their own rerun template (e.g. selenium — runs
+    // under mocha/jest/vitest/cucumber, none of which use wdioBin).
+    const isGenericShell =
+      !isNightwatch && Boolean(payload.rerunCommand || payload.launchCommand)
+
+    const childEnv = this.#buildReuseEnv(payload)
+    const child = isGenericShell
+      ? this.#spawnGeneric(payload, childEnv)
+      : this.#spawnFramework(payload, childEnv, isNightwatch)
+
+    this.#child = child
+    this.#lastPayload = payload
+    child.once('close', (code, signal) => {
+      // stop() detached this child already, and a later run() may own the slot.
+      if (this.#child !== child) {
+        return
+      }
+      const neverConnected = this.#expectingRerunChild
+      this.#child = undefined
+      this.#lastPayload = undefined
+      this.#expectingRerunChild = false
+      this.#baseDir = process.cwd()
+      if (neverConnected) {
+        const reason = `Run exited before reporting (${signal ? `signal ${signal}` : `exit code ${code}`})`
+        log.warn(reason)
+        this.#onEarlyExit?.(reason)
+      }
+    })
+    await this.#waitForSpawn(child)
+  }
+
+  // Targeted reruns substitute {{testName}} into rerunCommand; suite filtering
+  // works because mocha/jest/cucumber filter flags match by name (describe/it/scenario alike).
+  //
+  // Exception: cucumber's `--name` matches scenario titles only, never feature
+  // titles — a suite-level rerun on a feature would substitute the feature name
+  // and match zero scenarios. When the payload looks like a cucumber feature
+  // rerun (entryType='suite', spec file ends in `.feature`, template carries
+  // `--name "{{testName}}"`), strip `--name` and pass the feature file as a
+  // positional arg so cucumber-js runs every scenario in that file.
+  #resolveGenericCommand(payload: RunnerRequestBody): string {
+    const template = payload.rerunCommand
+    const fallback = payload.launchCommand || ''
+    // Which slot the template carries decides what selects the entry: an exact
+    // id comes from `uid`, a name pattern from the label. A run with no usable
+    // selector is not targetable and falls back to relaunching everything.
+    const usesTestId = Boolean(template?.includes(RERUN_SLOT.testId))
+    const name = payload.label || payload.fullTitle || ''
+    const isTargetedRerun =
+      !payload.runAll &&
+      (payload.entryType === 'test' || payload.entryType === 'suite') &&
+      Boolean(usesTestId ? payload.uid : name)
+    if (!template || !isTargetedRerun) {
+      return fallback || template || ''
+    }
+    if (usesTestId) {
+      // Shell-quoted but never regex-escaped: the id is matched literally, and
+      // a parametrized pytest nodeid can carry brackets and spaces
+      // (`test_login.py::test_x[a b]`). Split/join rather than a regex so the
+      // template can't drive backtracking (see the CodeQL note above).
+      return template.split(RERUN_SLOT.testId).join(shellQuote([payload.uid]))
+    }
+    // Cucumber's `--name` matches scenario titles, never feature titles.
+    // Feature-level reruns must drop `--name` and pass the .feature path as a
+    // positional arg. The dashboard tags the root suite with
+    // `suiteType: 'feature'`, which is what distinguishes a true feature-level
+    // rerun from a scenario rerun (scenarios are also `entryType: 'suite'` but
+    // `suiteType: 'suite'`).
+    const featureSpec =
+      payload.featureFile ||
+      (payload.specFile?.endsWith('.feature') ? payload.specFile : undefined)
+    const isCucumberFeatureRerun =
+      payload.entryType === 'suite' &&
+      payload.suiteType === 'feature' &&
+      Boolean(featureSpec) &&
+      hasNameTestNameSlot(template)
+    if (isCucumberFeatureRerun && featureSpec) {
+      const stripped = stripNameTestNameSlot(template)
+      return `${stripped} ${shellQuote([featureSpec])}`
+    }
+    // The slot is double-quoted in the template, so the backslashes the escape
+    // adds survive shell parsing and reach the runner as literals.
+    return template.split(RERUN_SLOT.testName).join(escapeFilterRegex(name))
+  }
+
+  #parseGenericCommand(command: string): { file: string; args: string[] } {
+    const tokens = (shellParse(command) as unknown[]).filter(
+      (token): token is string => typeof token === 'string'
+    )
+    if (tokens.length === 0) {
+      throw new Error('Invalid generic command: empty command')
+    }
+    const [file, ...args] = tokens
+    return { file, args }
+  }
+
+  stop() {
+    if (!this.#child || !this.#child.pid) {
+      return
+    }
+
+    const pid = this.#child.pid
+    const child = this.#child
+
+    // SIGTERM, then SIGKILL after 1s — Jest swallows SIGTERM and keeps
+    // running until the current test resolves.
+    kill(pid, 'SIGTERM', (err) => {
+      if (err) {
+        kill(pid, 'SIGKILL')
+      }
+    })
+    const sigkillTimer = setTimeout(() => {
+      kill(pid, 'SIGKILL')
+    }, 1000)
+    // Cancel SIGKILL on clean exit — the PID slot may have been recycled.
+    child.once('close', () => clearTimeout(sigkillTimer))
+
+    // Clear immediately so a follow-up /api/tests/run isn't blocked by the
+    // stale #child guard before SIGKILL lands.
+    this.#child = undefined
+    this.#lastPayload = undefined
+    this.#expectingRerunChild = false
+    this.#baseDir = process.cwd()
+  }
+
+  #buildFilters(payload: RunnerRequestBody) {
+    const framework = (payload.framework || '').toLowerCase()
+    const specFile = payload.runAll
+      ? undefined
+      : this.#normaliseSpecFile(payload)
+    const line = specFile ? this.#resolveLineNumber(payload) : undefined
+    const specArg = specFile
+      ? line
+        ? `${specFile}:${line}`
+        : specFile
+      : undefined
+
+    // framework is `string` from the HTTP payload; getFilterBuilder
+    // validates it against its known-runner Map and falls back to the
+    // default spec-only builder for anything unrecognised.
+    const builder = getFilterBuilder(framework)
+    const baseFilters = builder({ specArg, payload })
+
+    if (payload.runAll) {
+      baseFilters.push(...runAllFilters(framework, runAllSelection()))
+    }
+
+    return baseFilters
+  }
+
+  #resolveLineNumber(payload: RunnerRequestBody) {
+    if (payload.lineNumber && payload.lineNumber > 0) {
+      return payload.lineNumber
+    }
+    const source = payload.callSource?.trim() || this.#lastPayload?.callSource
+    if (!source) {
+      return this.#lastPayload?.lineNumber
+    }
+    const match = /:(\d+)(?::\d+)?$/.exec(source)
+    return match ? Number(match[1]) : this.#lastPayload?.lineNumber
+  }
+
+  #normaliseSpecFile(payload: RunnerRequestBody) {
+    const candidate = this.#getSpecCandidate(payload)
+    return candidate ? this.#toFsPath(candidate) : undefined
+  }
+
+  #getSpecCandidate(payload?: RunnerRequestBody) {
+    return (
+      payload?.specFile ||
+      this.#extractSpecFromCallSource(payload?.callSource) ||
+      this.#lastPayload?.specFile
+    )
+  }
+
+  #extractSpecFromCallSource(source?: string) {
+    if (!source) {
+      return undefined
+    }
+    const match = /^(.*?):\d+:\d+$/.exec(source.trim())
+    return match?.[1] ?? source
+  }
+
+  #toFsPath(candidate: string) {
+    const filePath = candidate.startsWith('file://')
+      ? url.fileURLToPath(candidate)
+      : candidate
+    return path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(this.#baseDir, filePath)
+  }
+
+  #resolveConfigPath(payload?: RunnerRequestBody) {
+    const specCandidate = this.#getSpecCandidate(payload)
+    const specDir = specCandidate
+      ? path.dirname(this.#toFsPath(specCandidate))
+      : undefined
+
+    const isNightwatch = (payload?.framework || '')
+      .toLowerCase()
+      .startsWith('nightwatch')
+    const candidates = this.#dedupeCandidates([
+      payload?.configFile,
+      this.#lastPayload?.configFile,
+      this.#registeredConfigFile,
+      process.env[RUNNER_ENV.WDIO_CONFIG],
+      process.env[RUNNER_ENV.NIGHTWATCH_CONFIG],
+      this.#findConfigFromSpec(specCandidate, isNightwatch),
+      ...this.#expandDefaultConfigsFor(this.#baseDir, isNightwatch),
+      ...this.#expandDefaultConfigsFor(
+        path.resolve(this.#baseDir, 'example'),
+        isNightwatch
+      ),
+      ...this.#expandDefaultConfigsFor(specDir, isNightwatch)
+    ])
+
+    for (const candidate of candidates) {
+      const resolved = this.#toFsPath(candidate)
+      if (fs.existsSync(resolved)) {
+        return resolved
+      }
+    }
+
+    const runner = isNightwatch ? 'Nightwatch' : 'WDIO'
+    throw new Error(
+      `Cannot locate ${runner} config. Tried:\n${candidates
+        .map((c) => ` • ${this.#toFsPath(c)}`)
+        .join('\n')}`
+    )
+  }
+
+  #findConfigFromSpec(specFile?: string, nightwatch = false) {
+    if (!specFile) {
+      return undefined
+    }
+
+    const filenames = nightwatch
+      ? [...NIGHTWATCH_CONFIG_FILENAMES, ...WDIO_CONFIG_FILENAMES]
+      : WDIO_CONFIG_FILENAMES
+    const fsSpec = this.#toFsPath(specFile)
+    let dir = path.dirname(fsSpec)
+    const root = path.parse(dir).root
+
+    while (dir && dir !== root) {
+      for (const file of filenames) {
+        const candidate = path.join(dir, file)
+        if (fs.existsSync(candidate)) {
+          return candidate
+        }
+      }
+      const parent = path.dirname(dir)
+      if (parent === dir) {
+        break
+      }
+      dir = parent
+    }
+
+    return undefined
+  }
+
+  #expandDefaultConfigsFor(baseDir?: string, nightwatch = false) {
+    if (!baseDir) {
+      return []
+    }
+    const filenames = nightwatch
+      ? [...NIGHTWATCH_CONFIG_FILENAMES, ...WDIO_CONFIG_FILENAMES]
+      : WDIO_CONFIG_FILENAMES
+    return filenames.map((file) => path.resolve(baseDir, file))
+  }
+
+  #dedupeCandidates(values: Array<string | undefined>) {
+    return Array.from(
+      new Set(
+        values.filter(
+          (value): value is string =>
+            typeof value === 'string' && value.length > 0
+        )
+      )
+    )
+  }
+}
+
+export const testRunner = new TestRunner()

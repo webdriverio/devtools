@@ -1,0 +1,549 @@
+import { createRequire } from 'node:module'
+import logger from '@wdio/logger'
+import {
+  beginInputDispatch,
+  errorMessage,
+  rememberReadValue
+} from '@wdio/devtools-core'
+import {
+  ELEMENT_LOCATOR_METHODS,
+  INTERNAL_DRIVER_METHODS,
+  PATCHED_SYMBOL,
+  TRACKED_ELEMENT_METHODS,
+  NAVIGATION_COMMANDS
+} from './constants.js'
+import {
+  rememberElementLocator,
+  selectorForElement
+} from './helpers/element-locators.js'
+import { getCallSourceFromStack } from './helpers/utils.js'
+import type {
+  CapturedCommand,
+  DriverOriginals,
+  DriverPatcherHooks,
+  ElementOriginals,
+  Patchable,
+  SeleniumDriverLike,
+  WebElementPromiseCtor
+} from './types.js'
+import {
+  tagElementConditions,
+  trackWaits,
+  waitPollOf
+} from './wait-tracking.js'
+
+const log = logger('@wdio/selenium-devtools:driverPatcher')
+
+const originals: DriverOriginals = {}
+const elementOriginals: ElementOriginals = {}
+
+export function getDriverOriginals(): DriverOriginals {
+  return originals
+}
+
+export function getElementOriginals(): ElementOriginals {
+  return elementOriginals
+}
+
+/** Shape of the selenium-webdriver module surface we touch. */
+interface SeleniumModule {
+  Builder?: ConstructorLike
+  WebDriver?: ConstructorLike
+  WebElement?: ConstructorLike
+  WebElementPromise?: WebElementPromiseCtor
+  until?: Patchable
+}
+interface ConstructorLike {
+  prototype: object
+}
+
+// Resolve user's selenium-webdriver first, then fall back to our own.
+function loadSeleniumWebdriver(): SeleniumModule | null {
+  try {
+    const userRequire = createRequire(`${process.cwd()}/`)
+    return userRequire('selenium-webdriver') as SeleniumModule
+  } catch {
+    try {
+      const localRequire = createRequire(import.meta.url)
+      return localRequire('selenium-webdriver') as SeleniumModule
+    } catch (err) {
+      log.warn(
+        `selenium-webdriver not found — devtools auto-attach disabled. (${errorMessage(err)})`
+      )
+      return null
+    }
+  }
+}
+
+export function isWebElementLike(v: unknown): boolean {
+  if (!v || typeof v !== 'object') {
+    return false
+  }
+  const o = v as { getId?: unknown; click?: unknown }
+  return typeof o.getId === 'function' && typeof o.click === 'function'
+}
+
+export function safeSerialize(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value
+  }
+  if (typeof value === 'function') {
+    return '[Function]'
+  }
+  if (isWebElementLike(value)) {
+    return webElementSummary(value)
+  }
+  if (
+    typeof value === 'object' &&
+    'using' in value &&
+    'value' in value &&
+    Object.keys(value).length === 2
+  ) {
+    const v = value as { using: string; value: unknown }
+    return `By.${v.using}(${JSON.stringify(v.value)})`
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every(isWebElementLike)) {
+      return `<WebElement[]> (count: ${value.length})`
+    }
+    return value.map(safeSerialize)
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(value))
+    } catch {
+      return String(value)
+    }
+  }
+  return value
+}
+
+export function webElementSummary(el: unknown): string {
+  // `id_` is a Promise; some selenium versions stash the resolved value sync.
+  const id = (el as { id_?: { _value?: unknown; value?: unknown } } | null)?.id_
+  const peek = id?._value ?? id?.value ?? null
+  return peek ? `<WebElement id=${peek}>` : '<WebElement>'
+}
+
+function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
+  try {
+    hooks.onCommand(cmd)
+  } catch (err) {
+    log.warn(`onCommand hook threw for ${cmd.command}: ${errorMessage(err)}`)
+  }
+}
+
+/** Element commands that dispatch input to the page. */
+const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
+
+/** Reports the command once it settles — see `CapturedCommand.timestamp` for why
+ *  the row is stamped at completion rather than at invocation. */
+function makeSettle(
+  hooks: DriverPatcherHooks,
+  meta: Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'>,
+  closeInputWindow: () => void
+): (result: unknown, error: Error | undefined) => void {
+  return (result, error) => {
+    closeInputWindow()
+    // An assertion names no element — it acts on the value a read resolved to —
+    // so the value is what carries the locator forward to the assertion row.
+    if (!error) {
+      rememberReadValue(result, meta.selector)
+    }
+    emitCommand(hooks, {
+      ...meta,
+      result: error ? undefined : safeSerialize(result),
+      rawResult: error ? undefined : result,
+      error,
+      timestamp: Date.now()
+    })
+  }
+}
+
+/** What a command's row says about the call, read at invocation, where a wait condition's call order is still the issue order. */
+function describeCall(
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean,
+  target: unknown,
+  startTime: number
+): Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'> {
+  const serializedArgs = args.map(safeSerialize)
+  // `this` is the only trace of which element the command targets — the
+  // locator was consumed by the findElement that produced it.
+  const selector = fromElement ? selectorForElement(target) : undefined
+  return {
+    command: methodName,
+    args: serializedArgs,
+    callSource: getCallSourceFromStack().callSource,
+    ...waitPollOf(methodName, serializedArgs, selector),
+    startTime,
+    fromElement,
+    selector
+  }
+}
+
+function makeWrappedMethod(
+  original: (...args: unknown[]) => unknown,
+  methodName: string,
+  fromElement: boolean,
+  hooks: DriverPatcherHooks
+): (...args: unknown[]) => unknown {
+  const isLocatorCall =
+    !fromElement &&
+    (ELEMENT_LOCATOR_METHODS as readonly string[]).includes(methodName)
+  return function (this: unknown, ...args: unknown[]): unknown {
+    // Before the instrumentation below: serializing args and walking the stack
+    // both cost time that would otherwise land inside the row's own duration.
+    const startTime = Date.now()
+    // Suppresses the screencast recorder's screenshot polling until this command
+    // settles: a poll landing inside chromedriver's click, between computing the
+    // element's coordinates and dispatching at them, makes the click report
+    // success while activating nothing. Only the non-Chrome polling path is
+    // affected — Chrome uses push-based CDP screencast and never polls.
+    const closeInputWindow = beginInputDispatch(methodName)
+    const settle = makeSettle(
+      hooks,
+      describeCall(methodName, args, fromElement, this, startTime),
+      closeInputWindow
+    )
+
+    let result: unknown
+    try {
+      const { beforeInput } = hooks
+      result =
+        fromElement && beforeInput && INPUT_ELEMENT_METHODS.has(methodName)
+          ? beforeInput()
+              .catch((err: unknown) =>
+                log.warn(`beforeInput hook threw: ${errorMessage(err)}`)
+              )
+              .then(() => original.apply(this, args))
+          : original.apply(this, args)
+    } catch (err) {
+      settle(undefined, err as Error)
+      throw err
+    }
+    // findElements resolves to its array later; only findElement hands back a
+    // usable handle here, which is what a chained call acts on.
+    if (isLocatorCall && isWebElementLike(result)) {
+      rememberElementLocator(result, args[0])
+    }
+
+    // CRITICAL: return the original thenable. findElement returns a
+    // WebElementPromise that carries sendKeys/click for chaining; a plain
+    // Promise from `.then(...)` would break `findElement(...).sendKeys(...)`.
+    const thenable = result as { then?: PromiseLike<unknown>['then'] } | null
+    if (thenable && typeof thenable.then === 'function') {
+      thenable.then(
+        (v: unknown) => {
+          if (isLocatorCall) {
+            rememberElementLocator(v, args[0])
+          }
+          settle(v, undefined)
+        },
+        (err: unknown) => settle(undefined, err as Error)
+      )
+      return gateNavigation(result, methodName, fromElement, hooks)
+    }
+    settle(result, undefined)
+    return result
+  }
+}
+
+/** A navigation resolves to the test only once the destination is
+ *  instrumented. Without the document-start preload the collector is appended
+ *  after the navigation, and left to race the test's next command it lost the
+ *  keystrokes typed before it landed. A navigation resolves to a plain
+ *  Promise, so the derived one breaks no chaining; the row keeps its own
+ *  completion time. */
+function gateNavigation(
+  result: unknown,
+  methodName: string,
+  fromElement: boolean,
+  hooks: DriverPatcherHooks
+): unknown {
+  const { afterNavigation } = hooks
+  if (
+    fromElement ||
+    !afterNavigation ||
+    !(NAVIGATION_COMMANDS as readonly string[]).includes(methodName)
+  ) {
+    return result
+  }
+  return (result as Promise<unknown>).then(async (value) => {
+    try {
+      await afterNavigation(methodName)
+    } catch (err) {
+      log.warn(
+        `afterNavigation hook threw for ${methodName}: ${errorMessage(err)}`
+      )
+    }
+    return value
+  })
+}
+
+function wrapPrototype(
+  proto: object,
+  methodNames: Iterable<string>,
+  fromElement: boolean,
+  hooks: DriverPatcherHooks
+): string[] {
+  const p = proto as Patchable
+  if (p[PATCHED_SYMBOL]) {
+    return []
+  }
+  p[PATCHED_SYMBOL] = true
+
+  const wrapped: string[] = []
+  for (const methodName of methodNames) {
+    const original = p[methodName]
+    if (typeof original !== 'function') {
+      continue
+    }
+    if (methodName === 'constructor' || methodName.startsWith('__')) {
+      continue
+    }
+    p[methodName] = makeWrappedMethod(
+      original as (...args: unknown[]) => unknown,
+      methodName,
+      fromElement,
+      hooks
+    )
+    wrapped.push(methodName)
+  }
+  return wrapped
+}
+
+function stashDriverOriginals(driverProto: Patchable): void {
+  const ts = driverProto.takeScreenshot
+  if (typeof ts === 'function') {
+    const orig = ts as (this: unknown) => unknown
+    originals.takeScreenshot = (driver) => orig.call(driver) as Promise<string>
+  }
+  const es = driverProto.executeScript
+  if (typeof es === 'function') {
+    const orig = es as (
+      this: unknown,
+      script: string,
+      ...args: unknown[]
+    ) => unknown
+    originals.executeScript = (driver, script, ...args) =>
+      orig.call(driver, script, ...args) as Promise<unknown>
+  }
+  const mg = driverProto.manage
+  if (typeof mg === 'function') {
+    const orig = mg as (this: unknown) => unknown
+    originals.manage = (driver) =>
+      orig.call(driver) as ReturnType<typeof orig> & object
+  }
+  const url = driverProto.getCurrentUrl
+  if (typeof url === 'function') {
+    const orig = url as (this: unknown) => unknown
+    originals.getCurrentUrl = (driver) => orig.call(driver) as Promise<string>
+  }
+  const title = driverProto.getTitle
+  if (typeof title === 'function') {
+    const orig = title as (this: unknown) => unknown
+    originals.getTitle = (driver) => orig.call(driver) as Promise<string>
+  }
+  const handle = driverProto.getWindowHandle
+  if (typeof handle === 'function') {
+    const orig = handle as (this: unknown) => unknown
+    originals.getWindowHandle = (driver) => orig.call(driver) as Promise<string>
+  }
+}
+
+// Lets onBeforeQuit flush async cleanup before runners that `process.exit()`
+// tear down (those bypass node's beforeExit).
+function patchDriverQuit(
+  driverProto: Patchable,
+  hooks: DriverPatcherHooks
+): void {
+  const quit = driverProto.quit
+  if (typeof quit !== 'function') {
+    return
+  }
+  const originalQuit = quit as (this: unknown) => unknown
+  driverProto.quit = async function patchedQuit(this: unknown) {
+    if (hooks.onBeforeQuit) {
+      try {
+        await hooks.onBeforeQuit(this as SeleniumDriverLike)
+      } catch (err) {
+        log.warn(`onBeforeQuit hook threw: ${errorMessage(err)}`)
+      }
+    }
+    return originalQuit.call(this)
+  }
+  log.info('Wrapped WebDriver.quit (cleanup hook)')
+}
+
+function patchWebElement(
+  WebElement: ConstructorLike,
+  hooks: DriverPatcherHooks
+): void {
+  const elProto = WebElement.prototype as Patchable
+  const gt = elProto.getText
+  if (typeof gt === 'function') {
+    const orig = gt as (this: unknown) => unknown
+    elementOriginals.getText = (el) => orig.call(el) as Promise<string>
+  }
+  const gtn = elProto.getTagName
+  if (typeof gtn === 'function') {
+    const orig = gtn as (this: unknown) => unknown
+    elementOriginals.getTagName = (el) => orig.call(el) as Promise<string>
+  }
+  const wrappedEl = wrapPrototype(
+    WebElement.prototype,
+    TRACKED_ELEMENT_METHODS,
+    /* fromElement */ true,
+    hooks
+  )
+  log.info(`Wrapped ${wrappedEl.length} WebElement method(s)`)
+}
+
+function patchBuilder(
+  Builder: ConstructorLike,
+  hooks: DriverPatcherHooks
+): void {
+  const builderProto = Builder.prototype as Patchable
+  if (builderProto[PATCHED_SYMBOL]) {
+    return
+  }
+  builderProto[PATCHED_SYMBOL] = true
+  const originalBuild = builderProto.build as (
+    this: unknown,
+    ...args: unknown[]
+  ) => unknown
+  builderProto.build = function patchedBuild(
+    this: unknown,
+    ...args: unknown[]
+  ) {
+    if (hooks.onBeforeBuild) {
+      try {
+        hooks.onBeforeBuild(this)
+      } catch (err) {
+        log.warn(`onBeforeBuild hook threw: ${errorMessage(err)}`)
+      }
+    }
+    const driver = originalBuild.apply(this, args) as SeleniumDriverLike
+    let onDriverCreatedPromise: Promise<unknown> | undefined
+    try {
+      const result = hooks.onDriverCreated(driver)
+      if (result && typeof (result as Promise<unknown>).then === 'function') {
+        // Capture so the `await new Builder().build()` thenable patch
+        // below can also wait on session setup (screencast / BiDi / metadata).
+        // Without this, the user's test body fires the moment waitForReady()
+        // resolves — which for the SECOND test is "immediately" because the
+        // dashboard UI is already connected — and races against an in-flight
+        // screencast.start(). Net effect: missing 2nd-test video.
+        const p = (result as Promise<unknown>).catch((err) => {
+          log.warn(`onDriverCreated hook rejected: ${errorMessage(err)}`)
+        })
+        onDriverCreatedPromise = p
+      }
+    } catch (err) {
+      log.warn(`onDriverCreated hook threw: ${errorMessage(err)}`)
+    }
+    extendDriverThenable(driver, hooks, onDriverCreatedPromise)
+    return driver
+  }
+  log.info('Patched Builder.prototype.build')
+}
+
+// Selenium 4: WebDriver is thenable. Extend `.then` so `await Builder.build()`
+// also waits for (a) the dashboard to connect AND (b) the in-flight session
+// setup from `onDriverCreated` (screencast + BiDi + metadata). Without (b),
+// the user's test body races against capture wiring on fast tests.
+// Selenium 3 may not be thenable — cast once.
+function extendDriverThenable(
+  driver: unknown,
+  hooks: DriverPatcherHooks,
+  onDriverCreatedPromise: Promise<unknown> | undefined
+): void {
+  const d = driver as Patchable
+  const isThenable = driver && typeof d.then === 'function'
+  if (!isThenable) {
+    return
+  }
+  if (!hooks.waitForReady && !onDriverCreatedPromise) {
+    return
+  }
+  const originalThen = (d.then as (...args: unknown[]) => unknown).bind(driver)
+  d.then = function patchedThen(
+    onFulfilled?: (value: unknown) => unknown,
+    onRejected?: (reason: unknown) => unknown
+  ) {
+    return originalThen(async (resolved: unknown) => {
+      // Wait for both UI readiness and session-setup completion in parallel.
+      // Either can fail — don't block forever on UI or capture issues.
+      const waiters: Promise<unknown>[] = []
+      if (hooks.waitForReady) {
+        waiters.push(hooks.waitForReady().catch(() => {}))
+      }
+      if (onDriverCreatedPromise) {
+        waiters.push(onDriverCreatedPromise.catch(() => {}))
+      }
+      await Promise.all(waiters)
+      return onFulfilled ? onFulfilled(resolved) : resolved
+    }, onRejected)
+  }
+}
+
+export function patchSelenium(hooks: DriverPatcherHooks): boolean {
+  const sw = loadSeleniumWebdriver()
+  if (!sw) {
+    return false
+  }
+
+  const { Builder, WebDriver, WebElement, WebElementPromise, until } = sw
+  if (!Builder || !WebDriver) {
+    log.warn(
+      'selenium-webdriver loaded but Builder/WebDriver missing — version unsupported?'
+    )
+    return false
+  }
+
+  // Stash unwrapped originals before any patching.
+  stashDriverOriginals(WebDriver.prototype as Patchable)
+  tagElementConditions(until)
+  trackWaits(
+    WebDriver.prototype as Patchable,
+    (cmd) =>
+      emitCommand(hooks, { ...cmd, result: safeSerialize(cmd.rawResult) }),
+    WebElementPromise
+  )
+
+  const tracked = collectMethodNames(WebDriver.prototype).filter(
+    (m) => !(INTERNAL_DRIVER_METHODS as readonly string[]).includes(m)
+  )
+  const wrappedDriver = wrapPrototype(
+    WebDriver.prototype,
+    tracked,
+    /* fromElement */ false,
+    hooks
+  )
+  log.info(`Wrapped ${wrappedDriver.length} WebDriver method(s)`)
+
+  patchDriverQuit(WebDriver.prototype as Patchable, hooks)
+  if (WebElement) {
+    patchWebElement(WebElement, hooks)
+  }
+  patchBuilder(Builder, hooks)
+
+  return true
+}
+
+function collectMethodNames(proto: object): string[] {
+  const names = new Set<string>()
+  let current = proto
+  while (current && current !== Object.prototype) {
+    for (const name of Object.getOwnPropertyNames(current)) {
+      const desc = Object.getOwnPropertyDescriptor(current, name)
+      if (desc && typeof desc.value === 'function') {
+        names.add(name)
+      }
+    }
+    current = Object.getPrototypeOf(current)
+  }
+  return [...names]
+}

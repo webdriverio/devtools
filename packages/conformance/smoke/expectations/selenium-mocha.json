@@ -1,0 +1,42 @@
+{
+  "example": "selenium-mocha",
+  "runFails": true,
+  "sourceFiles": ["examples/selenium-js/mocha/example.js"],
+  "traceBudget": {
+    "maxBytes": 200000,
+    "measuredBytes": 158349,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
+  },
+  "tests": [
+    {
+      "test": "loads the login page and reads the heading",
+      "rows": ["Page.navigate", "Element.getText", "Assert.equal"],
+      "error": false
+    },
+    {
+      "test": "navigates and reads the page title",
+      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"],
+      "error": false
+    },
+    {
+      "test": "fails on a wrong heading (retain-on-failure target)",
+      "rows": ["Page.navigate", "Element.getText", "Assert.equal"],
+      "error": true,
+      "errorMatches": "This Is Not The Heading"
+    },
+    {
+      "test": "times out waiting for an element the page never renders (failed wait target)",
+      "rows": ["Page.navigate", "Element.waitForExist"],
+      "titleMatches": ["Element.waitForExist(\"#devtools-never-rendered\")"],
+      "error": true,
+      "errorMatches": "Wait timed out",
+      "allowTimeoutError": true
+    },
+    {
+      "test": "flaky: fails the first attempt, then passes (retry target)",
+      "attempts": 2,
+      "rows": ["Page.navigate", "Page.getTitle", "Assert.match"],
+      "error": false
+    }
+  ]
+}

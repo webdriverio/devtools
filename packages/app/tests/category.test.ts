@@ -1,0 +1,82 @@
+import { describe, it, expect } from 'vitest'
+
+import {
+  commandCategory,
+  commandIcon
+} from '../src/components/workbench/actionItems/category.js'
+
+// Regression: Selenium's and Python's wait rows took the generic icon and colour, unlike the same wait elsewhere.
+const WAITS = [
+  'waitForExist',
+  'waitForDisplayed',
+  'waitForEnabled',
+  'waitForClickable',
+  'waitUntil',
+  'waitForElementVisible',
+  'waitForElementPresent',
+  'waitForElementNotPresent',
+  'waitForElementLocated',
+  'wait'
+]
+
+describe('a wait from any adapter', () => {
+  it.each(WAITS)('%s reads as an assertion with the assert icon', (command) => {
+    expect(commandCategory(command)).toBe('assertion')
+    expect(commandIcon(command)).toBe('assert')
+  })
+})
+
+describe('commandCategory', () => {
+  it('classifies navigation commands', () => {
+    expect(commandCategory('url')).toBe('navigation')
+    expect(commandCategory('reloadSession')).toBe('navigation')
+    expect(commandCategory('back')).toBe('navigation')
+  })
+
+  it('classifies input commands', () => {
+    expect(commandCategory('click')).toBe('input')
+    expect(commandCategory('setValue')).toBe('input')
+    expect(commandCategory('dragAndDrop')).toBe('input')
+  })
+
+  it('classifies assertion/wait commands', () => {
+    expect(commandCategory('isExisting')).toBe('assertion')
+    expect(commandCategory('waitForElementVisible')).toBe('assertion')
+    expect(commandCategory('waitUntil')).toBe('assertion')
+  })
+
+  it('classifies query commands', () => {
+    expect(commandCategory('$')).toBe('query')
+    expect(commandCategory('getText')).toBe('query')
+    expect(commandCategory('getAttribute')).toBe('query')
+  })
+
+  it('falls back to other for unknown or misc commands', () => {
+    expect(commandCategory('execute')).toBe('other')
+    expect(commandCategory('pause')).toBe('other')
+    expect(commandCategory('somethingNew')).toBe('other')
+  })
+})
+
+describe('commandIcon', () => {
+  it('distinguishes icons within the query category', () => {
+    expect(commandIcon('$')).toBe('select')
+    expect(commandIcon('getText')).toBe('read')
+  })
+
+  it('distinguishes type vs click within input', () => {
+    expect(commandIcon('setValue')).toBe('type')
+    expect(commandIcon('click')).toBe('click')
+  })
+
+  it('maps reload separately from other navigation', () => {
+    expect(commandIcon('reloadSession')).toBe('reload')
+    expect(commandIcon('url')).toBe('navigate')
+  })
+
+  it('maps assertions and falls back to execute', () => {
+    expect(commandIcon('waitForElementVisible')).toBe('assert')
+    expect(commandIcon('execute')).toBe('execute')
+    expect(commandIcon('unknownThing')).toBe('execute')
+  })
+})

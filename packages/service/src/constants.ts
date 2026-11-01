@@ -1,0 +1,198 @@
+import type { ParserPlugin } from '@babel/parser'
+
+// SCREENCAST_DEFAULTS hoisted to @wdio/devtools-shared; re-exported for
+// backwards compatibility with existing service-internal imports.
+export { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+
+export const PAGE_TRANSITION_COMMANDS: string[] = [
+  'url',
+  'navigateTo',
+  'elementClick',
+  'click'
+]
+
+// Element-resolution commands. Tracked so an assertion can recover the element
+// expect() resolved internally — `expect($('#flash'))` fires one of these below
+// the top-level command boundary, where the normal selector tracking skips it.
+export const LOCATOR_COMMANDS: string[] = [
+  '$',
+  '$$',
+  'findElement',
+  'findElements'
+]
+
+// WDIO element reads ACTION_MAP does not list, so an assertion on their value can
+// still name the element they were read from.
+export const UNMAPPED_ELEMENT_READS: string[] = [
+  'getHTML',
+  'getComputedRole',
+  'getComputedLabel',
+  'isStable',
+  'isEqual'
+]
+
+// WDIO element commands that return no value an assertion could compare: they
+// locate, act or wait, so they are not element reads.
+export const ELEMENT_COMMANDS_WITHOUT_READS: string[] = [
+  '$',
+  '$$',
+  'custom$',
+  'custom$$',
+  'react$',
+  'react$$',
+  'shadow$',
+  'shadow$$',
+  'getElement',
+  'getElements',
+  'nextElement',
+  'parentElement',
+  'previousElement',
+  'clearValue',
+  'selectByAttribute',
+  'selectByIndex',
+  'setFiles',
+  'saveScreenshot',
+  'waitForStable',
+  'waitUntil',
+  'execute'
+]
+
+// Element-scoped commands WDIO invokes with an element handle instead of the
+// selector, so the trace row inherits the last resolved locator (see
+// command-selectors.ts).
+export const SELECTOR_INHERITING_COMMANDS: string[] = [
+  'click',
+  'doubleClick',
+  'moveTo',
+  'scrollIntoView',
+  'touchAction',
+  'dragAndDrop',
+  'getText',
+  'getAttribute',
+  'clearValue',
+  'waitForExist',
+  'waitForDisplayed',
+  'waitForEnabled',
+  'waitForClickable'
+]
+
+// Console capture constants are defined in @wdio/devtools-core; re-exported
+// here so existing imports from ./constants.js continue to work.
+export {
+  ANSI_REGEX,
+  CONSOLE_METHODS,
+  LOG_LEVEL_PATTERNS,
+  ERROR_INDICATORS,
+  LOG_SOURCES
+} from '@wdio/devtools-core'
+
+// The dashboard opens over WebDriver; excludeSwitches drops chromedriver's
+// "controlled by automated test software" infobar.
+export const DEFAULT_LAUNCH_CAPS: WebdriverIO.Capabilities = {
+  browserName: 'chrome',
+  'goog:chromeOptions': {
+    excludeSwitches: ['enable-automation'],
+    // production:
+    args: ['--window-size=1600,1200']
+    // development:
+    // args: ['--window-size=1600,1200', '--auto-open-devtools-for-tabs']
+  }
+}
+
+export const INTERNAL_COMMANDS = [
+  'emit',
+  'browsingContextLocateNodes',
+  'browsingContextNavigate',
+  'getUrl',
+  'getWindowSize',
+  'setWindowSize',
+  'deleteSession',
+  'findElementFromShadowRoot',
+  'findElementsFromShadowRoot',
+  'browsingContextGetTree',
+  'scriptCallFunction',
+  'getElement',
+  'execute',
+  'findElement',
+  'getElementText',
+  'getElementShadowRoot',
+  // Fired by the service itself; keep out of the user-facing Actions list.
+  'scriptAddPreloadScript',
+  'getPuppeteer',
+  'takeScreenshot'
+]
+
+export const CONTEXT_CHANGE_COMMANDS = [
+  'url',
+  'back',
+  'forward',
+  'refresh',
+  'switchFrame',
+  'newWindow',
+  'createWindow',
+  'closeWindow'
+]
+
+/**
+ * Parser options
+ */
+export const PARSE_PLUGINS = [
+  'typescript',
+  'jsx',
+  'decorators-legacy',
+  'classProperties',
+  'dynamicImport'
+] as const satisfies readonly ParserPlugin[]
+
+/**
+ * Test framework identifiers
+ */
+export const TEST_FN_NAMES = ['it', 'test', 'specify', 'fit', 'xit'] as const
+export const SUITE_FN_NAMES = ['describe', 'context', 'suite'] as const
+export const STEP_FN_NAMES = [
+  'Given',
+  'When',
+  'Then',
+  'And',
+  'But',
+  'defineStep'
+] as const
+
+/**
+ * File/type recognizers
+ */
+export const STEP_FILE_RE = /\.(?:steps?)\.[cm]?[jt]sx?$/i
+export const STEP_DIR_RE =
+  /(?:^|\/)(?:step[-_]?definitions|steps)\/.+\.[cm]?[jt]sx?$/i
+// SPEC_FILE_RE / FEATURE_FILE_RE come from shared — re-exported here so
+// existing import sites in service keep resolving.
+export { SPEC_FILE_RE, FEATURE_FILE_RE } from '@wdio/devtools-shared'
+export const SOURCE_FILE_EXT_RE = /\.(?:[cm]?js|[cm]?ts)x?$/
+
+/**
+ * Gherkin Feature/Scenario line
+ */
+export const FEATURE_OR_SCENARIO_LINE_RE =
+  /^\s*(Feature|Scenario(?: Outline)?):\s*(.+)\s*$/i
+
+/**
+ * Step definition textual scan regexes
+ */
+export const STEP_DEF_REGEX_LITERAL_RE =
+  /\b(Given|When|Then|And|But)\s*\(\s*(\/(?:\\.|[^/\\])+\/[gimsuy]*)/
+export const STEP_DEF_STRING_RE =
+  /\b(Given|When|Then|And|But)\s*\(\s*(['`])([^'`\\]*(?:\\.[^'`\\]*)*)\2/
+
+/**
+ * Step directories discovery
+ */
+export const STEPS_DIR_CANDIDATES = [
+  'step-definitions',
+  'step_definitions',
+  'steps'
+] as const
+export const STEPS_DIR_ASCENT_MAX = 6
+export const STEPS_GLOBAL_SEARCH_MAX_DEPTH = 5
+
+/** Frames searched below a command hook for the spec line: an expect matcher's read sits 16 frames below it. */
+export const SPEC_FRAME_SEARCH_DEPTH = 40

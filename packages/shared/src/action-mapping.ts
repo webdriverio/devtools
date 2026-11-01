@@ -1,0 +1,102 @@
+// Helpers over the trace action vocabulary, beside the ACTION_MAP they read —
+// here rather than in `core` because both the capture side and the trace
+// transforms need them, and the transforms must not depend on adapter logic. Ported from Vince Graics' PR #209 (`@wdio/tracing-service`); the
+// existing devtools UI uses its own denylist (`INTERNAL_COMMANDS`) — this map
+// is for the trace.zip exporter to filter + rename in one step.
+
+import {
+  ACTION_MAP,
+  ASSERT_ACTION_CLASS,
+  isWaitAction,
+  mapAssertCommand,
+  type TraceAction
+} from './trace-actions.js'
+
+export type { TraceAction }
+export { ASSERT_ACTION_CLASS, mapAssertCommand }
+
+// Excluded by design:
+//   clearValue — WDIO fires it inside setValue (duplicate events). `addValue`
+//     was excluded for the same reason and is now mapped: the nested call never
+//     reaches the command log (the service logs only a command matching the top
+//     of its stack), and a DIRECT addValue — idiomatic on Appium — was
+//     producing no action row at all.
+//   executeScript — Selenium's `until` polling fires it ~50ms; also recurses
+//     because @wdio/elements uses executeScript inside captureActionSnapshot.
+//     WDIO's user-facing `execute`/`executeAsync` are still captured.
+//   $ / $$ / findElement(s) / getElement(s) — locator resolution fires on every
+//     element access; high-frequency internal machinery, not a timeline step.
+//   Passing expect-webdriverio matchers — never reach the command log (only
+//     failures do, via the reporter); surfacing them is a per-adapter change.
+
+export function mapCommandToAction(command: string): TraceAction | null {
+  return ACTION_MAP[command] ?? mapAssertCommand(command)
+}
+
+/** Whether a runner command is a wait the trace renders as one row. */
+export function isWaitCommand(command: string): boolean {
+  return isWaitAction(mapCommandToAction(command))
+}
+
+const ASSERT_TITLE_VALUE_MAX = 40
+
+function formatAssertValue(value: unknown): string {
+  let text: string
+  if (typeof value === 'object' && value !== null) {
+    try {
+      text = JSON.stringify(value)
+    } catch {
+      text = String(value)
+    }
+  } else {
+    text = typeof value === 'string' ? JSON.stringify(value) : String(value)
+  }
+  return text.length > ASSERT_TITLE_VALUE_MAX
+    ? `${text.slice(0, ASSERT_TITLE_VALUE_MAX - 1)}…`
+    : text
+}
+
+// The label mirrors the CALL the user wrote — its positional args
+// (`assert.equal(a, b)`, `titleContains('x')`). The normalized actual/expected
+// params drive the result diff, NOT the label: a single-arg assert like
+// titleContains passes only the expected, so labelling it with the derived
+// actual would misrepresent the call. Fall back to actual/expected only when
+// no args survived (reader round-trips that dropped them).
+function formatAssertTitle(
+  action: TraceAction,
+  args: unknown[],
+  params?: Record<string, unknown>,
+  command?: string
+): string {
+  const values =
+    args.length > 0 ? args.slice(0, 2) : [params?.actual, params?.expected]
+  const label = values
+    .filter((value) => value !== undefined)
+    .map(formatAssertValue)
+    .join(', ')
+  return `${command ?? `assert.${action.method}`}(${label})`
+}
+
+export function formatActionTitle(
+  action: TraceAction,
+  args: unknown[],
+  params?: Record<string, unknown>,
+  command?: string
+): string {
+  if (action.class === ASSERT_ACTION_CLASS) {
+    return formatAssertTitle(action, args, params, command)
+  }
+  const firstArg = args[0] ?? params?.selector
+  if (firstArg === undefined) {
+    return `${action.class}.${action.method}()`
+  }
+  const label =
+    typeof firstArg === 'object' ? JSON.stringify(firstArg) : String(firstArg)
+  return `${action.class}.${action.method}("${label}")`
+}
+
+/**
+ * Methods where the first positional argument should render as value= in the
+ * transcript line (e.g. setValue, selectByVisibleText).
+ */
+export const FILL_METHODS = new Set(['fill', 'selectOption'])

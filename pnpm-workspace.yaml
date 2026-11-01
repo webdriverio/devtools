@@ -1,0 +1,23 @@
+# pnpm-workspace.yaml
+packages:
+  - 'packages/shared'
+  - 'packages/trace'
+  - 'packages/core'
+  - 'packages/elements'
+  - 'packages/backend'
+  - 'packages/script'
+  - 'packages/service'
+  - 'packages/app'
+  - 'packages/nightwatch-devtools'
+  - 'packages/selenium-devtools'
+  - 'packages/conformance'
+  - 'examples/wdio'
+  - 'examples/selenium-js'
+  - 'examples/nightwatch'
+
+# Here rather than under "pnpm" in package.json: pnpm 11 ignores that field, so a
+# lockfile it writes (Dependabot's) drops these and fails CI's frozen install.
+overrides:
+  vite: ^8.0.7
+  '@types/node': 26.6.4
+  '@codemirror/state': 6.5.4

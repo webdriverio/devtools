@@ -1,0 +1,76 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+dist-hosted
+.tsup
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+# Python: a virtualenv under any name, and the bytecode pytest rewrites into the
+# tree next to the tests it collects.
+.venv*
+__pycache__/
+*.py[cod]
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+# Scratch scripts and dumps dropped at the repo root. Real root-level config
+# has to be un-ignored by name: a new one is otherwise silently never added,
+# and CI then runs with different settings than everyone's checkout.
+/*.ts
+/*.json
+!/vitest.config.ts
+!/tsconfig.dts.json
+!/vercel.json
+*.tgz
+examples/wdio/wdio-*.json
+examples/wdio/wdio-*.webm
+examples/wdio/*.log
+examples/nightwatch/logs/
+examples/**/__pycache__/
+.DS_Store
+
+# Adapter-encoded screencasts (written next to the project root by default)
+selenium-video-*.webm
+nightwatch-video-*.webm
+packages/nightwatch-devtools/nightwatch-video-*.webm
+
+# trace output (mode: 'trace')
+trace-*.zip
+examples/**/trace-*/
+
+# test results
+examples/**/test-results*/
+packages/conformance/**/test-results*/
+packages/conformance/out/
+
+# vitest --coverage output
+coverage/
+
+# pnpm state, cache, logs, and debug files
+/packages/**/*.mjs
+
+.claude
+
+# Local Allure exploration / trace-parity comparison (throwaway — not committed)
+examples/**/allure-results*/
+examples/**/allure-report*/
+packages/**/allure-results*/
+packages/**/allure-report*/
+examples/wdio/cucumber/wdio.allure.conf.ts
+

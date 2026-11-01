@@ -1,0 +1,78 @@
+name: Python Adapter
+
+# Triggered by packages/shared/src/** as well, because the adapter's wire
+# contract is GENERATED from it: scope names, the runner id, the collector route,
+# the worker query keys, the run-id env var, and every payload type, through
+# `wire-schema.json` (which vitest keeps in step with shared's src). A change
+# there leaves `_contract.py` or `_wire_types.py` stale, and stale means the
+# adapter keeps sending a name or a shape nothing reads — a silent loss, not an
+# error.
+#
+# This was previously excluded to keep a Python job off every PR that touches
+# shared. The objection was that a red Python job would block work unrelated to
+# this adapter; it does not hold, because the only things a shared change can
+# turn red here are the drift check and the tests' wire-schema validation, and
+# both mean that PR broke this contract. Scoped to `src/` and the schema so a
+# version bump or a README edit under shared does not trigger it.
+#
+# `mirror-vectors.json` holds the cases this adapter's pure logic shares with
+# its TypeScript counterparts; vitest runs them on every PR, this job runs them
+# against Python only when it is triggered, hence the path.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - packages/selenium-devtools-py/**
+      - packages/shared/src/**
+      - packages/shared/wire-schema.json
+      - packages/shared/mirror-vectors.json
+      - .github/workflows/python.yml
+      - .github/workflows/python-release.yml
+      - .github/actions/python-package/**
+  pull_request:
+    paths:
+      - packages/selenium-devtools-py/**
+      - packages/shared/src/**
+      - packages/shared/wire-schema.json
+      - packages/shared/mirror-vectors.json
+      - .github/workflows/python.yml
+      - .github/workflows/python-release.yml
+      - .github/actions/python-package/**
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # The floor the package declares, and the newest — 3.10 because selenium
+        # 4.44 requires it, and network capture requires 4.44+.
+        python-version: ['3.10', '3.13']
+    steps:
+      # Full history: the change-fragment gate diffs this branch against the
+      # base, which a depth-1 checkout cannot see.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      # A source change with no fragment is a release that cannot describe
+      # itself, and the version it would ship is decided by these files.
+      - name: Source changes carry a change fragment
+        if: github.event_name == 'pull_request'
+        working-directory: packages/selenium-devtools-py
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python scripts/changes.py check --base "origin/$BASE_REF"
+      - uses: ./.github/actions/python-package
+      # The pin is the backend a `pip install` user actually runs, and the drift
+      # check above cannot see it: that compares `_contract.py` against shared,
+      # this compares it against the tarball npm serves. Red here means the next
+      # PyPI release would ship features the pinned backend cannot answer.
+      - name: Pinned backend serves this adapter's contract
+        working-directory: packages/selenium-devtools-py
+        run: python scripts/check_backend_pin.py

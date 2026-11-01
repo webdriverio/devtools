@@ -1,0 +1,246 @@
+"""Builders for the wire frames the dashboard renders.
+
+Each function returns the ``data`` payload for a ``{scope, data}`` frame,
+typed by the TypedDicts generated from shared's wire schema. Optional fields
+are omitted rather than sent as null, because shared types them that way.
+"""
+
+from __future__ import annotations
+
+from typing import Any, List, Optional
+
+from ._contract import RUNNER_ID
+from .constants import RUN_CAPABILITIES_NONE
+from .types import (
+    CommandLog,
+    ConsoleLog,
+    Metadata,
+    NetworkRequest,
+    ScreencastInfo,
+    SuiteStats,
+    TestStats,
+    Viewport,
+)
+from .utils import iso
+
+
+def metadata(
+    session_id: str,
+    capabilities: Optional[dict] = None,
+    url: Optional[str] = None,
+    run_options: Optional[dict] = None,
+    viewport: Optional[Viewport] = None,
+) -> Metadata:
+    caps = capabilities or {}
+    entry: Metadata = {
+        "type": "testrunner",  # TraceType.Testrunner
+        "sessionId": session_id,
+        "capabilities": caps,
+        "desiredCapabilities": caps,
+        "testEnv": "python-selenium",
+        # The typed carrier the app reads first. `options.framework` is the same
+        # fact under an older name and is deliberately not sent, so this stream
+        # carries one answer rather than two.
+        "runner": RUNNER_ID,
+        # What the dashboard's run controls may offer, plus the commands that
+        # service them. Built by `rerun.py` and passed in, so this stays pure.
+        "options": dict(run_options)
+        if run_options
+        else {"runCapabilities": dict(RUN_CAPABILITIES_NONE)},
+    }
+    # Omitted rather than sent empty: the trace reader's own 1280x720 default is
+    # a better frame than a zero-sized one, and the app treats absent as unknown.
+    if viewport:
+        entry["viewport"] = dict(viewport)
+    if url is not None:
+        entry["url"] = url
+    return entry
+
+
+def command_log(
+    *,
+    command: str,
+    args: List[Any],
+    result: Any = None,
+    error: Optional[BaseException] = None,
+    timestamp: int,
+    start_time: int,
+    call_source: Optional[str],
+    command_id: int,
+    screenshot: Optional[str] = None,
+    selector: Optional[str] = None,
+    test_uid: Optional[str] = None,
+    parent_id: Optional[int] = None,
+) -> CommandLog:
+    entry: CommandLog = {
+        "command": command,
+        "args": args,
+        "result": result,
+        "timestamp": timestamp,
+        "startTime": start_time,
+        "id": command_id,
+    }
+    # Shared types every optional field as absent-or-set, never null; the
+    # generated wire schema rejects a null here.
+    if call_source is not None:
+        entry["callSource"] = call_source
+    if selector:
+        entry["selector"] = selector
+    # What the exporter groups a trace by: absent, `buildGroupPath` returns an
+    # empty path and the archive carries no test boundaries at all.
+    if test_uid:
+        entry["testUid"] = test_uid
+    if parent_id is not None:
+        entry["parentId"] = parent_id
+    if error is not None:
+        entry["error"] = {
+            "name": type(error).__name__,
+            # A WebDriverException's str() adds "Message: " and the driver's
+            # stacktrace; `msg` is the browser's own text, which the JS adapters send.
+            "message": getattr(error, "msg", None) or str(error),
+        }
+    if screenshot:
+        entry["screenshot"] = screenshot
+    return entry
+
+
+def console_log(
+    *, level: str, args: List[Any], timestamp: int, source: str = "browser"
+) -> ConsoleLog:
+    return {"type": level, "args": args, "timestamp": timestamp, "source": source}
+
+
+def network_request(
+    *,
+    request_id: str,
+    url: str,
+    method: str,
+    timestamp: int,
+    start_time: int,
+    status: Optional[int] = None,
+    request_type: str = "fetch",
+    end_time: Optional[int] = None,
+    status_text: Optional[str] = None,
+    time: Optional[int] = None,
+    size: Optional[int] = None,
+    request_headers: Optional[dict] = None,
+    response_headers: Optional[dict] = None,
+    error: Optional[str] = None,
+) -> NetworkRequest:
+    entry: NetworkRequest = {
+        "id": request_id,
+        "url": url,
+        "method": method,
+        "timestamp": timestamp,
+        "startTime": start_time,
+        "type": request_type,
+    }
+    # Response-phase fields are absent on the initial request frame; omit rather
+    # than send nulls so the dashboard's "pending" state renders correctly.
+    if status is not None:
+        entry["status"] = status
+    if end_time is not None:
+        entry["endTime"] = end_time
+    if status_text is not None:
+        entry["statusText"] = status_text
+    if time is not None:
+        entry["time"] = time
+    if size is not None:
+        entry["size"] = size
+    if request_headers is not None:
+        entry["requestHeaders"] = request_headers
+    if response_headers is not None:
+        entry["responseHeaders"] = response_headers
+    if error is not None:
+        entry["error"] = error
+    return entry
+
+
+def screencast(
+    *,
+    session_id: str,
+    video_path: str,
+    video_file: str,
+    frame_count: int,
+    duration: int,
+    start_time: Optional[int],
+) -> ScreencastInfo:
+    info: ScreencastInfo = {
+        "sessionId": session_id,
+        "videoPath": video_path,
+        "videoFile": video_file,
+        "frameCount": frame_count,
+        "duration": duration,
+    }
+    if start_time is not None:
+        info["startTime"] = start_time
+    return info
+
+
+def test_stats(
+    *,
+    uid: str,
+    title: str,
+    full_title: str,
+    parent: str,
+    state: str,
+    file: str,
+    start_ms: int,
+    end_ms: int,
+    call_source: Optional[str] = None,
+    order: Optional[int] = None,
+) -> TestStats:
+    entry: TestStats = {
+        "uid": uid,
+        "cid": "0-0",
+        "title": title,
+        "fullTitle": full_title,
+        "parent": parent,
+        "state": state,
+        "start": iso(start_ms),
+        "end": iso(end_ms),
+        "type": "test",
+        "file": file,
+        "retries": 0,
+        "_duration": max(0, end_ms - start_ms),
+    }
+    if call_source is not None:
+        entry["callSource"] = call_source
+    # Only stamped when the runner's execution order differs from the tree's
+    # default (a suite's own tests, then its nested suites) — see shared's
+    # `order`. Absent keeps the frame identical to before.
+    if order is not None:
+        entry["order"] = order
+    return entry
+
+
+def suite_stats(
+    *,
+    uid: str,
+    title: str,
+    file: str,
+    start_ms: int,
+    tests: List[TestStats],
+    end_ms: Optional[int] = None,
+    state: Optional[str] = None,
+    order: Optional[int] = None,
+) -> SuiteStats:
+    entry: SuiteStats = {
+        "uid": uid,
+        "cid": "0-0",
+        "title": title,
+        "fullTitle": title,
+        "type": "suite",
+        "file": file,
+        "start": iso(start_ms),
+        "end": iso(end_ms) if end_ms is not None else None,
+        "tests": tests,
+        "suites": [],
+        "hooks": [],
+        "_duration": max(0, (end_ms - start_ms)) if end_ms is not None else 0,
+    }
+    if state is not None:
+        entry["state"] = state
+    if order is not None:
+        entry["order"] = order
+    return entry

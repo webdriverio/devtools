@@ -1,0 +1,305 @@
+# Architecture
+
+A descriptive map of how the pieces fit together. For conventions and coding standards, see [CLAUDE.md](./CLAUDE.md).
+
+---
+
+## At a glance
+
+A devtools dashboard for end-to-end browser tests. Four adapters — WebdriverIO, Nightwatch and Selenium in JavaScript, plus Selenium in Python — push the same normalized event stream through a single backend into a single browser UI.
+
+```
+[user's test framework]
+        │
+        ▼
+   [adapter]          thin: framework-specific hooks + driver patching
+        │
+        ▼
+     [core]           framework-agnostic capture/reporting library
+        │                      │
+        │                      ▼
+        │                  [trace]  ◀── also used by backend
+        │                           pure transforms: events ⇄ trace.zip
+        ▼ (WS frames typed by shared)
+   [backend]          Fastify + WS gateway + baseline store + rerun spawner
+        │
+        ▼ (WS + HTTP, both typed by shared)
+     [app]            Lit browser UI, framework-agnostic
+```
+
+A separate piece, **`packages/script`**, is injected into the browser under test (not Node) to capture DOM mutations from the page's own JS context. It communicates back through the adapter, not directly to the backend.
+
+---
+
+## Packages
+
+The workspace is a pnpm monorepo. Three of the packages (`shared`, `trace`, `core`) are workspace-internal — they're marked `"private": true` and never published; consumers bundle their code into their own `dist/`.
+
+### `packages/shared`
+
+Types, constants, enums, HTTP/WS contract definitions. Pure TypeScript, no runtime dependencies on any other package in the monorepo. Workspace-internal; inlined into every consumer at build time.
+
+Contains the canonical definitions for:
+
+- Domain types: `CommandLog`, `ConsoleLog`, `NetworkRequest`, `TraceMutation`, `Metadata`, `TraceLog`, `TraceType`, `TestStats`, `SuiteStats`, `TestStatus`, `TestError`, `ReporterError`, `PreservedAttempt`, `PreservedStep`, `PerformanceData`, `DocumentInfo`, `Viewport`, `ScreencastInfo`, `ScreencastFrame`, `ScreencastOptions`, `LogLevel`, `LogSource`.
+- Row nesting: `CommandLog.parentId` names the row whose execution issued a row (a wait's condition reads and polls), and `nestCommands` (`command-tree.ts`) turns a flat row list into the tree the dashboard renders. Every adapter sends a wait as one running row and parents what it issued under it.
+- WS wire format: `SocketMessage<T>`, `WsMessageScope`, `WsPayloadFor<T>`, `ClearExecutionDataWsPayload`, `ReplaceCommandWsPayload`.
+- Routing/scope constants: `WS_PATHS`, `WS_SCOPE`, `BASELINE_WS_SCOPE`, `TESTS_API`, `BASELINE_API`.
+- Process-control env vars: `REUSE_ENV`, `RUNNER_ENV`.
+- Defaults: `TIMING_BASE`, `DEFAULTS_BASE`, `SCREENCAST_DEFAULTS`.
+- File patterns: `SPEC_FILE_RE`, `FEATURE_FILE_RE` (the latter Cucumber-only).
+- Test-runner identification: `TestRunnerId = 'mocha' | 'jasmine' | 'cucumber' | 'nightwatch' | 'nightwatch-cucumber' | 'selenium-webdriver'`.
+- Page-side source with no Node dependency, served by the backend for the adapter that cannot import this package: the element scripts (`element-scripts.ts`, `ELEMENT_SCRIPTS_API`, generated per runner) and the collector readiness probe, `<script>` injection, drain and navigation timing read (`page-scripts.ts`, `PAGE_SCRIPTS_API`, static). `core` re-exports `CAPTURE_PERFORMANCE_SCRIPT`, `COLLECTOR_READY_EXPRESSION` and `collectorDrainExpression` from here.
+
+Imports from: nothing. Imported by: every other package.
+
+### `packages/trace`
+
+Trace-format transforms: captured events in, `trace.zip` out, and a `trace.zip` back into a player payload. Workspace-internal; inlined into each consumer at build time.
+
+Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and §2.2 bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing and reading the zip.
+
+Contains:
+
+- `writeTraceZip` / `buildTraceZip` — the zip writer and its resource model (`TraceZipResource`).
+- `buildActionEvents`: commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key, with a row's children written inside its span under its callId.
+- `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
+- `buildImageFrameSnapshots` + `buildScreenshotResourceSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots (each a page whose image is the stored screenshot, reached through a `resourceOverrides` entry and the one recorded response it patches).
+- `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
+- `buildConsoleEvents`, `networkRequestToHar`, `buildSourceResources` / `sourceResourceName` / `callSourceToStack`, `generateTranscript`, `sha1Hex`.
+- `parseTraceZip` (`trace-reader.ts` and its `trace-reader-*` siblings) — the reverse direction: a `trace.zip`, ours or a foreign one, back into the `TracePlayerData` the player renders. Imported by subpath (`@wdio/devtools-trace/trace-reader`) and kept out of the package index, so adapters that reach `trace` through `core` never inline it. `parseTraceZip` is `unzipTraceZip` then `parseTraceEntries`, exported separately so the hosted player can report each as a phase. It reaches no Node built-in, because the hosted player runs it in the browser, in a Web Worker (`tests/trace-reader-browser-safe.test.ts` walks its imports); the disk read is `readTraceZip` in `read-trace-zip.ts`, and source paths are hashed with the pure `portableSha1Hex` so the reader needs no `node:crypto`; resource bytes keep native `sha1Hex`, ~30x faster.
+
+Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged), `backend`, and `app`, which may import `trace-reader` alone (ESLint enforces it).
+
+### `packages/core`
+
+Framework-agnostic capture and reporting library. Workspace-internal; inlined into each adapter at build time.
+
+Adapter-side trace *orchestration and policy* stay here — `trace-finalizer` (what to write and when), `spec-trace-helpers` (slice boundaries and per-test slicing), `trace-retention` (`shouldRetainTrace`, which also governs screenshot and video retention). The transforms they call live in `trace`.
+
+Contains:
+
+- `SessionCapturerBase` — orchestrates per-session capture (console/stream patching, WS connection, command-id bookkeeping, upstream-send guard with `onUpstreamDrop` hook).
+- `TestReporterBase` — common reporter behavior, extended by Nightwatch + Selenium reporters (Service uses `@wdio/reporter` from WDIO directly).
+- `ScreencastRecorderBase` — frame buffer + polling fallback shared by the three JavaScript adapters.
+- `resolveAdapterOutputDir` — the dir-resolution helper that picks where screencast/trace files land (test-file dir → config dir → cwd, with a `node_modules/` skip).
+- Pure helpers: `assert-patcher`, `bidi` (`attachBidiHandlers`, `loadSeleniumSubmodule`, `arrayHeadersToObject`), `console` (`stripAnsi`, `detectLogLevel`, `createConsoleLogEntry`, `mapChromeBrowserLogs`, `chromeLogLevelToLogLevel`), `error` (`serializeError`, `errorMessage`), `finalize-screencast`, `net` (`isPortInUse`, `findFreePort`, `getRequestType`), `performance-capture` (`applyPerformanceData`; re-exports shared's `CAPTURE_PERFORMANCE_SCRIPT`), `retry-tracker`, `script-loader` (`loadInjectableScript`, `pollUntilReady`, `drainCollectorWithRecovery`; re-exports shared's collector probe and drain), `stack` (`isUserCodeFrame`, `normalizeFilePath`, `getCallSourceFromStack`), `suite-helpers`, `test-discovery` (`findTestDefinitions`, `extractTestMetadata`), `uid` (`generateStableUid`, `deterministicUid`, `resetSignatureCounters`), `video-encoder` (`encodeToVideo`).
+
+Imports from: `shared`, `trace`. Imported by: all three adapter packages.
+
+### `packages/service` — WebdriverIO adapter
+
+WebdriverIO-specific glue.
+
+Contains: WDIO service hooks (`beforeCommand`, `afterCommand`, `beforeTest`, `afterTest`, `beforeSession`, `afterSession`, `onPrepare`, `onComplete`), a reporter that extends WDIO's `Reporters.ReporterEntry`, the BiDi listener wiring (`bidi-listeners.ts`), launcher entry point, cucumber step-definition AST scanning, and the standalone runner (`standalone.ts`).
+
+Imports from: `@wdio/types`, `@wdio/reporter`, `@wdio/logger`, `@wdio/protocols`, `webdriverio`, `core`, `shared`.
+
+### `packages/nightwatch-devtools` — Nightwatch adapter
+
+Nightwatch-specific glue.
+
+Contains:
+
+- The `NightwatchDevToolsPlugin` class + factory in `index.ts`.
+- Lifecycle modules: `run-lifecycle.ts`, `test-lifecycle.ts`, `cucumber-lifecycle.ts`, `session-init.ts`, `event-hub.ts`.
+- `BrowserProxy` (in `helpers/`) that wraps Nightwatch's browser API and forwards each command into the session capturer.
+- A `SessionCapturer` subclass + a Nightwatch-flavored `SuiteManager` / `TestManager`.
+- BiDi opt-in support (gated on `bidi: true` in plugin options + the `webSocketUrl: true` capability).
+- Cucumber wiring: `cucumberHooks.cjs` (registered via the Cucumber `require` option), feature-file scanning, step-definition resolution.
+- A perf-log → NetworkRequest parser (`helpers/perfLogs.ts`) for the CDP perf-log path when BiDi isn't attached.
+
+Imports from: `@wdio/logger`, `core`, `shared`. Does not import: other adapter packages, `backend`, `app`.
+
+### `packages/selenium-devtools` — Selenium adapter
+
+Selenium-webdriver-specific glue.
+
+Contains:
+
+- `driverPatcher.ts` — wraps `selenium-webdriver`'s `WebDriver` / `WebElement` / `Builder` prototypes with command capture.
+- Per-runner hooks for Mocha, Jest, Jasmine, Vitest, and Cucumber (`runnerHooks/*.ts`).
+- Native BiDi via `selenium-webdriver/bidi`.
+- Driver-launch + dashboard-launch helpers, detached-backend mode, process-hook shutdown.
+- `SessionCapturer` subclass + Selenium-flavored `SuiteManager` / `TestManager`.
+
+Imports from: `core`, `shared`, `selenium-webdriver` (peer). Does not import: other adapter packages, `backend`, `app`.
+
+### `packages/selenium-devtools-py` — Python Selenium adapter
+
+The same contract from another language. Not a port of the JavaScript adapters: it shares no code with them, only the `{scope, data}` wire format, so nothing here imports `core` or `shared` — the parts of those it needs are **generated** by `scripts/gen_contract.py`, which doubles as a drift guard: constants and scope names into `src/selenium_devtools/_contract.py`, and payload TypedDicts into `_wire_types.py` from `packages/shared/wire-schema.json`. That schema is itself generated from shared's TypeScript types by `packages/shared/scripts/wire-schema.ts`, one JSON Schema per wire scope, so a language that cannot import shared still reads one source.
+
+Contains:
+
+- `instrumentation.py` — wraps `WebDriver.execute`, the one chokepoint every driver and element command flows through.
+- `bidi.py` — console, JS errors and network over selenium's regenerated BiDi layer (4.44+), observe-only.
+- `snapshot.py` / `bidi_preload.py` — the shared page collector, registered at document start.
+- `collector_source.py`, `element_scripts.py`, `page_scripts.py`: page-side source fetched from the backend once per run (the collector bundle, the A11y element scripts, and the collector probe/injection/drain plus the navigation timing read), so this package carries no copy of page code.
+- `screencast.py` / `cdp_screencast.py` — pushed CDP frames on Chrome, one screenshot per command elsewhere.
+- `pytest_plugin.py` — the suite tree, keyed by pytest nodeid; auto-discovered, opt-in by env var.
+- `rerun.py`, `run_id.py`, `performance.py`, `transport.py` — run controls, run identity, navigation timings, and a stdlib-only WebSocket client.
+
+It writes trace archives without running the transforms itself: `trace_export.py` streams the action snapshots and filmstrip frames, then sends a `traceExport` request and the backend builds the archive from the run it accumulated, answering with `traceExported`. `export_trace()` and teardown (`disable()`, the pytest plugin's session finish) trigger it. Writing an adapter in another language is covered in [docs/ADAPTERS.md](./docs/ADAPTERS.md).
+
+Imports from: `selenium` (required, 4.44+). Does not import: `core`, `shared`, any other package.
+
+### `packages/backend`
+
+The server adapters connect to and the app talks to.
+
+Contains:
+
+- Two build entries: `index.ts` is the **library** entry (`dist/index.js`) the adapters import in-process for `start`/`stop`, and `server.ts` is the **CLI** entry (`dist/server.js`, executable, shipped as the `devtools-backend` bin) that starts the same server standalone. `server.ts` is a leaf entry on purpose: a self-start guard inside `index.ts` is dead, because `show-trace.ts` imports it and tsup hoists a shared entry's body into `dist/chunk-*.js`, where `import.meta.url` never matches `process.argv[1]`.
+- Fastify HTTP server.
+- WebSocket gateway: one connection per adapter worker, one per app client.
+- Baseline store (in-memory) for preserve-and-rerun; reuses `shared` types directly via thin `*Like` aliases (`baseline/types.ts`).
+- Test runner spawner (`runner.ts`) — spawns the user's `wdio` / `nightwatch` / `selenium` binary with rerun filters.
+- Framework-specific CLI args live in `framework-filters.ts` — a `switch` over `TestRunnerId` returning the right `FilterBuilder`. (The switch shape is deliberate: CodeQL trusts compile-time-known callable selection, table dispatch trips its `unvalidated-dynamic-method-call` query.)
+- Bin resolver (`bin-resolver.ts`) — finds the WDIO/Nightwatch CLI in the user's `node_modules/` or `npx` cache.
+- Worker-message handler (`worker-message-handler.ts`) — dispatches messages from spawned workers (config/sessionId/videoPath/...).
+
+Framework awareness lives only in `runner.ts` and `framework-filters.ts`, always through `TestRunnerId`, never magic strings.
+
+Imports from: `shared`. Does not import: any adapter package, `app`, or `core` (the backend doesn't capture; core is for capturers).
+
+### `packages/app`
+
+The browser UI.
+
+Contains:
+
+- Lit web components (sidebar/explorer, workbench/compare, workbench/console, workbench/network, workbench/snapshot, etc.).
+- WebSocket client for the live event stream.
+- Context providers (`@lit/context`) for each data stream.
+- `DataManagerController` — orchestrates the WS connection and the 11 context providers (one per scope).
+- Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`), and the actions list's row trees (`action-tree.ts` for the player, `live-action-rows.ts` for the live list), which nest the rows a command issued under it, collapsed by default.
+
+Imports from: `shared`. Does not import: any adapter package, `backend` directly (only via WS/HTTP), `core`.
+
+### `packages/script`
+
+Browser-injected runtime — runs **inside the page under test**, not in Node.
+
+Contains: DOM mutation observers, page-side trace collection, a small logger. It's loaded into the page via `loadInjectableScript()` (which reads the built `dist/script.js`) and communicates back through the WebDriver bridge (`executeScript` / `getLog`), not directly to the backend.
+
+The execution environment is the browser, not Node, so this package cannot import from `core` (Node-only) or from non-browser-safe parts of `shared`.
+
+### `packages/elements`
+
+The WDIO-typed element-detection API (`@wdio/elements`): `getSnapshot`, `getElements`, the accessibility-tree and interactable-element readers. Unlike `shared` and `core` this package **is** published, so its exported names are public API.
+
+Imports from: `core`. The script bodies, serializers, types, and locator generation all live in `core` (`element-scripts.ts`, `element-snapshot.ts`, `element-types.ts`, `locators/`) because they're framework-agnostic; this package holds only the wrappers that take a `WebdriverIO.Browser` — which `core` can't type against. The arrow never reverses: `core` does not import `elements`, and the adapters' per-action capture (`captureActionSnapshot`) calls core's script bodies directly rather than going through this package. `elements/snapshot.ts` and `elements/locators/index.ts` are re-export shims kept for API stability.
+
+The DOM-walking scripts run in the page via `browser.execute`, so — like `script` — they avoid Node-only APIs.
+
+### `packages/conformance`: cross-adapter conformance suite
+
+Test-only and never published or bundled. Each adapter runs one scenario (open `/login`, type, submit to `/secure`, wait for a late element and assert on its text, wait on a condition reading two elements and on a helper repeating the test's own read, log out, then an assertion that fails, an element wait that times out and a navigation that fails) as its own process, against a fake W3C WebDriver server that models two pages and records what really happened in the browser: which documents were born and when, and which navigations failed. The adapter reports into a recording backend that stands in for the dashboard, reached through the same reuse handshake a rerun uses, so no adapter gains a code path for being tested. `src/checker.ts` then judges the recorded frame stream against behavioural rules, for example "a row replays the page the browser was on when its action completed" and "every document gets exactly one anchor at its birth time". Every adapter is checked by the same rules, so a capture fix that lands in one language and not another fails CI.
+
+Each scenario runs twice, with and without BiDi. The fake answers the BiDi commands the adapters send, including the navigation, context, element lookup and script calls WebdriverIO routes over BiDi once a session offers it, and a registered preload puts the collector into every later document from birth, as in Chrome. A difference an adapter is allowed to show lives in `src/allowlist.ts` with a mandatory reason, and an entry that stops matching fails the run, so a closed gap forces its own removal.
+
+Every run, passing or failing, dumps its frames, ground truth, violations and scenario output to `packages/conformance/out/<adapter>-bidi-<mode>.json` and rebuilds `out/index.html`, a self-contained page laying each run out as a timeline of documents, command rows and DOM anchors with every violation beside the event it concerns. CI uploads `out/` as the `conformance-report` artifact when the `build` job fails.
+
+Beside the rules, the adapters are compared with each other: each run is reduced to what a dashboard user sees (steps, outcomes, the page each step replays, snapshots, run controls) and any difference between adapters in the same mode fails unless a declared gap explains it. The rows a wait issued are compared inside the wait, as their own aligned sequence, and the rule `wait-row-parents-its-commands` (`src/wait-nesting.ts`) checks each adapter sends the wait running and names it as their parent. The rules catch every adapter being wrong in the same way; the comparison catches a difference no rule anticipated. Adapters are registered once in `src/adapters.ts`.
+
+Covers all four adapters: `devtools-service`, `selenium-devtools`, `selenium-devtools-py` and `nightwatch-devtools`. Each runs its scenario through its framework's own runner (WebdriverIO's, the Nightwatch CLI, mocha with `--require`, pytest), from a folder per adapter under `scenarios/`: six tests, two of which fail by design, one on an assertion and one on an element wait that times out. The fake emits no BiDi events, so console and network capture are not checked.
+
+### `examples/`
+
+Per-adapter demo projects used for manual verification. One directory per adapter, and inside it one directory per test runner, named for the runner itself:
+
+- `examples/wdio/` — `mocha/` (including `native/`, an Appium app spec run by `pnpm demo:wdio:native`), `cucumber/`, `mobile/`, shared page objects in `pageobjects/`. Run via `pnpm demo:wdio` (Cucumber) or `pnpm demo:wdio:mocha`.
+- `examples/nightwatch/` — `bdd/` (Nightwatch's `describe/it` interface), `cucumber/` and `mobile/`. Run via `pnpm demo:nightwatch`.
+- `examples/selenium-js/` — `mocha/`, `jest/`, `cucumber/`, `mobile/`. `pnpm demo:selenium` runs Cucumber; `pnpm --filter @wdio/selenium-devtools example:<runner>` runs a specific one.
+- `examples/selenium-py/` — the Python adapter: `scripts/` for the plain-script cases (no test runner) and `pytest/` for the pytest one. Run via `pnpm demo:python`, `:login` or `:pytest`.
+
+Every adapter also has a `mobile/` example driving the same Appium capability bag. A runner directory holds its own config and specs. `features/` inside a Cucumber directory is Cucumber's own convention, not ours.
+
+[`examples/README.md`](./examples/README.md) is the index: what each example demonstrates and how to run it.
+
+---
+
+## Data flow
+
+### A test run, end to end
+
+1. The user runs their normal command (`wdio run …`, `nightwatch test`, `mocha + selenium`, ...).
+2. The framework loads its adapter via service/plugin config.
+3. The adapter constructs a `SessionCapturer` (subclass of `core`'s `SessionCapturerBase`). The base class opens a WS connection to the backend, patches `console.*`, intercepts stdout/stderr, and installs the upstream-send guard.
+4. The framework fires lifecycle hooks (suite/test start, command, etc.). The adapter translates each into a `core` call.
+5. `core` builds the typed event per `shared` schema and pushes it through the WS.
+6. `backend` receives the event, optionally persists it (baseline store, video registry), and broadcasts to every connected app client.
+7. `app` updates its Lit components reactively via the context providers.
+
+### Preserve-and-rerun
+
+1. User clicks "📌 Preserve & Rerun" on a failed test in the dashboard.
+2. App POSTs to `/api/baseline/preserve` (typed contract in `shared`).
+3. Backend snapshots the failing attempt into the baseline store, then spawns a rerun via `runner.ts`.
+4. The rerun goes through the normal flow above.
+5. App receives both attempts and renders the side-by-side compare view.
+
+### Rerun mechanics
+
+`backend/src/runner.ts` is the only place outside an adapter that knows about specific frameworks. It uses `TestRunnerId` from shared and dispatches via `framework-filters.ts`'s `switch`:
+
+- `cucumber`: `--spec <feature[:line]>` and/or `--cucumberOpts.name <regex>`.
+- `mocha`/`jasmine`: `--spec <file>` + `--mochaOpts.grep`/`--jasmineOpts.grep`.
+- `nightwatch`: positional spec file + optional `--testcase <name>`.
+- `nightwatch-cucumber`: `--name <regex>` (feature files via `feature_path` config).
+- Unknown/missing: spec-only fallback.
+
+Everywhere else in the system, events are framework-agnostic.
+
+---
+
+## Boundaries
+
+Every data crossing between packages goes through a typed contract in `shared`:
+
+| Boundary | Direction | Transport | Lives in |
+|---|---|---|---|
+| Adapter → backend | One-way events (command, console, network, mutation, …) | WebSocket frames | `shared/ws.ts` (`SocketMessage<T>`) |
+| App → backend | Preserve, clear, run, stop, get-baseline | HTTP (Fastify) | `shared/baseline.ts`, `shared/runner.ts` |
+| Backend → app | Live event broadcast + API responses | WebSocket + HTTP | `shared/ws.ts`, `shared/baseline.ts` |
+| Backend → spawned worker | Run config, rerun env, video paths | Env vars + IPC | `shared/runner.ts` (`REUSE_ENV`, `RUNNER_ENV`) |
+| Script → adapter | Mutation events, trace data | `executeScript` return values + `getLog` channel | Implicit in adapter — script's payload shape is consumed by core's `processTracePayload` |
+
+New events or HTTP routes start with a `shared` change. The other packages then import the contract.
+
+---
+
+## Where things live
+
+The repo has converged on a clear ownership story. When in doubt, the top-down decision tree is:
+
+- A type, constant, enum, schema, or contract used by more than one package → **`shared`**.
+- Capture, parsing, normalization, sourcemap, UID, reporter, screencast, or WS-framing logic that doesn't depend on a specific framework's API → **`core`**.
+- A pure transform that turns captured events into trace-zip content, or a zip back into a player payload → **`trace`**. The test is whether the backend would ever need it: it builds traces for adapters that can't, and it may not import `core`.
+- A specific framework's hook, driver patch, or runner integration → the matching **adapter** package. Adapter code calls `core` for the actual work and only owns the hook registration.
+- A backend HTTP route, WS handler, or rerun behavior → **`backend`**, with the contract added to `shared` first.
+- UI → **`app`**, consuming `shared` contracts only.
+- Code that runs inside the browser under test → **`script`**.
+
+A few cross-cutting conventions follow from this layout:
+
+- Adapter packages don't import each other. Anything two adapters would both want lives in `core`.
+- Backend doesn't import adapter packages, and adapter packages don't import backend or app.
+- The script package is a leaf — adapters load its built bundle as a string and inject it; they don't import from it at runtime.
+- `shared`, `trace`, and `core` are private workspace packages. Consumers bundle them. The bundler config has to inline them (not externalize) or the published artifact won't resolve — see the build-config notes in `CLAUDE.md`.
+
+---
+
+## Current state
+
+The architecture above is the actual state of the repo. Where it diverges from the ideal, the divergences are tracked in [CLAUDE.md §7](./CLAUDE.md#known-debt).
+
+Notable in-place pieces worth knowing about:
+
+- `replaceCommand` has two semantics across adapters — Selenium mutates the existing entry in place (preserves `_id`/`id` continuity for chained calls); Nightwatch splices and reissues with a new `_id`. Both call the same `core/suite-helpers` factories; the storage strategy stays adapter-specific because the runner integrations differ.
+- `patchNodeAssert` (via `core/assert-patcher`) is wired in all three JavaScript adapters, default-on behind each adapter's `captureAssertions` option (opt out with `captureAssertions: false`), so `node:assert` — and, where the framework exposes assertion hooks, `expect` matchers — surface as trace action rows. Framework matcher libraries differ (Service taps expect-webdriverio's hooks; Nightwatch native `assert`/`verify` and Selenium's `node:assert` surface via their reconcile/patch paths), so the remaining gap is Selenium's jest-style `expect()`.
+- BiDi is auto-attached in Service and Selenium. Nightwatch is opt-in via `bidi: true` and requires `webSocketUrl: true` in capabilities — historically Nightwatch users haven't all enabled BiDi by default.
+- Performance API capture (`CAPTURE_PERFORMANCE_SCRIPT`) is identical across the three JavaScript adapters; each wires it into its own afterCommand-equivalent path. The script lives in `shared/page-scripts.ts`; the Python adapter fetches it from the backend's `PAGE_SCRIPTS_API` with the collector probe, injection and drain, and keeps only its own port of `applyPerformanceData`, which is Node-side shaping and cannot be served.
+- Output directory for screencast videos and trace files is resolved through `core/resolveAdapterOutputDir` — adapters feed `userConfiguredDir` (WDIO honors `wdio.conf.ts`'s `outputDir`/`rootDir`), `testFilePath` (Selenium/Nightwatch), and `configPath` (Nightwatch), and the helper picks the first writable, non-`node_modules/` candidate.
+
+For per-package implementation details, see each package's `README.md`

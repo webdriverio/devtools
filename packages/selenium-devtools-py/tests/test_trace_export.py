@@ -1,0 +1,798 @@
+"""Asking the backend to build this run's trace.
+
+Python cannot run the transforms, so the archive arrives by request-and-reply
+over the worker socket. What matters is less the happy path than the ways it
+can go wrong: the reply lands on another thread, the socket outlives a single
+export, the backend can refuse, and none of it may take the run down.
+"""
+
+import os
+import threading
+import time
+import unittest
+from unittest import mock
+
+import selenium_devtools as devtools
+from selenium_devtools import lifecycle, trace_export
+from selenium_devtools.constants import TRACE_RETENTION_POLICIES
+from selenium_devtools._contract import SCOPE_TRACE_EXPORT, SCOPE_TRACE_EXPORTED
+
+from wire_contract import RecordingTransport
+
+
+class FakeTransport(RecordingTransport):
+    """Answers the export on a separate thread, as the real reader does."""
+
+    def __init__(
+        self, *, connected=True, reply=None, sends=True, raises=False, delay=0.0
+    ):
+        super().__init__(sends=sends, raises_after=0 if raises else None)
+        self.connected = connected
+        self._reply = reply
+        # A reply that lands before export() gets to wait would let a version
+        # that never waits pass — measured: removing the wait kept every test
+        # green, because the answering thread usually won the race.
+        self._delay = delay
+
+    def send_json(self, scope, data):
+        sent = super().send_json(scope, data)
+        if self._reply is not None and self._sends:
+            answer = dict(self._reply)
+            answer.setdefault("requestId", data["requestId"])
+            def answer_later():
+                if self._delay:
+                    time.sleep(self._delay)
+                trace_export.on_result(answer)
+
+            threading.Thread(target=answer_later, daemon=True).start()
+        return sent
+
+
+class TestRequestingAnExport(unittest.TestCase):
+    def tearDown(self):
+        trace_export.reset()
+
+    def test_the_path_the_backend_reports_is_returned(self):
+        # Answered late on purpose: the caller has to wait for it.
+        tx = FakeTransport(reply={"path": "/out/trace-sess-1.zip"}, delay=0.15)
+
+        path = trace_export.export(tx, output_dir="/out", session_id="sess-1")
+
+        self.assertEqual(path, "/out/trace-sess-1.zip")
+        scope, data = tx.sent[0]
+        self.assertEqual(scope, SCOPE_TRACE_EXPORT)
+        self.assertEqual(data["outputDir"], "/out")
+        self.assertEqual(data["sessionId"], "sess-1")
+        self.assertTrue(data["requestId"])
+
+    def test_a_reported_failure_is_none_rather_than_a_raise(self):
+        tx = FakeTransport(reply={"error": "nothing captured for this run"})
+
+        self.assertIsNone(
+            trace_export.export(tx, output_dir="/out", session_id="s")
+        )
+
+    # A run that captured everything and could not write an archive still
+    # passed; none of these may reach the user's test.
+    def test_no_connection_no_send_and_a_throwing_socket_all_decline(self):
+        for tx in (
+            None,
+            FakeTransport(connected=False),
+            FakeTransport(sends=False),
+            FakeTransport(raises=True),
+        ):
+            with self.subTest(transport=tx):
+                self.assertIsNone(
+                    trace_export.export(tx, output_dir="/out", session_id="s")
+                )
+
+    def test_a_backend_that_never_answers_times_out_and_returns(self):
+        tx = FakeTransport(reply=None)  # accepts the send, never replies
+
+        path = trace_export.export(
+            tx, output_dir="/out", session_id="s", timeout=0.05
+        )
+
+        self.assertIsNone(path)
+        # And the slot is clear, so the next run is not resolved by this one.
+        self.assertIsNone(trace_export._pending)
+
+
+class TestOnlyTheRequestInFlightIsAnswered(unittest.TestCase):
+    """The socket outlives a single export, so a reply has to be matched."""
+
+    def tearDown(self):
+        trace_export.reset()
+
+    def test_a_reply_carrying_another_request_id_is_ignored(self):
+        tx = FakeTransport(reply={"requestId": "someone-else", "path": "/x.zip"})
+
+        path = trace_export.export(
+            tx, output_dir="/out", session_id="s", timeout=0.05
+        )
+
+        self.assertIsNone(path)
+
+    def test_a_reply_with_no_export_in_flight_is_harmless(self):
+        trace_export.on_result({"requestId": "stale", "path": "/x.zip"})
+        trace_export.on_result("not-a-dict")
+        trace_export.on_result(None)
+
+    def test_reset_stops_a_late_reply_resolving_the_next_run(self):
+        tx = FakeTransport(reply=None)
+        trace_export.export(tx, output_dir="/out", session_id="s", timeout=0.05)
+        late = dict(tx.sent[0][1])
+
+        trace_export.on_result({"requestId": late["requestId"], "path": "/x.zip"})
+
+        self.assertIsNone(trace_export._pending)
+
+
+class TestTheReplyIsRouted(unittest.TestCase):
+    """The frame arrives as a control message, so the handler has to route it —
+    a correct export module reached through nothing is still no archive."""
+
+    def tearDown(self):
+        trace_export.reset()
+
+    def test_the_control_handler_hands_the_frame_to_the_exporter(self):
+        with mock.patch.object(trace_export, "on_result") as routed:
+            lifecycle.on_control(SCOPE_TRACE_EXPORTED, {"requestId": "r1"})
+        routed.assert_called_once_with({"requestId": "r1"})
+
+    def test_it_does_not_trigger_the_dashboard_shutdown_path(self):
+        with mock.patch.object(lifecycle, "_trigger_shutdown") as shutdown:
+            lifecycle.on_control(SCOPE_TRACE_EXPORTED, {"requestId": "r1"})
+        shutdown.assert_not_called()
+
+    def test_the_dashboard_closing_still_shuts_down(self):
+        with mock.patch.object(lifecycle, "_trigger_shutdown") as shutdown:
+            lifecycle.on_control("clientDisconnected", {})
+        shutdown.assert_called_once()
+
+
+
+class TestTheRunTriggersTheExport(unittest.TestCase):
+    """A correct exporter nothing calls writes no archive — and one called on
+    every run writes archives for people who never asked for a trace."""
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+        trace_export.reset()
+
+    def _teardown_with(self, *, trace):
+        tx = FakeTransport(reply={"path": "/out/trace.zip"})
+        self.pkg._active.update(
+            capturer=None, transport=tx, process=None, url=None, handle=None,
+            terminal=None, logs=None, excepthook=None, trace=trace,
+        )
+        with mock.patch.object(trace_export, "export", return_value="/out/t.zip") as ex:
+            self.pkg.disable()
+        return ex
+
+    def test_trace_mode_exports_on_teardown(self):
+        self._teardown_with(trace=True).assert_called_once()
+
+    def test_a_normal_run_exports_nothing(self):
+        self._teardown_with(trace=False).assert_not_called()
+
+    # The archive is built by the backend from what this run streamed, and the
+    # answer comes back on the same socket — so closing it first would time out
+    # every export.
+    def test_the_export_happens_before_the_transport_closes(self):
+        order = []
+        tx = FakeTransport()
+        tx.close = lambda: order.append("closed")
+        self.pkg._active.update(
+            capturer=None, transport=tx, process=None, url=None, handle=None,
+            terminal=None, logs=None, excepthook=None, trace=True,
+        )
+        with mock.patch.object(
+            trace_export, "export", side_effect=lambda *a, **k: order.append("export")
+        ):
+            self.pkg.disable()
+        self.assertEqual(order, ["export", "closed"])
+
+
+class TestWhereTheArchiveLands(unittest.TestCase):
+    """Beside the run's video, not in the cwd.
+
+    `uninstall()` clears the resolved output dir, and it runs before the
+    export — so reading it at export time yields None and the archive falls
+    back to the cwd, which for a runner invoked from a repo root is the repo
+    root. That is how a stray test-results/ appears there.
+    """
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+        trace_export.reset()
+
+    def test_the_dir_resolved_during_the_run_is_the_one_used(self):
+        # The accessor is deliberately NOT mocked: what this pins is the ORDER,
+        # and a stubbed reader answers the same whenever it is called.
+        from selenium_devtools import instrumentation
+
+        tx = FakeTransport()
+        instrumentation._state["output_dir"] = "/spec/test-results"
+        self.pkg._active.update(
+            capturer=None, transport=tx, process=None, url=None, handle=None,
+            terminal=None, logs=None, excepthook=None, trace=True,
+        )
+        try:
+            with mock.patch.object(trace_export, "export", return_value=None) as ex:
+                self.pkg.disable()
+        finally:
+            instrumentation._state["output_dir"] = None
+
+        self.assertEqual(ex.call_args.kwargs["output_dir"], "/spec/test-results")
+
+    def test_a_run_that_resolved_nothing_still_gets_a_directory(self):
+        from selenium_devtools import instrumentation
+
+        tx = FakeTransport()
+        self.pkg._active.update(
+            capturer=None, transport=tx, process=None, url=None, handle=None,
+            terminal=None, logs=None, excepthook=None, trace=True,
+        )
+        with mock.patch.object(
+            instrumentation, "resolved_output_dir", return_value=None
+        ), mock.patch.object(trace_export, "export", return_value=None) as ex:
+            self.pkg.disable()
+
+        self.assertTrue(ex.call_args.kwargs["output_dir"].endswith("test-results"))
+
+
+class TestWhoDecidesTraceMode(unittest.TestCase):
+    def _enabled(self, arg, env):
+        import selenium_devtools as pkg
+
+        with mock.patch.dict("os.environ", {"DEVTOOLS_TRACE": env} if env else {},
+                             clear=True):
+            return pkg._trace_enabled(arg)
+
+    def test_the_argument_wins_over_the_environment(self):
+        # So a script can opt out of an exported default.
+        self.assertFalse(self._enabled(False, "1"))
+        self.assertTrue(self._enabled(True, ""))
+
+    def test_the_environment_decides_when_the_argument_is_absent(self):
+        for value, expected in [
+            ("1", True), ("true", True), ("TRUE", True), ("yes", True),
+            ("0", False), ("", False), ("off", False),
+        ]:
+            with self.subTest(value=value):
+                self.assertIs(self._enabled(None, value), expected)
+
+    def test_it_is_off_by_default(self):
+        self.assertFalse(self._enabled(None, None))
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class TestTheArchiveBelongsToTheRun(unittest.TestCase):
+    """Not to the dashboard window.
+
+    `pytest_sessionfinish` blocks on the window before tearing down, so an
+    export that ran at teardown waited for a human — and in CI, which opens no
+    window, it happened during process shutdown instead. Neither is when the
+    run's data became complete.
+    """
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+        trace_export.reset()
+
+    def _armed(self, *, trace=True, traced=False):
+        self.pkg._active.update(
+            capturer=None, transport=FakeTransport(), process=None, url=None,
+            handle=None, terminal=None, logs=None, excepthook=None,
+            trace=trace, traced=traced,
+        )
+
+    def test_export_trace_writes_once_and_only_once(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value="/o/t.zip") as ex:
+            first = self.pkg.export_trace()
+            second = self.pkg.export_trace()
+        self.assertEqual(first, "/o/t.zip")
+        self.assertIsNone(second)
+        ex.assert_called_once()
+
+    # Only a SUCCESSFUL export closes the door. This is public API, so a caller
+    # may run it early, get nothing, and still expect an archive at the end;
+    # latching on the attempt spends that one chance on a transport that was
+    # not ready.
+    def test_a_failed_export_leaves_the_teardown_fallback_armed(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value=None):
+            self.assertIsNone(self.pkg.export_trace())
+        self.assertFalse(self.pkg._active["traced"])
+
+    def test_teardown_still_writes_after_a_failed_attempt(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value=None):
+            self.pkg.export_trace()
+        with mock.patch.object(trace_export, "export", return_value="/o/t.zip") as ex:
+            self.pkg.disable()
+        ex.assert_called_once()
+
+    def test_a_successful_export_closes_it(self):
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value="/o/t.zip"):
+            self.pkg.export_trace()
+        self.assertTrue(self.pkg._active["traced"])
+
+    def test_it_does_nothing_when_trace_mode_is_off(self):
+        self._armed(trace=False)
+        with mock.patch.object(trace_export, "export") as ex:
+            self.assertIsNone(self.pkg.export_trace())
+        ex.assert_not_called()
+
+    def test_teardown_does_not_export_again(self):
+        # The plugin exports at session finish; disable() must not repeat it.
+        self._armed(traced=True)
+        with mock.patch.object(trace_export, "export") as ex:
+            self.pkg.disable()
+        ex.assert_not_called()
+
+    def test_teardown_still_covers_a_caller_that_never_asked(self):
+        # A plain script calls neither export_trace() nor the plugin.
+        self._armed()
+        with mock.patch.object(trace_export, "export", return_value=None) as ex:
+            self.pkg.disable()
+        ex.assert_called_once()
+
+
+class TestTraceModeOpensNoWindow(unittest.TestCase):
+    """The artifact is the output, and `pytest_sessionfinish` blocks on the
+    window until a human closes it — so a window turns writing a file into an
+    interactive session. The backend still starts: it is what builds the
+    archive."""
+
+    def test_trace_mode_suppresses_the_window(self):
+        from selenium_devtools import lifecycle
+
+        self.assertFalse(lifecycle.auto_open_enabled(trace=True))
+
+    def test_a_normal_run_still_opens_one(self):
+        from selenium_devtools import backend, lifecycle
+
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(
+            backend, "reuse_target", return_value=None
+        ):
+            self.assertTrue(lifecycle.auto_open_enabled(trace=False))
+
+    def test_the_existing_opt_outs_still_win(self):
+        from selenium_devtools import backend, lifecycle
+
+        with mock.patch.dict("os.environ", {"DEVTOOLS_OPEN": "0"}, clear=True), \
+                mock.patch.object(backend, "reuse_target", return_value=None):
+            self.assertFalse(lifecycle.auto_open_enabled(trace=False))
+        # A rerun child reports into the window that launched it.
+        with mock.patch.dict("os.environ", {}, clear=True), mock.patch.object(
+            backend, "reuse_target", return_value=("127.0.0.1", 1234)
+        ):
+            self.assertFalse(lifecycle.auto_open_enabled(trace=False))
+
+
+class TestTraceModeRecordsNoVideo(unittest.TestCase):
+    """The archive's frames are the per-command screenshots. The screencast is
+    a live-dashboard artifact and `screencastFrames` does not cross the wire
+    yet (#290), so recording one in trace mode writes a .webm nothing reads."""
+
+    def setUp(self):
+        from selenium_devtools import instrumentation
+
+        self.instr = instrumentation
+        instrumentation.uninstall()
+
+    def tearDown(self):
+        self.instr.uninstall()
+
+    def test_install_records_the_mode(self):
+        from selenium_devtools.capturer import SessionCapturer
+
+        self.instr.install(SessionCapturer(FakeTransport()), FakeDriverForTrace,
+                           trace=True)
+        self.assertTrue(self.instr._state["trace"])
+
+    def test_a_normal_run_still_records(self):
+        from selenium_devtools.capturer import SessionCapturer
+
+        self.instr.install(SessionCapturer(FakeTransport()), FakeDriverForTrace)
+        self.assertFalse(self.instr._state["trace"])
+
+    def _bring_up(self, *, trace):
+        """Run the real session bring-up and report the entry it built."""
+        from selenium_devtools.capturer import SessionCapturer
+
+        cap = SessionCapturer(FakeTransport())
+        driver = FakeDriverForTrace()
+        self.instr.install(cap, FakeDriverForTrace, trace=trace)
+        with mock.patch.object(self.instr, "ScreencastRecorder") as recorder, \
+                mock.patch.object(self.instr, "start_push_screencast",
+                                  return_value=None), \
+                mock.patch.object(self.instr, "bidi"), \
+                mock.patch.object(self.instr, "bidi_preload"), \
+                mock.patch.object(self.instr, "collector_source_text",
+                                  return_value=None):
+            entry = self.instr._ensure_session_setup(driver, cap)
+        return entry, recorder
+
+    def test_no_recorder_is_created_in_trace_mode(self):
+        entry, recorder = self._bring_up(trace=True)
+        recorder.assert_not_called()
+        if entry is not None:
+            self.assertIsNone(entry.get("screencast"))
+
+    def test_a_live_run_creates_one(self):
+        # Guards the gate against being always-on: a normal run still records.
+        _, recorder = self._bring_up(trace=False)
+        recorder.assert_called_once()
+
+
+class FakeDriverForTrace:
+    """Minimal stand-in. Needs a session_id: bring-up returns early without
+    one, which would make the gating assertions pass for the wrong reason."""
+
+    def __init__(self):
+        self.session_id = "sess-trace"
+        self.caps = {"browserName": "chrome"}
+
+    def execute(self, command, params=None):
+        return {"value": None}
+
+    def get_screenshot_as_base64(self):
+        return "c2hvdA=="
+
+
+class TestConcurrentExportsAreSerialized(unittest.TestCase):
+    """`trace_export` holds ONE pending slot.
+
+    Two overlapping exports both replace it, so the first caller's reply is
+    dropped and it waits out the full 60s timeout while the backend builds the
+    same archive twice at the same path. Reachable because teardown can run on
+    the WS reader thread — `lifecycle._trigger_shutdown` hands it to whoever is
+    parked, and runs it itself when nobody is — while a caller is mid-export on
+    the main thread.
+    """
+
+    def setUp(self):
+        import selenium_devtools as pkg
+
+        self.pkg = pkg
+        self.saved = dict(pkg._active)
+        pkg._active.update(
+            capturer=None, transport=FakeTransport(), process=None, url=None,
+            handle=None, terminal=None, logs=None, excepthook=None,
+            trace=True, traced=False,
+        )
+
+    def tearDown(self):
+        self.pkg._active.clear()
+        self.pkg._active.update(self.saved)
+        trace_export.reset()
+
+    def test_only_one_request_is_sent_when_two_callers_overlap(self):
+        started = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def slow_export(*args, **kwargs):
+            calls.append(kwargs.get("session_id"))
+            started.set()
+            release.wait(2)
+            return "/out/trace.zip"
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            first = threading.Thread(target=self.pkg.export_trace)
+            first.start()
+            self.assertTrue(started.wait(2), "first export never started")
+            # Second caller arrives while the first is still waiting on the
+            # backend — it must not replace the pending slot.
+            second_result = []
+            second = threading.Thread(
+                target=lambda: second_result.append(self.pkg.export_trace())
+            )
+            second.start()
+            release.set()
+            first.join(3)
+            second.join(3)
+
+        self.assertEqual(len(calls), 1, "a second request was sent")
+        self.assertEqual(second_result, [None])
+        self.assertTrue(self.pkg._active["traced"])
+
+    def test_main_thread_teardown_waits_for_an_export_in_flight(self):
+        # Safe to wait here: the reader thread is free to deliver the reply.
+        order = []
+        release = threading.Event()
+        started = threading.Event()
+
+        def slow_export(*args, **kwargs):
+            started.set()
+            release.wait(2)
+            order.append("export-done")
+            return "/out/trace.zip"
+
+        tx = self.pkg._active["transport"]
+        tx.close = lambda: order.append("closed")
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            worker = threading.Thread(target=self.pkg.export_trace)
+            worker.start()
+            self.assertTrue(started.wait(2))
+            releaser = threading.Timer(0.05, release.set)
+            releaser.start()
+            self.pkg.disable()          # on the MAIN thread
+            worker.join(3)
+            releaser.cancel()
+
+        self.assertEqual(order, ["export-done", "closed"])
+
+    # The deadlock this exists to prevent: `_trigger_shutdown` runs teardown on
+    # the WS reader thread when nobody is parked in wait_for_shutdown, and that
+    # thread is the only one that can deliver the reply the in-flight export is
+    # blocked on. Waiting there stalls both until the timeout, and the
+    # shutdown's os._exit timer may kill the process first.
+    def test_off_thread_teardown_never_waits_on_an_export(self):
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+
+        def slow_export(*args, **kwargs):
+            started.set()
+            release.wait(5)
+            return "/out/trace.zip"
+
+        with mock.patch.object(trace_export, "export", side_effect=slow_export):
+            worker = threading.Thread(target=self.pkg.export_trace)
+            worker.start()
+            self.assertTrue(started.wait(2))
+
+            # Stands in for the reader thread arriving with clientDisconnected.
+            def off_thread_teardown():
+                self.pkg.export_trace()
+                finished.set()
+
+            threading.Thread(target=off_thread_teardown).start()
+            returned = finished.wait(1.0)
+            release.set()
+            worker.join(5)
+
+        self.assertTrue(
+            returned, "off-thread export blocked on the in-flight one"
+        )
+
+
+class TracePolicyTest(unittest.TestCase):
+    """Validated adapter-side: `shouldRetainTrace` treats an unknown policy as
+    "keep everything", which is right at runtime and the wrong way to learn you
+    made a typo."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("DEVTOOLS_TRACE_POLICY", None)
+
+    def test_unset_keeps_every_run(self):
+        self.assertIsNone(devtools._trace_policy(None))
+
+    def test_an_argument_is_taken_as_given(self):
+        self.assertEqual(
+            devtools._trace_policy("retain-on-failure"), "retain-on-failure"
+        )
+
+    def test_the_environment_is_the_fallback(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-first-failure"
+        self.assertEqual(devtools._trace_policy(None), "retain-on-first-failure")
+
+    def test_the_argument_beats_the_environment(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+        self.assertEqual(devtools._trace_policy("on"), "on")
+
+    def test_every_shared_policy_is_accepted(self):
+        for policy in TRACE_RETENTION_POLICIES:
+            with self.subTest(policy=policy):
+                self.assertEqual(devtools._trace_policy(policy), policy)
+
+    def test_a_typo_warns_and_keeps_everything(self):
+        with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+            self.assertIsNone(devtools._trace_policy("retain-on-failures"))
+
+        self.assertIn("retain-on-failures", "\n".join(logs.output))
+
+
+class DeclinedExportTest(unittest.TestCase):
+    """A policy decline is the feature working. Reported as an error it reads
+    as a broken export on a run that passed."""
+
+    def tearDown(self):
+        trace_export.reset()
+
+    def test_a_decline_is_not_an_error(self):
+        tx = FakeTransport(reply={"declinedByPolicy": True}, delay=0.05)
+
+        with self.assertLogs("selenium_devtools", level="INFO") as logs:
+            path = trace_export.export(
+                tx, output_dir="/out", session_id="s",
+                trace_policy="retain-on-failure",
+            )
+
+        self.assertIsNone(path)
+        joined = "\n".join(logs.output)
+        self.assertIn("not retained", joined)
+        self.assertNotIn("export failed", joined)
+
+    def test_the_policy_travels_with_the_request(self):
+        tx = FakeTransport(reply={"path": "/out/t.zip"})
+
+        trace_export.export(
+            tx, output_dir="/out", session_id="s",
+            trace_policy="retain-on-failure",
+        )
+
+        self.assertEqual(tx.sent[0][1]["tracePolicy"], "retain-on-failure")
+
+    def test_no_policy_sends_no_field(self):
+        # Absent rather than null: the backend's own default applies.
+        tx = FakeTransport(reply={"path": "/out/t.zip"})
+
+        trace_export.export(tx, output_dir="/out", session_id="s")
+
+        self.assertNotIn("tracePolicy", tx.sent[0][1])
+
+
+class TraceModeGatingTest(unittest.TestCase):
+    """A policy or a granularity means nothing in live mode. Which of the four
+    ways of naming one turns trace mode ON is the question this pins."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("DEVTOOLS_TRACE", "DEVTOOLS_TRACE_POLICY",
+                     "DEVTOOLS_TRACE_GRANULARITY"):
+            os.environ.pop(name, None)
+
+    def test_an_explicit_argument_selects_trace_mode(self):
+        # Same rule as --devtools-trace-policy: honouring a policy without the
+        # mode would silently drop what the caller asked for.
+        self.assertTrue(
+            devtools._trace_enabled(None, implied_by=("retain-on-failure", None))
+        )
+        self.assertTrue(devtools._trace_enabled(None, implied_by=(None, "test")))
+
+    def test_an_explicit_trace_false_still_wins(self):
+        self.assertFalse(
+            devtools._trace_enabled(False, implied_by=("retain-on-failure", "test"))
+        )
+
+    def test_the_environment_stays_ambient(self):
+        # It may have been exported for a different script in the same shell;
+        # flipping a live run to trace mode would take away the dashboard.
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+        os.environ["DEVTOOLS_TRACE_GRANULARITY"] = "test"
+
+        self.assertFalse(devtools._trace_enabled(None))
+
+    def test_but_an_ignored_environment_setting_is_never_silent(self):
+        # The symptom is otherwise an archive that never appears.
+        for name in ("DEVTOOLS_TRACE_POLICY", "DEVTOOLS_TRACE_GRANULARITY"):
+            with self.subTest(env=name):
+                os.environ.pop("DEVTOOLS_TRACE_POLICY", None)
+                os.environ.pop("DEVTOOLS_TRACE_GRANULARITY", None)
+                os.environ[name] = "retain-on-failure"
+                with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+                    devtools._warn_if_ignored()
+                self.assertIn(name, "\n".join(logs.output))
+
+    def test_nothing_is_said_when_nothing_was_set(self):
+        with self.assertNoLogs("selenium_devtools", level="WARNING"):
+            devtools._warn_if_ignored()
+
+    def test_the_environment_works_alongside_the_mode(self):
+        os.environ["DEVTOOLS_TRACE"] = "1"
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        self.assertTrue(devtools._trace_enabled(None))
+        self.assertEqual(devtools._trace_policy(None), "retain-on-failure")
+
+
+class ResolveTraceSettingsTest(unittest.TestCase):
+    """The wiring, not the helpers. Testing the helpers alone left mutations to
+    `enable()`'s own decisions completely undetected."""
+
+    def setUp(self):
+        patcher = mock.patch.dict(os.environ, {}, clear=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for name in ("DEVTOOLS_TRACE", "DEVTOOLS_TRACE_POLICY",
+                     "DEVTOOLS_TRACE_GRANULARITY", "DEVTOOLS_FILMSTRIP",
+                     "DEVTOOLS_A11Y"):
+            os.environ.pop(name, None)
+
+    def resolve(self, **kw):
+        args = {"trace": None, "filmstrip": None, "a11y": None,
+                "trace_policy": None, "trace_granularity": None}
+        args.update(kw)
+        return devtools._resolve_trace_settings(**args)
+
+    def test_live_mode_carries_no_trace_settings_at_all(self):
+        # Every trace-only feature is off, not merely unused.
+        self.assertEqual(self.resolve(), (False, False, False, None, None))
+
+    def test_trace_mode_defaults_the_captures_on_and_the_policy_off(self):
+        mode, filmstrip, a11y, policy, gran = self.resolve(trace=True)
+
+        self.assertEqual((mode, filmstrip, a11y), (True, True, True))
+        self.assertEqual((policy, gran), (None, None))
+
+    def test_a_policy_argument_turns_the_mode_on_and_is_kept(self):
+        mode, _, _, policy, _ = self.resolve(trace_policy="retain-on-failure")
+
+        self.assertTrue(mode)
+        self.assertEqual(policy, "retain-on-failure")
+
+    def test_a_granularity_argument_does_the_same(self):
+        mode, _, _, _, gran = self.resolve(trace_granularity="test")
+
+        self.assertTrue(mode)
+        self.assertEqual(gran, "test")
+
+    def test_trace_false_beats_a_policy_and_drops_it(self):
+        self.assertEqual(
+            self.resolve(trace=False, trace_policy="retain-on-failure"),
+            (False, False, False, None, None),
+        )
+
+    def test_an_exported_policy_does_not_turn_the_mode_on(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        mode, _, _, policy, _ = self.resolve()
+
+        self.assertFalse(mode)
+        self.assertIsNone(policy)
+
+    def test_and_says_so_rather_than_dropping_it_silently(self):
+        os.environ["DEVTOOLS_TRACE_GRANULARITY"] = "test"
+
+        with self.assertLogs("selenium_devtools", level="WARNING") as logs:
+            self.resolve()
+
+        self.assertIn("DEVTOOLS_TRACE_GRANULARITY", "\n".join(logs.output))
+
+    def test_an_exported_policy_applies_once_the_mode_is_on(self):
+        os.environ["DEVTOOLS_TRACE_POLICY"] = "retain-on-failure"
+
+        _, _, _, policy, _ = self.resolve(trace=True)
+
+        self.assertEqual(policy, "retain-on-failure")
+
+    def test_a_live_run_says_nothing_when_nothing_was_exported(self):
+        with self.assertNoLogs("selenium_devtools", level="WARNING"):
+            self.resolve()

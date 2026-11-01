@@ -1,0 +1,271 @@
+import { describe, it, expect } from 'vitest'
+import { ACTION_MAP } from '@wdio/devtools-shared'
+import { formatActionTitle, mapCommandToAction } from '../src/action-mapping.js'
+
+describe('mapCommandToAction for read/query commands', () => {
+  const elementReads: [string, string][] = [
+    ['getText', 'getText'],
+    ['getValue', 'getValue'],
+    ['getAttribute', 'getAttribute'],
+    ['getProperty', 'getProperty'],
+    ['getCSSProperty', 'getCSSProperty'],
+    ['getTagName', 'getTagName'],
+    ['getLocation', 'getLocation'],
+    ['getSize', 'getSize'],
+    ['isDisplayed', 'isDisplayed'],
+    ['isExisting', 'isExisting'],
+    ['isEnabled', 'isEnabled'],
+    ['isSelected', 'isSelected'],
+    ['isClickable', 'isClickable'],
+    ['isFocused', 'isFocused'],
+    ['waitForDisplayed', 'waitForDisplayed'],
+    ['waitForExist', 'waitForExist'],
+    ['waitForEnabled', 'waitForEnabled'],
+    ['waitForClickable', 'waitForClickable']
+  ]
+
+  it.each(elementReads)('maps %s to Element.%s', (command, method) => {
+    expect(mapCommandToAction(command)).toEqual({ class: 'Element', method })
+  })
+
+  it('maps waitUntil to Browser.waitForFunction', () => {
+    expect(mapCommandToAction('waitUntil')).toEqual({
+      class: 'Browser',
+      method: 'waitForFunction'
+    })
+  })
+
+  it("maps selenium's wait (reported only when it fails) onto the same method", () => {
+    expect(mapCommandToAction('wait')).toEqual(mapCommandToAction('waitUntil'))
+  })
+
+  it('maps page/browser reads to the Page class', () => {
+    expect(mapCommandToAction('getTitle')).toEqual({
+      class: 'Page',
+      method: 'getTitle'
+    })
+    expect(mapCommandToAction('getUrl')).toEqual({
+      class: 'Page',
+      method: 'getUrl'
+    })
+    expect(mapCommandToAction('getPageSource')).toEqual({
+      class: 'Page',
+      method: 'getPageSource'
+    })
+  })
+
+  it('normalizes Selenium read aliases onto the WDIO names', () => {
+    expect(mapCommandToAction('getCssValue')).toEqual({
+      class: 'Element',
+      method: 'getCSSProperty'
+    })
+    expect(mapCommandToAction('getCurrentUrl')).toEqual({
+      class: 'Page',
+      method: 'getUrl'
+    })
+    expect(mapCommandToAction('getRect')).toEqual({
+      class: 'Element',
+      method: 'getRect'
+    })
+  })
+})
+
+describe('mapCommandToAction still excludes noisy/internal commands', () => {
+  it.each([
+    'clearValue',
+    'executeScript',
+    '$',
+    '$$',
+    'findElement',
+    'findElements',
+    'getElement',
+    'getElements'
+  ])('returns null for %s', (command) => {
+    expect(mapCommandToAction(command)).toBeNull()
+  })
+})
+
+describe('formatActionTitle for read/query commands', () => {
+  it('renders a selector-first title when the selector is the first arg', () => {
+    expect(
+      formatActionTitle({ class: 'Element', method: 'getText' }, ['#sel'])
+    ).toBe('Element.getText("#sel")')
+    expect(
+      formatActionTitle({ class: 'Element', method: 'isDisplayed' }, ['#sel'])
+    ).toBe('Element.isDisplayed("#sel")')
+  })
+
+  it('uses params.selector when there is no positional arg', () => {
+    expect(
+      formatActionTitle({ class: 'Element', method: 'waitForExist' }, [], {
+        selector: '#sel'
+      })
+    ).toBe('Element.waitForExist("#sel")')
+  })
+
+  it('falls back to an argument-free title when nothing identifies the target', () => {
+    expect(formatActionTitle({ class: 'Page', method: 'getTitle' }, [])).toBe(
+      'Page.getTitle()'
+    )
+  })
+})
+
+describe('ACTION_MAP forward/reverse integrity', () => {
+  it('never maps two commands to the same class.method with conflicting intent', () => {
+    // The reader derives REVERSE_ACTION_MAP by keeping the first command per
+    // class.method. Duplicated targets are only safe when the runner commands
+    // are true synonyms (e.g. url/navigateTo/get all → Page.navigate).
+    const targetToCommands = new Map<string, string[]>()
+    for (const [command, action] of Object.entries(ACTION_MAP)) {
+      const key = `${action.class}.${action.method}`
+      targetToCommands.set(key, [...(targetToCommands.get(key) ?? []), command])
+    }
+
+    // The new read methods must not collide with an existing interaction target.
+    const interactionTargets = new Set([
+      'Element.click',
+      'Element.fill',
+      'Element.clear',
+      'Element.submit',
+      'Element.hover',
+      'Element.tap',
+      'Page.navigate',
+      'Keyboard.press'
+    ])
+    for (const method of [
+      'getText',
+      'getValue',
+      'getAttribute',
+      'getProperty',
+      'getCSSProperty',
+      'getTagName',
+      'getLocation',
+      'getSize',
+      'getRect',
+      'isDisplayed',
+      'isExisting',
+      'isEnabled',
+      'isSelected',
+      'isClickable',
+      'isFocused',
+      'waitForDisplayed',
+      'waitForExist',
+      'waitForEnabled',
+      'waitForClickable'
+    ]) {
+      expect(interactionTargets.has(`Element.${method}`)).toBe(false)
+    }
+
+    // getCssValue normalizes onto getCSSProperty, and getCurrentUrl onto getUrl;
+    // the WDIO name is listed first so the reverse map keeps it.
+    const cssCommands = targetToCommands.get('Element.getCSSProperty') ?? []
+    expect(cssCommands[0]).toBe('getCSSProperty')
+    const urlCommands = targetToCommands.get('Page.getUrl') ?? []
+    expect(urlCommands[0]).toBe('getUrl')
+  })
+})
+
+// The JS adapters wrap a client library and report its method names; an adapter
+// that patches the protocol chokepoint reports what WebDriver calls the command.
+// Unmapped commands are dropped from a trace outright, so a Python run exported
+// 7 actions where the live dashboard had shown ~60 — `get`, `getCurrentUrl` and
+// `getTitle` survived only by sharing a name with the vocabulary above.
+describe('raw W3C protocol names', () => {
+  it('maps element commands onto the same actions the JS adapters produce', () => {
+    const pairs: [string, string][] = [
+      ['clickElement', 'click'],
+      ['sendKeysToElement', 'fill'],
+      ['clearElement', 'clear'],
+      ['getElementText', 'getText'],
+      ['getElementAttribute', 'getAttribute'],
+      ['getElementTagName', 'getTagName'],
+      ['isElementEnabled', 'isEnabled'],
+      ['isElementSelected', 'isSelected']
+    ]
+    for (const [command, method] of pairs) {
+      expect(mapCommandToAction(command)).toEqual({
+        class: 'Element',
+        method
+      })
+    }
+  })
+
+  it('agrees with the client-library name for the same concept', () => {
+    // One name per concept: a click is a click whichever adapter reported it.
+    for (const [w3c, js] of [
+      ['clickElement', 'click'],
+      ['sendKeysToElement', 'sendKeys'],
+      ['getElementText', 'getText'],
+      ['getElementAttribute', 'getAttribute']
+    ]) {
+      expect(mapCommandToAction(w3c)).toEqual(mapCommandToAction(js))
+    }
+  })
+
+  // Locating an element is plumbing for the action that follows. The JS
+  // adapters emit no row for it and neither should a protocol-level one.
+  it('leaves finds and window bookkeeping unmapped', () => {
+    for (const command of [
+      'findElement',
+      'findElements',
+      'findChildElement',
+      'w3cGetCurrentWindowHandle',
+      // selenium runs its own atoms through this — is_displayed(), and every
+      // expected-condition wait — so a mapped one fills the trace with
+      // `evaluate("/* isDisplayed */ …")` rows the test never wrote. The JS
+      // adapter's `executeScript` is unmapped too.
+      'w3cExecuteScript',
+      'w3cExecuteScriptAsync'
+    ]) {
+      expect(mapCommandToAction(command)).toBeNull()
+    }
+  })
+})
+
+describe('assertion command names', () => {
+  it('resolves the dotted forms every adapter emits', () => {
+    for (const command of [
+      'assert.equal',
+      'assert.notEqual',
+      'assert.strictEqual',
+      'assert.notStrictEqual',
+      'assert.ok',
+      'verify.ok',
+      'expect.toBe'
+    ]) {
+      expect(mapCommandToAction(command)?.class).toBe('Assert')
+    }
+  })
+
+  it('does not resolve a namespace with no method', () => {
+    // The Python adapter emitted a bare `assert` and the trace exporter drops
+    // what it cannot map, so those rows showed live and in no trace.
+    expect(mapCommandToAction('assert')).toBeNull()
+    expect(mapCommandToAction('expect')).toBeNull()
+  })
+})
+
+// A direct addValue is idiomatic on Appium, and it was excluded from the map on
+// the assumption it only ever appears nested inside setValue. The typing step
+// was then missing from the trace entirely — a click → addValue → getText spec
+// produced two action rows.
+describe('mapCommandToAction for addValue (#352)', () => {
+  it('maps it to a fill, like the other append-style typing commands', () => {
+    expect(mapCommandToAction('addValue')).toEqual({
+      class: 'Element',
+      method: 'fill'
+    })
+  })
+
+  it('renders the same way selenium sendKeys does', () => {
+    expect(mapCommandToAction('addValue')).toEqual(
+      mapCommandToAction('sendKeys')
+    )
+  })
+
+  // Still excluded: unlike addValue it has no direct-use case that goes
+  // unrecorded, and WDIO fires it inside setValue.
+  it('leaves clearValue unmapped', () => {
+    expect(mapCommandToAction('clearValue')).toBeNull()
+  })
+})

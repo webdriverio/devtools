@@ -1,0 +1,756 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, it, expect } from 'vitest'
+import {
+  buildActionEvents,
+  writeTraceZip,
+  FrameSnapshotIndex,
+  type ActionEvent,
+  type AfterEvent,
+  type BeforeEvent,
+  type TraceCapturer
+} from '@wdio/devtools-trace'
+import { TraceType, type CommandLog } from '@wdio/devtools-shared'
+
+const isBefore = (event: ActionEvent): event is BeforeEvent =>
+  event.type === 'before'
+const isAfter = (event: ActionEvent): event is AfterEvent =>
+  event.type === 'after'
+const isTracingGroup = (event: BeforeEvent) => event.method === 'tracingGroup'
+
+function cmd(command: string, overrides: Partial<CommandLog> = {}): CommandLog {
+  const base = (overrides.timestamp ?? 1000) + 100
+  return {
+    command,
+    args: [],
+    timestamp: base,
+    startTime: overrides.startTime ?? base - 50,
+    ...overrides
+  }
+}
+
+describe('buildActionEvents', () => {
+  const pageId = 'page@abc123'
+  const wallTime = 1000
+
+  it('stamps a stack frame from the captured callSource', () => {
+    const commands = [
+      cmd('click', { callSource: '/specs/login.ts:42' }),
+      cmd('url', { timestamp: 1400, startTime: 1350 })
+    ]
+    const befores = buildActionEvents(commands, pageId, wallTime).filter(
+      (e) => e.type === 'before'
+    )
+    expect(befores[0]!.stack).toEqual([
+      { file: '/specs/login.ts', line: 42, column: 0 }
+    ])
+    expect(befores[1]!.stack).toBeUndefined()
+  })
+
+  it('stamps the command result on the after event', () => {
+    const commands = [cmd('execute', { result: 'flash text' })]
+    const after = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'after'
+    )!
+    expect(after.result).toBe('flash text')
+  })
+
+  it('drops oversized command results from the after event', () => {
+    const commands = [cmd('execute', { result: 'x'.repeat(70 * 1024) })]
+    const after = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'after'
+    )!
+    expect(after.result).toBeUndefined()
+  })
+
+  it('carries CommandLog.selector as a `locator` param without touching args', () => {
+    // A folded assertion: args hold the expected value, selector the element.
+    const commands = [
+      cmd('expect.toHaveText', {
+        args: ['You logged out of the secure area!'],
+        selector: '#flash'
+      })
+    ]
+    const before = buildActionEvents(commands, pageId, wallTime).find(
+      (e) => e.type === 'before'
+    )!
+    expect(before.params.locator).toBe('#flash')
+    // The expected value stays the positional arg — locator must not hijack it.
+    expect(before.params.selector).toBeUndefined()
+    expect(before.params['0']).toBe('You logged out of the secure area!')
+  })
+
+  it('returns empty array for no commands', () => {
+    expect(buildActionEvents([], pageId, wallTime)).toEqual([])
+  })
+
+  it('returns empty array when no commands map to actions', () => {
+    const commands = [cmd('clearValue'), cmd('executeScript')]
+    expect(buildActionEvents(commands, pageId, wallTime)).toEqual([])
+  })
+
+  it('produces before/after pairs for a single actionable command', () => {
+    const commands = [cmd('url', { timestamp: 1200, startTime: 1150 })]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const befores = events.filter((e) => e.type === 'before')
+    const afters = events.filter((e) => e.type === 'after')
+
+    expect(befores).toHaveLength(1)
+    expect(afters).toHaveLength(1)
+    expect(befores[0]!.callId).toBe('call@1')
+    expect(afters[0]!.callId).toBe('call@1')
+    expect(befores[0]!.apiName).toBe('page.navigate')
+  })
+
+  it('assigns sequential callIds across commands', () => {
+    const commands = [
+      cmd('url', { timestamp: 1200, startTime: 1150 }),
+      cmd('click', { timestamp: 1400, startTime: 1350 })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const befores = events.filter((e) => e.type === 'before')
+    expect(befores[0]!.callId).toBe('call@1')
+    expect(befores[1]!.callId).toBe('call@2')
+  })
+
+  it('sets endTime >= startTime + 1ms for minimum duration', () => {
+    // If start and end are too close, end is clamped to start + 1
+    const commands = [cmd('url', { timestamp: 1001, startTime: 1000 })]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const before = events.find((e) => e.type === 'before')!
+    const after = events.find((e) => e.type === 'after')!
+    expect(after.endTime).toBeGreaterThanOrEqual(before.startTime + 1)
+  })
+
+  it('floors startTime at prevEndMs to prevent overlap', () => {
+    // Second command starts before first ends in wall-time terms
+    const commands = [
+      cmd('url', { timestamp: 1200, startTime: 1150 }),
+      cmd('click', { timestamp: 1250, startTime: 1190 })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const befores = events.filter((e) => e.type === 'before')
+    // Second before should be >= first after's endTime
+    const firstAfter = events
+      .filter(isAfter)
+      .find((e) => e.callId === 'call@1')!
+    expect(befores[1]!.startTime).toBeGreaterThanOrEqual(firstAfter.endTime)
+  })
+
+  it('flags errors on after events', () => {
+    const commands = [
+      cmd('click', { error: { name: 'Error', message: 'no such element' } })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const after = events.find((e) => e.type === 'after')!
+    expect(after.error).toEqual({ message: 'no such element' })
+  })
+})
+
+describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
+  const pageId = 'page@abc123'
+  const wallTime = 1000
+
+  const testMeta = new Map([
+    ['uid-1', { title: 'test A', specFile: '/specs/a.js' }],
+    ['uid-2', { title: 'test B', specFile: '/specs/a.js' }]
+  ])
+
+  it('does NOT emit tracingGroup when no command has testUid', () => {
+    const commands = [cmd('url'), cmd('click')]
+    const events = buildActionEvents(commands, pageId, wallTime)
+    const groups = events.filter(isBefore).filter(isTracingGroup)
+    expect(groups).toHaveLength(0)
+  })
+
+  it('emits tracingGroup open/close when testUid appears on first command', () => {
+    const commands = [cmd('url', { testUid: 'uid-1' })]
+    const events = buildActionEvents(commands, pageId, wallTime, testMeta)
+
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
+    const groupAfter = events
+      .filter(isAfter)
+      .find((e) => e.callId === groupBefore.callId)!
+
+    expect(groupBefore.apiName).toBe('tracing.tracingGroup')
+    expect(groupBefore.params).toEqual({ name: 'test A' })
+    expect(groupBefore.class).toBe('Tracing')
+    expect(groupBefore.title).toBe('test A')
+    expect(groupAfter).toBeDefined()
+  })
+
+  it('links child actions to the group via parentId', () => {
+    const commands = [
+      cmd('url', { testUid: 'uid-1', timestamp: 1200, startTime: 1150 })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime, testMeta)
+
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
+    const actionBefore = events
+      .filter(isBefore)
+      .find((e) => e.callId !== groupBefore.callId)!
+
+    expect(actionBefore.parentId).toBe(groupBefore.callId)
+  })
+
+  it('closes the previous group and opens a new one when testUid changes', () => {
+    const commands = [
+      cmd('url', { testUid: 'uid-1', timestamp: 1200, startTime: 1150 }),
+      cmd('click', { testUid: 'uid-2', timestamp: 1500, startTime: 1450 })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime, testMeta)
+
+    const groups = events.filter(isBefore).filter(isTracingGroup)
+    expect(groups).toHaveLength(2)
+
+    // First group: uid-1 → "test A"
+    expect(groups[0]!.params).toEqual({ name: 'test A' })
+    // Second group: uid-2 → "test B"
+    expect(groups[1]!.params).toEqual({ name: 'test B' })
+
+    // First group's after should close before the second group's before
+    const groupAfters = events
+      .filter(isAfter)
+      .filter((e) => groups.some((g) => g.callId === e.callId))
+    expect(groupAfters).toHaveLength(2)
+  })
+
+  it('uses raw testUid as fallback name when testMetadata is missing', () => {
+    const commands = [cmd('url', { testUid: 'unknown-uid' })]
+    const events = buildActionEvents(commands, pageId, wallTime)
+
+    const groupBefore = events.filter(isBefore).find(isTracingGroup)!
+    expect(groupBefore.params).toEqual({ name: 'unknown-uid' })
+  })
+
+  it('does not stamp snapshot refs on tracingGroup events', () => {
+    const commands = [
+      cmd('url', { testUid: 'uid-1', timestamp: 1200, startTime: 1150 }),
+      cmd('click', { testUid: 'uid-2', timestamp: 1400, startTime: 1350 })
+    ]
+    const index = new FrameSnapshotIndex([
+      { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+      { timestamp: 1400, command: 'click', screenshot: 'BBBB' }
+    ])
+    const events = buildActionEvents(
+      commands,
+      pageId,
+      wallTime,
+      testMeta,
+      index
+    )
+    const groups = events.filter(isBefore).filter(isTracingGroup)
+    for (const group of groups) {
+      expect(group).not.toHaveProperty('beforeSnapshot')
+      const groupAfter = events
+        .filter(isAfter)
+        .find((e) => e.callId === group.callId)!
+      expect(groupAfter.afterSnapshot).toBeUndefined()
+    }
+  })
+
+  it('skips non-action commands but still handles group boundaries', () => {
+    const commands = [
+      cmd('clearValue', { testUid: 'uid-1' }), // non-action — skipped
+      cmd('url', { testUid: 'uid-2', timestamp: 1200, startTime: 1150 })
+    ]
+    const events = buildActionEvents(commands, pageId, wallTime, testMeta)
+
+    // Only one tracingGroup (uid-2 starts with the first action)
+    const groups = events.filter(isBefore).filter(isTracingGroup)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]!.params).toEqual({ name: 'test B' })
+  })
+})
+
+describe('buildActionEvents — frame-snapshot refs', () => {
+  const pageId = 'page@abc123'
+  const wallTime = 1000
+
+  it('stamps afterSnapshot when a screenshot matches the command timestamp', () => {
+    const commands = [cmd('url', { timestamp: 1200, startTime: 1150 })]
+    const index = new FrameSnapshotIndex([
+      { timestamp: 1200, command: 'url', screenshot: 'AAAA' }
+    ])
+    const events = buildActionEvents(
+      commands,
+      pageId,
+      wallTime,
+      undefined,
+      index
+    )
+    const after = events.find((e) => e.type === 'after')!
+    expect(after.afterSnapshot).toBe('after@call@1')
+    expect(index.refs()).toHaveLength(1)
+  })
+
+  it('uses the previous action snapshot as the next action before ref', () => {
+    const commands = [
+      cmd('url', { timestamp: 1200, startTime: 1150 }),
+      cmd('click', { timestamp: 1400, startTime: 1350 })
+    ]
+    const index = new FrameSnapshotIndex([
+      { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+      { timestamp: 1400, command: 'click', screenshot: 'BBBB' }
+    ])
+    const events = buildActionEvents(
+      commands,
+      pageId,
+      wallTime,
+      undefined,
+      index
+    )
+    const befores = events.filter((e) => e.type === 'before')
+    expect(befores[0]!.beforeSnapshot).toBeUndefined()
+    expect(befores[1]!.beforeSnapshot).toBe('after@call@1')
+    const afters = events.filter((e) => e.type === 'after')
+    expect(afters[1]!.afterSnapshot).toBe('after@call@2')
+  })
+
+  it('leaves refs unset for commands without matching screenshots', () => {
+    const commands = [cmd('url', { timestamp: 1200, startTime: 1150 })]
+    const index = new FrameSnapshotIndex([])
+    const events = buildActionEvents(
+      commands,
+      pageId,
+      wallTime,
+      undefined,
+      index
+    )
+    expect(
+      events.find((e) => e.type === 'before')!.beforeSnapshot
+    ).toBeUndefined()
+    expect(
+      events.find((e) => e.type === 'after')!.afterSnapshot
+    ).toBeUndefined()
+  })
+})
+
+describe('exported trace stream — frame-snapshot events', () => {
+  it('emits an image frame-snapshot sorted after its action', async () => {
+    const outputDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'trace-frame-snapshots-')
+    )
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150,
+          screenshot: 'AAAA'
+        }
+      ],
+      sources: new Map(),
+      metadata: {
+        type: TraceType.Standalone,
+        viewport: {
+          width: 800,
+          height: 600,
+          offsetLeft: 0,
+          offsetTop: 0,
+          scale: 1
+        }
+      },
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory'
+    })
+    const raw = await fs.readFile(path.join(dir, 'trace.trace'), 'utf8')
+    const lines = raw
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    const afterIdx = lines.findIndex((l) => l.type === 'after')
+    const snapIdx = lines.findIndex((l) => l.type === 'frame-snapshot')
+    expect(afterIdx).toBeGreaterThan(-1)
+    expect(snapIdx).toBeGreaterThan(afterIdx)
+
+    const after = lines[afterIdx] as { afterSnapshot?: string }
+    expect(after.afterSnapshot).toBe('after@call@1')
+
+    const snapshot = (lines[snapIdx] as { snapshot: Record<string, unknown> })
+      .snapshot
+    expect(snapshot.snapshotName).toBe('after@call@1')
+    expect(snapshot.callId).toBe('call@1')
+    expect(snapshot.pageId).toBe('page@abc12345')
+    expect(snapshot.frameId).toBe('frame@abc12345')
+    expect(snapshot.isMainFrame).toBe(true)
+    expect(snapshot.timestamp).toBe(200)
+    expect(snapshot.viewport).toEqual({ width: 800, height: 600 })
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})
+
+describe('exported trace stream — dense filmstrip', () => {
+  it('emits content-addressed screencast-frame events + resources', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-dense-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      screencastFrames: [
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1000 },
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1050 },
+        { data: Buffer.from('paint-2').toString('base64'), timestamp: 1400 }
+      ]
+    })
+    const raw = await fs.readFile(path.join(dir, 'trace.trace'), 'utf8')
+    const frames = raw
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .filter((l) => l.type === 'screencast-frame')
+
+    // Two identical bytes 50ms apart collapse to one kept frame; the second
+    // distinct paint is the other. Both rebased against wallTime 1000.
+    expect(frames).toHaveLength(2)
+    expect(frames.map((f) => f.timestamp)).toEqual([0, 400])
+    for (const f of frames) {
+      expect(String(f.sha1)).toMatch(/^[0-9a-f]{40}\.jpeg$/)
+    }
+
+    const resourceNames = await fs.readdir(path.join(dir, 'resources'))
+    for (const f of frames) {
+      expect(resourceNames).toContain(f.sha1)
+    }
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+
+  it('drops the sparse per-action filmstrip when dense frames are present', async () => {
+    const outputDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'trace-dense-sparse-')
+    )
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        },
+        { command: 'click', args: ['#go'], timestamp: 1500, startTime: 1450 }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      // Action snapshots carry the DOM refs the sparse filmstrip used to fold in.
+      actionSnapshots: [
+        {
+          timestamp: 1200,
+          command: 'url',
+          screenshot: 'AAAA',
+          elements: [{ selector: '#go' }],
+          snapshotText: '<html></html>'
+        },
+        { timestamp: 1500, command: 'click', screenshot: 'BBBB' }
+      ],
+      screencastFrames: [
+        { data: Buffer.from('paint-1').toString('base64'), timestamp: 1000 },
+        { data: Buffer.from('paint-2').toString('base64'), timestamp: 1400 }
+      ]
+    })
+    const lines = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    // Every filmstrip frame is a content-addressed dense frame; no sparse
+    // `page@…-<ts>.jpeg` frames survive, so there is no duplication.
+    const frames = lines.filter((l) => l.type === 'screencast-frame')
+    expect(frames).toHaveLength(2)
+    for (const f of frames) {
+      expect(String(f.sha1)).toMatch(/^[0-9a-f]{40}\.jpeg$/)
+    }
+
+    // Per-action DOM survives: frame-snapshot events + after-snapshot refs stay.
+    const frameSnaps = lines.filter((l) => l.type === 'frame-snapshot')
+    expect(frameSnaps).toHaveLength(2)
+    const afterSnaps = lines
+      .filter((l) => l.type === 'after')
+      .map((l) => l.afterSnapshot)
+      .filter(Boolean)
+    expect(afterSnaps).toEqual(['after@call@1', 'after@call@2'])
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+
+  it('writes a trace zip when a snapshot has a non-string screenshot object and resolves that row to the previous frame', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-badshot-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        },
+        {
+          command: 'click',
+          args: ['#go'],
+          timestamp: 1500,
+          startTime: 1450
+        }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const zipPath = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      actionSnapshots: [
+        { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+        {
+          timestamp: 1500,
+          command: 'click',
+          screenshot: {
+            message: 'Session not started or terminated'
+          } as unknown as string
+        }
+      ]
+    })
+    const stat = await fs.stat(zipPath)
+    expect(stat.size).toBeGreaterThan(0)
+
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      actionSnapshots: [
+        { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+        {
+          timestamp: 1500,
+          command: 'click',
+          screenshot: {
+            message: 'Session not started or terminated'
+          } as unknown as string
+        }
+      ]
+    })
+    const lines = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    const frameSnaps = lines.filter((l) => l.type === 'frame-snapshot')
+    expect(frameSnaps).toHaveLength(2)
+    for (const event of frameSnaps) {
+      const snapshot = event.snapshot as { html: unknown }
+      expect(JSON.stringify(snapshot.html)).toContain(
+        'data:image/jpeg;base64,AAAA'
+      )
+    }
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})
+
+describe('exported trace stream — DOM mutations', () => {
+  const baseCapturer = (
+    mutations: TraceCapturer['mutations']
+  ): TraceCapturer => ({
+    mutations,
+    traceLogs: [],
+    consoleLogs: [],
+    networkRequests: [],
+    commandsLog: [
+      {
+        command: 'url',
+        args: ['https://example.test'],
+        timestamp: 1200,
+        startTime: 1150
+      }
+    ],
+    sources: new Map(),
+    metadata: { type: TraceType.Standalone },
+    startWallTime: 1000
+  })
+
+  it('writes captured mutations to a trace.mutations entry, one per line', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-mut-'))
+    const dir = await writeTraceZip(
+      baseCapturer([
+        {
+          type: 'childList',
+          addedNodes: [{ tag: 'html' }],
+          removedNodes: [],
+          timestamp: 1000
+        },
+        {
+          type: 'attributes',
+          target: 'body',
+          attributeName: 'class',
+          attributeValue: 'ready',
+          addedNodes: [],
+          removedNodes: [],
+          timestamp: 1100
+        }
+      ]),
+      { outputDir, sessionId: 'abc12345', format: 'ndjson-directory' }
+    )
+    const lines = (await fs.readFile(path.join(dir, 'trace.mutations'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+    expect(lines).toHaveLength(2)
+    expect(lines[0]!.type).toBe('childList')
+    expect(lines[1]!.target).toBe('body')
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+
+  it('writes no trace.mutations entry when there are none', async () => {
+    const outputDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'trace-mut-none-')
+    )
+    const dir = await writeTraceZip(baseCapturer([]), {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory'
+    })
+    await expect(fs.access(path.join(dir, 'trace.mutations'))).rejects.toThrow()
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})
+
+// The zip carried no runner identity at all, so the player had no way to tell a
+// user which of the three frameworks' locator syntax the capture used.
+describe('exported trace stream — context-options runner', () => {
+  async function contextOptions(
+    metadata: TraceCapturer['metadata']
+  ): Promise<Record<string, unknown>> {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-runner-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [cmd('click')],
+      sources: new Map(),
+      metadata,
+      startWallTime: 1000
+    }
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory'
+    })
+    const raw = await fs.readFile(path.join(dir, 'trace.trace'), 'utf8')
+    await fs.rm(outputDir, { recursive: true, force: true })
+    return JSON.parse(raw.trim().split('\n')[0]!) as Record<string, unknown>
+  }
+
+  it('writes the recording runner into the context-options event', async () => {
+    const ctx = await contextOptions({
+      type: TraceType.Testrunner,
+      runner: 'nightwatch-cucumber'
+    })
+
+    expect(ctx.type).toBe('context-options')
+    expect(ctx.runner).toBe('nightwatch-cucumber')
+  })
+
+  it('omits the field entirely when the capture named no runner', async () => {
+    // Byte-stable with the pre-field output, so an older reader is unaffected.
+    const ctx = await contextOptions({ type: TraceType.Testrunner })
+
+    expect('runner' in ctx).toBe(false)
+  })
+
+  /**
+   * `browserName` is normalized to `chromium` for a native session and
+   * `platform` names the HOST OS, so before this field the device survived only
+   * as prose inside `title` and every consumer re-derived it from a heuristic.
+   */
+  describe('the device it was recorded on', () => {
+    const CLOUD_ANDROID = {
+      platformName: 'android',
+      deviceName: '28111FDH200CUX',
+      udid: '28111FDH200CUX',
+      deviceModel: 'Pixel 7',
+      platformVersion: '14'
+    }
+
+    it('states the device as a typed field, not only in the title', async () => {
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: CLOUD_ANDROID
+      })
+
+      expect(ctx.device).toEqual({
+        platform: 'android',
+        name: 'Pixel 7',
+        version: '14'
+      })
+      // Unchanged: a standard trace viewer keys its behaviour off browserName
+      // and knows no mobile platform.
+      expect(ctx.browserName).toBe('chromium')
+      // Unchanged prose, so an older viewer reads exactly what it always did.
+      expect(ctx.title).toBe('android — Pixel 7')
+    })
+
+    it('prefers a device the capture resolved over one re-derived here', async () => {
+      // An adapter may know the device from a source its capabilities never
+      // carried, so metadata.device wins.
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: CLOUD_ANDROID,
+        device: { platform: 'ios', name: 'iPhone 17' }
+      })
+
+      expect(ctx.device).toEqual({ platform: 'ios', name: 'iPhone 17' })
+    })
+
+    it('omits the field entirely for a desktop capture', async () => {
+      const ctx = await contextOptions({
+        type: TraceType.Testrunner,
+        capabilities: { browserName: 'firefox' }
+      })
+
+      expect('device' in ctx).toBe(false)
+      expect(ctx.browserName).toBe('firefox')
+    })
+  })
+})

@@ -1,0 +1,390 @@
+import { createRequire } from 'node:module'
+import {
+  TRACKED_ASSERT_METHODS,
+  type CollapsedAssertResult,
+  type CommandLog
+} from '@wdio/devtools-shared'
+import { getCallSourceFromStack, isAssertFromUserCode } from './stack.js'
+import { toError } from './error.js'
+import { stripAnsi } from '@wdio/devtools-shared'
+
+export { TRACKED_ASSERT_METHODS }
+
+const require = createRequire(import.meta.url)
+
+/** Per-process guard so a second `patchNodeAssert()` call is a no-op. */
+export const ASSERT_PATCHED_SYMBOL = Symbol.for(
+  '@wdio/devtools-core/assert-patched'
+)
+
+/**
+ * Minimum shape `patchNodeAssert` emits. Adapters that need extra bookkeeping
+ * (selenium adds `fromElement` and `rawResult`) wrap the callback to extend
+ * the object before forwarding to their own `onCommand` sink.
+ */
+export interface CapturedAssert {
+  command: string
+  args: unknown[]
+  /** `'passed'` for a passing assert; a `CollapsedAssertResult` for a failing
+   *  node:assert (its clean `actual`/`expected` props), so the trace shows
+   *  labelled rows rather than node's ANSI-stripped char-diff. */
+  result: 'passed' | CollapsedAssertResult | undefined
+  error: Error | undefined
+  callSource: string | undefined
+  timestamp: number
+  /** Locator of the element the assertion was about, when the adapter can name
+   *  one from the raw args (see `patchNodeAssert`'s `resolveAssertTarget`).
+   *  Lands on `CommandLog.selector` so the player's overlay boxes the target the
+   *  way it does for a folded matcher row. */
+  selector?: string
+}
+
+/**
+ * JSON-safe stringify of an assert argument. Non-serialisable inputs degrade
+ * gracefully: functions → '[Function]', RegExp → `/.../i`, cyclic objects →
+ * `String(value)`. Exported so adapters can mirror the shape if they wrap.
+ */
+export function safeSerializeAssertArg(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value
+  }
+  if (value instanceof RegExp) {
+    return value.toString()
+  }
+  if (typeof value === 'function') {
+    return '[Function]'
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.parse(JSON.stringify(value))
+    } catch {
+      return String(value)
+    }
+  }
+  return value
+}
+
+interface NodeAssertionError {
+  actual?: unknown
+  expected?: unknown
+  generatedMessage?: boolean
+}
+
+/** Human-readable rendering of an assert value for the message body. */
+function displayAssertValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return `'${value}'`
+  }
+  try {
+    return JSON.stringify(value) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * Turn a thrown assert error into the captured shape. node:assert's
+ * AssertionError carries clean `actual`/`expected` props plus, when it
+ * auto-generated the message, a per-character COLORED diff whose body becomes
+ * unreadable noise once ANSI is stripped (`'ExampleThis DIs Nomt...'`). Pull the
+ * clean values into a CollapsedAssertResult AND rebuild an auto-generated
+ * message (and its echo in the stack) as a value-bearing `Expected:/Received:`
+ * block, so every consumer — the trace's Errors tab, the runner console, and
+ * allure-mocha's error box (which strips the diff's ANSI to mush) — shows
+ * readable values. A user-supplied message and errors without `actual`/
+ * `expected` (e.g. `assert.ok`, a thrown non-assert error) pass through.
+ */
+function describeAssertFailure(err: unknown): {
+  result: CollapsedAssertResult | undefined
+  error: Error
+} {
+  const error = toError(err)
+  const e = (typeof err === 'object' && err ? err : {}) as NodeAssertionError
+  if (!('actual' in e) && !('expected' in e)) {
+    return { result: undefined, error }
+  }
+  const rawMessage = stripAnsi(error.message)
+  const cleanMessage = e.generatedMessage
+    ? `${rawMessage.split('\n')[0] ?? 'Assertion failed'}\n\n` +
+      `Expected: ${displayAssertValue(e.expected)}\n` +
+      `Received: ${displayAssertValue(e.actual)}`
+    : rawMessage
+  error.message = cleanMessage
+  if (error.stack) {
+    error.stack = stripAnsi(error.stack).replace(rawMessage, cleanMessage)
+  }
+  return {
+    result: {
+      passed: false,
+      actual: safeSerializeAssertArg(e.actual),
+      expected: safeSerializeAssertArg(e.expected)
+    },
+    error
+  }
+}
+
+function makeAssertEmitters(
+  methodName: string,
+  args: unknown[],
+  onCommand: (cmd: CapturedAssert) => void,
+  callerStack: string | undefined,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
+): { passed: () => void; failed: (err: unknown) => void } {
+  const callInfo = getCallSourceFromStack(callerStack)
+  // Drop asserts the user's test didn't fire directly: either no user-code frame
+  // on the stack at all, or the assert's immediate caller is a dependency (a
+  // framework/library assert firing during a user operation) — both are noise.
+  // callerStack is captured in patchedAssert so the frame offsets line up.
+  if (callInfo.filePath === undefined || !isAssertFromUserCode(callerStack)) {
+    return { passed: () => {}, failed: () => {} }
+  }
+  const startedAt = Date.now()
+  // Resolved from the RAW args: sanitizing loses the object identity an element
+  // handle is recognised by. After the user-code gate, so a dropped assert
+  // doesn't pay for it.
+  const selector = resolveAssertTarget?.(args)
+  const sanitizedArgs = args.map(safeSerializeAssertArg)
+  const emit = (result: CapturedAssert['result'], error: Error | undefined) => {
+    const cmd: CapturedAssert = {
+      command: `assert.${methodName}`,
+      args: sanitizedArgs,
+      result,
+      error,
+      callSource: callInfo.callSource,
+      timestamp: startedAt
+    }
+    if (selector) {
+      cmd.selector = selector
+    }
+    onCommand(cmd)
+  }
+  return {
+    passed: () => emit('passed', undefined),
+    failed: (err: unknown) => {
+      const { result, error } = describeAssertFailure(err)
+      emit(result, error)
+    }
+  }
+}
+
+function makePatchedAssertMethod(
+  methodName: string,
+  assertObj: Record<string | symbol, unknown>,
+  original: (...a: unknown[]) => unknown,
+  onCommand: (cmd: CapturedAssert) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
+): (...args: unknown[]) => unknown {
+  return function patchedAssert(this: unknown, ...args: unknown[]) {
+    // Captured HERE so frames[0] is this wrapper and frames[1] is the assert's
+    // caller — a fixed offset isAssertFromUserCode reads (minification-robust).
+    const callerStack = new Error().stack
+    const { passed, failed } = makeAssertEmitters(
+      methodName,
+      args,
+      onCommand,
+      callerStack,
+      resolveAssertTarget
+    )
+    let result: unknown
+    // Node's internalMatch dispatches on `fn === assert.match` (Node ≤20), so
+    // a wrapper installed on that property silently inverts `match` into
+    // `doesNotMatch`. Restore the original binding for the call so identity
+    // checks inside node:assert see the real method.
+    assertObj[methodName] = original
+    try {
+      result = original.apply(this, args)
+    } catch (err) {
+      failed(err)
+      throw err
+    } finally {
+      assertObj[methodName] = patchedAssert
+    }
+    // Async assert methods (rejects/doesNotReject) return a Promise.
+    const maybe = result as { then?: unknown } | null | undefined
+    if (maybe && typeof maybe.then === 'function') {
+      return (result as Promise<unknown>).then(
+        (v) => {
+          passed()
+          return v
+        },
+        (err) => {
+          failed(err)
+          throw err
+        }
+      )
+    }
+    passed()
+    return result
+  }
+}
+
+/**
+ * Convert a `CapturedAssert` into the shared `CommandLog` shape adapters push
+ * into their session capturer. Asserts are effectively instantaneous, so the
+ * capture timestamp doubles as `startTime`.
+ */
+export function capturedAssertToCommandLog(
+  cmd: CapturedAssert,
+  testUid?: string
+): CommandLog {
+  const entry: CommandLog = {
+    command: cmd.command,
+    args: cmd.args,
+    result: cmd.result,
+    timestamp: cmd.timestamp,
+    startTime: cmd.timestamp
+  }
+  if (cmd.error) {
+    entry.error = {
+      name: cmd.error.name,
+      message: cmd.error.message,
+      stack: cmd.error.stack
+    }
+  }
+  if (cmd.callSource) {
+    entry.callSource = cmd.callSource
+  }
+  if (cmd.selector) {
+    entry.selector = cmd.selector
+  }
+  if (testUid) {
+    entry.testUid = testUid
+  }
+  return entry
+}
+
+/**
+ * Params any adapter's matcher tap produces. `prefix` selects the command
+ * namespace (`expect` / `assert` / `verify`), all of which map to an `Assert`
+ * action via the shared action map. Adapters do the thin framework-specific
+ * extraction (matcher name, args, pass flag, message); this conversion is the
+ * single shared path — the generic counterpart to `capturedAssertToCommandLog`
+ * for libraries that aren't node:assert (expect-webdriverio, chai, Nightwatch).
+ */
+export interface MatcherAssertion {
+  prefix?: string
+  method: string
+  args?: unknown[]
+  passed: boolean
+  message?: string | (() => string)
+  callSource?: string
+  /** Explicit display label for the action row. Falls back to `command` when
+   *  absent — set it when the framework carries a richer human message than
+   *  `prefix.method` (e.g. Nightwatch's "Testing if the page title contains …"). */
+  title?: string
+}
+
+export function matcherAssertionToCommandLog(
+  input: MatcherAssertion,
+  testUid?: string
+): CommandLog {
+  const command = `${input.prefix ?? 'expect'}.${input.method}`
+  const message =
+    typeof input.message === 'function' ? input.message() : input.message
+  const entry = capturedAssertToCommandLog(
+    {
+      command,
+      args: (input.args ?? []).map(safeSerializeAssertArg),
+      result: input.passed ? 'passed' : undefined,
+      error: input.passed
+        ? undefined
+        : new Error(stripAnsi(message ?? `${command} failed`)),
+      callSource: input.callSource,
+      timestamp: Date.now()
+    },
+    testUid
+  )
+  if (input.title) {
+    entry.title = input.title
+  }
+  return entry
+}
+
+/** Wrap every tracked method on one assert namespace object in place; returns
+ *  how many were patched. Used for both `assert.*` and `assert.strict.*`. */
+function patchAssertNamespace(
+  nsObj: Record<string | symbol, unknown>,
+  onCommand: (cmd: CapturedAssert) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
+): number {
+  let count = 0
+  for (const methodName of TRACKED_ASSERT_METHODS) {
+    const original = nsObj[methodName]
+    if (typeof original !== 'function') {
+      continue
+    }
+    nsObj[methodName] = makePatchedAssertMethod(
+      methodName,
+      nsObj,
+      original as (...a: unknown[]) => unknown,
+      onCommand,
+      resolveAssertTarget
+    )
+    count++
+  }
+  return count
+}
+
+/**
+ * Patch `node:assert` so each tracked method emits a `CapturedAssert` to the
+ * supplied hook. Idempotent across calls (guarded by `ASSERT_PATCHED_SYMBOL`).
+ * Returns `true` on success, `false` when node:assert can't be resolved
+ * (rare — browser-only Node-incompatible runtimes).
+ *
+ * Wraps both the function-form (`assert(...)`) and the namespace methods
+ * (`assert.equal(...)`). User code that imported the methods BEFORE this
+ * patcher loaded keeps stale references — adapters should import node:assert
+ * from their main entry before user test files load.
+ *
+ * @param onCommand Callback invoked once per assert call (sync OR async).
+ *                  Receives the captured shape; do NOT throw — the wrapper
+ *                  re-throws the original assert error after the callback.
+ * @param onLog     Optional logger for lifecycle events. Default: silent.
+ * @param resolveAssertTarget
+ *                  Optional adapter hook naming the element an assert was about,
+ *                  from its raw args. node:assert takes values, not elements, so
+ *                  only the adapter that captured the reads can make the link;
+ *                  the result rides along as `CapturedAssert.selector`.
+ */
+export function patchNodeAssert(
+  onCommand: (cmd: CapturedAssert) => void,
+  onLog?: (level: 'info' | 'warn', message: string) => void,
+  resolveAssertTarget?: (args: unknown[]) => string | undefined
+): boolean {
+  const log = (level: 'info' | 'warn', message: string) =>
+    onLog?.(level, message)
+
+  let assertModule: unknown
+  try {
+    assertModule = require('node:assert')
+  } catch {
+    log('warn', 'node:assert not available — skipping assertion capture')
+    return false
+  }
+
+  // Node's `assert` is a function with methods on it — cast once for the
+  // symbol + dynamic method access we do here.
+  const assertObj = assertModule as Record<string | symbol, unknown>
+  if (assertObj[ASSERT_PATCHED_SYMBOL]) {
+    return true
+  }
+  assertObj[ASSERT_PATCHED_SYMBOL] = true
+
+  let patched = patchAssertNamespace(assertObj, onCommand, resolveAssertTarget)
+  // `import { strict as assert }` and `assert.strict.*` reference a separate
+  // object with its own method identities; patch it too so strict-mode
+  // assertions are captured the same as the default ones. `assert.strict` is a
+  // callable (strict-mode `assert()`) with the methods hung off it, so it's a
+  // function, not a plain object.
+  const strict = assertObj.strict
+  if (strict && (typeof strict === 'object' || typeof strict === 'function')) {
+    patched += patchAssertNamespace(
+      strict as Record<string | symbol, unknown>,
+      onCommand,
+      resolveAssertTarget
+    )
+  }
+
+  log('info', `Patched ${patched} node:assert method(s)`)
+  return true
+}

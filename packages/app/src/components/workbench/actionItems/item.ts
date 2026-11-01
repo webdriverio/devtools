@@ -1,0 +1,152 @@
+import { Element } from '@core/element'
+import { html, css, type TemplateResult } from 'lit'
+import { property } from 'lit/decorators.js'
+import type { CommandLog } from '@wdio/devtools-shared'
+
+import { formatDuration, durationHeat, type DurationHeat } from './duration.js'
+
+export type ActionEntry = TraceMutation | CommandLog
+
+/** What a row reports as its identity: an action by reference, a group by key. */
+export type RowRevealKey = string | ActionEntry
+
+/** Icon sized to sit inside the `.ic` chip rendered by `iconChip`. */
+export const ICON_CLASS = 'w-[15px] h-[15px] block shrink-0'
+
+const HEAT_CLASS: Record<DurationHeat, string> = {
+  fast: 'bg-chartsGreen/10 text-chartsGreen',
+  mid: 'bg-chartsYellow/10 text-chartsYellow',
+  slow: 'bg-chartsRed/10 text-chartsRed'
+}
+
+export class ActionItem extends Element {
+  /** Cumulative time since run start — forwarded to the `show-command` event. */
+  @property({ type: Number })
+  elapsedTime?: number
+
+  /** Gap to the next action (≈ how long this step took) — drives the heat badge. */
+  @property({ type: Number })
+  duration?: number
+
+  /** Whether this row is the currently selected action. */
+  @property({ type: Boolean, reflect: true })
+  active = false
+
+  /** Whether this row's action errored — drives the red row treatment. */
+  @property({ type: Boolean, reflect: true })
+  failed = false
+
+  /** Whether this row shows its label in full. Owned by the list, which keeps
+   *  exactly one row revealed; `active` can't drive it because the player clock
+   *  marks the action at the playhead, expanding rows nobody touched. */
+  @property({ type: Boolean, reflect: true })
+  revealed = false
+
+  /** Identity this row echoes back on click, for the list to compare. */
+  @property({ attribute: false })
+  revealKey?: RowRevealKey
+
+  /** Click-only by construction, which is what keeps playback out of it. */
+  protected requestReveal() {
+    this.dispatchEvent(
+      new CustomEvent<RowRevealKey | undefined>('row-reveal', {
+        detail: this.revealKey,
+        bubbles: true,
+        composed: true
+      })
+    )
+  }
+
+  static styles = [
+    ...Element.styles,
+    css`
+      :host {
+        display: flex;
+        flex-grow: 0;
+        width: 100%;
+      }
+
+      button {
+        position: relative;
+        /* Same height for every row whether or not it carries an icon chip
+           (chip 26px + its 4px margins). */
+        min-height: 34px;
+      }
+
+      /* One line per row; clicking a row is what reflows its full text. */
+      .label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+        padding-right: 8px;
+      }
+      :host([revealed]) .label {
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
+
+      .ic {
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        margin: 0.25rem 0.5rem 0.25rem 0.25rem;
+        border-radius: 7px;
+        background: var(--vscode-editorWidget-background);
+        border: 1px solid var(--vscode-panel-border);
+        position: relative;
+        z-index: 1;
+      }
+
+      button {
+        border-radius: 8px;
+      }
+      :host([active]) button {
+        background: var(--vscode-editorWidget-background);
+        box-shadow: inset 0 0 0 1px var(--vscode-panel-border);
+      }
+      :host([active]) .ic {
+        border-color: var(--accent);
+      }
+      :host([failed]) button {
+        background: color-mix(
+          in srgb,
+          var(--vscode-charts-red) 8%,
+          transparent
+        );
+        box-shadow: inset 2px 0 0 var(--vscode-charts-red);
+      }
+      :host([failed][active]) button {
+        box-shadow:
+          inset 2px 0 0 var(--vscode-charts-red),
+          inset 0 0 0 1px var(--vscode-panel-border);
+      }
+    `
+  ]
+
+  /** Wrap an action icon in the timeline chip the connector rail threads. */
+  protected iconChip(icon: TemplateResult) {
+    return html`<span class="ic">${icon}</span>`
+  }
+
+  protected renderTime() {
+    // Show every step (including 0ms gaps between same-timestamp commands) for
+    // a consistent column; only the final action has no next-action gap.
+    if (this.duration === undefined) {
+      return
+    }
+
+    const heatCls = HEAT_CLASS[durationHeat(this.duration)]
+    return html`
+      <span
+        class="text-[10px] flex-none whitespace-nowrap rounded-xl ml-auto px-1.5 py-px font-medium ${heatCls}"
+        >${formatDuration(this.duration)}</span
+      >
+    `
+  }
+}

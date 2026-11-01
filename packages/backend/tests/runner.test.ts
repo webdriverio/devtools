@@ -1,0 +1,665 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { spawn } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import fs from 'node:fs'
+import path from 'node:path'
+import {
+  RERUN_SLOT,
+  REUSE_ENV,
+  type RunnerRequestBody
+} from '@wdio/devtools-shared'
+
+import type * as BinResolver from '../src/bin-resolver.js'
+
+vi.mock('node:child_process')
+vi.mock('tree-kill')
+vi.mock('node:fs', () => ({
+  default: {
+    existsSync: vi.fn().mockReturnValue(true),
+    readFileSync: vi.fn()
+  }
+}))
+
+vi.mock('../src/bin-resolver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof BinResolver>()
+  return { ...actual, resolveNightwatchBin: vi.fn(actual.resolveNightwatchBin) }
+})
+
+vi.mock('node:module', () => ({
+  createRequire: () => ({
+    resolve: () => '/mock/wdio/cli/index.js'
+  })
+}))
+
+// What resolveWdioBin derives from the resolve mock above. It is checked with
+// existsSync at SPAWN time, so any test that narrows the existsSync mock to its
+// own config path has to allow this too.
+const MOCK_WDIO_BIN = '/mock/wdio/bin/wdio.js'
+
+// Now import after mocks are set up
+const { testRunner } = await import('../src/runner.js')
+const { resolveNightwatchBin } = await import('../src/bin-resolver.js')
+
+describe('TestRunner', () => {
+  const mockConfigPath = '/test/wdio.conf.ts'
+  const mockSpecFile = '/test/specs/test.spec.ts'
+  const mockChild = {
+    once: vi.fn((event: string, callback: (err?: Error) => void) => {
+      if (event === 'spawn') {
+        setTimeout(() => callback(), 0)
+      }
+    }),
+    pid: 12345
+  } as any
+
+  const createMockChild = (spawnCallback = true, errorCallback = false) =>
+    ({
+      once: vi.fn((event, callback) => {
+        if (event === 'spawn' && spawnCallback) {
+          callback()
+        }
+        if (event === 'error' && errorCallback) {
+          callback(new Error('Spawn failed'))
+        }
+      }),
+      pid: 12345
+    }) as any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    process.env.DEVTOOLS_RUNNER_CWD = ''
+    process.env.DEVTOOLS_WDIO_CONFIG = ''
+    process.env.DEVTOOLS_WDIO_BIN = ''
+  })
+
+  afterEach(() => {
+    testRunner.stop()
+  })
+
+  describe('framework filters', () => {
+    beforeEach(() => {
+      vi.mocked(spawn).mockReturnValue(mockChild)
+    })
+
+    it('should apply correct filters for cucumber, mocha, and jasmine frameworks', async () => {
+      const frameworks = [
+        { name: 'cucumber', flag: '--cucumberOpts.name' },
+        { name: 'mocha', flag: '--mochaOpts.grep' },
+        { name: 'jasmine', flag: '--jasmineOpts.grep' }
+      ]
+
+      for (let i = 0; i < frameworks.length; i++) {
+        const { name, flag } = frameworks[i]
+        await testRunner.run({
+          uid: `test-${i + 1}`,
+          entryType: 'test',
+          framework: name as any,
+          fullTitle: `${name} test`,
+          specFile: mockSpecFile,
+          configFile: mockConfigPath
+        })
+        expect(vi.mocked(spawn).mock.calls[i][1]).toEqual(
+          expect.arrayContaining([flag])
+        )
+        testRunner.stop()
+      }
+    })
+  })
+
+  describe('run and stop', () => {
+    it('should stop existing run and restart with environment variables', async () => {
+      vi.mocked(spawn).mockReturnValue(mockChild)
+      const payload: RunnerRequestBody = {
+        uid: 'test-1',
+        entryType: 'test',
+        configFile: mockConfigPath,
+        devtoolsHost: 'localhost',
+        devtoolsPort: 3000
+      }
+
+      const firstRun = testRunner.run(payload)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      // A concurrent run stops the existing process and starts a new one
+      await expect(testRunner.run(payload)).resolves.toBeUndefined()
+
+      const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<
+        string,
+        string
+      >
+      expect(env.DEVTOOLS_APP_HOST).toBe('localhost')
+      expect(env.DEVTOOLS_APP_PORT).toBe('3000')
+      expect(env.DEVTOOLS_APP_REUSE).toBe('1')
+
+      testRunner.stop()
+      await firstRun.catch(() => {})
+    })
+
+    it('hands the run-everything command down to the child', async () => {
+      // See REUSE_ENV.LAUNCH_COMMAND in shared for why the child cannot work
+      // this out for itself.
+      vi.mocked(spawn).mockReturnValue(mockChild)
+      const payload: RunnerRequestBody = {
+        uid: 'tests/test_a.py::test_two',
+        entryType: 'test',
+        devtoolsHost: 'localhost',
+        devtoolsPort: 3000,
+        launchCommand: 'python -m pytest',
+        rerunCommand: `python -m pytest ${RERUN_SLOT.testId}`
+      }
+
+      const run = testRunner.run(payload)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const env = vi.mocked(spawn).mock.calls[0][2]?.env as Record<
+        string,
+        string
+      >
+      expect(env[REUSE_ENV.LAUNCH_COMMAND]).toBe('python -m pytest')
+
+      testRunner.stop()
+      await run.catch(() => {})
+    })
+
+    it('should handle spawn errors', async () => {
+      const errorChild = createMockChild(false, true)
+      vi.mocked(spawn).mockReturnValue(errorChild)
+
+      await expect(
+        testRunner.run({
+          uid: 'test-1',
+          entryType: 'test',
+          configFile: mockConfigPath
+        })
+      ).rejects.toThrow('Spawn failed')
+    })
+  })
+
+  describe('early exit', () => {
+    const rerun: RunnerRequestBody = {
+      uid: 'test-1',
+      entryType: 'test',
+      configFile: mockConfigPath,
+      devtoolsHost: 'localhost',
+      devtoolsPort: 3000
+    }
+    const spawnedChildren: EventEmitter[] = []
+
+    beforeEach(() => {
+      spawnedChildren.length = 0
+      vi.mocked(spawn).mockImplementation(() => {
+        const child = Object.assign(new EventEmitter(), { pid: 12345 })
+        spawnedChildren.push(child)
+        setTimeout(() => child.emit('spawn'), 0)
+        return child as any
+      })
+    })
+
+    it('reports a run that exits before its worker connects', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', 1, null)
+
+      expect(onEarlyExit).toHaveBeenCalledWith(
+        'Run exited before reporting (exit code 1)'
+      )
+      // An unconsumed flag would make the next unrelated worker read as a rerun child.
+      expect(testRunner.consumeRerunChildFlag()).toBe(false)
+    })
+
+    it('names the signal that ended it', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', null, 'SIGKILL')
+
+      expect(onEarlyExit).toHaveBeenCalledWith(
+        'Run exited before reporting (signal SIGKILL)'
+      )
+    })
+
+    it('stays silent for a run whose worker connected', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+      testRunner.consumeRerunChildFlag()
+
+      spawnedChildren[0].emit('close', 0, null)
+
+      expect(onEarlyExit).not.toHaveBeenCalled()
+    })
+
+    it('ignores a stopped child closing after its replacement started', async () => {
+      const onEarlyExit = vi.fn()
+      testRunner.onEarlyExit(onEarlyExit)
+      await testRunner.run(rerun)
+      testRunner.stop()
+      await testRunner.run(rerun)
+
+      spawnedChildren[0].emit('close', null, 'SIGTERM')
+      expect(onEarlyExit).not.toHaveBeenCalled()
+
+      // The replacement still owns the slot, so its own early exit is reported.
+      spawnedChildren[1].emit('close', 1, null)
+      expect(onEarlyExit).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('configuration', () => {
+    it('should find config and use environment variables', async () => {
+      const specFile = '/project/test/specs/test.spec.ts'
+      const configInTestDir = '/project/test/wdio.conf.ts'
+      const envConfig = '/custom/wdio.conf.ts'
+
+      const mockChild = {
+        once: vi.fn((event, callback) => {
+          if (event === 'spawn') {
+            callback()
+          }
+        }),
+        pid: 12345
+      } as any
+
+      vi.mocked(spawn).mockReturnValue(mockChild)
+
+      // Test with spec file location
+      vi.mocked(fs.existsSync).mockImplementation(
+        (path) => path === configInTestDir || path === MOCK_WDIO_BIN
+      )
+      await testRunner.run({ uid: 'test-1', entryType: 'test', specFile })
+      expect(vi.mocked(spawn).mock.calls[0][1]).toContain(configInTestDir)
+      testRunner.stop()
+
+      // Test with env variable
+      process.env.DEVTOOLS_WDIO_CONFIG = envConfig
+      vi.mocked(fs.existsSync).mockImplementation(
+        (path) => path === envConfig || path === MOCK_WDIO_BIN
+      )
+      await testRunner.run({ uid: 'test-2', entryType: 'test' })
+      expect(vi.mocked(spawn).mock.calls[1][1]).toContain(envConfig)
+      testRunner.stop()
+    })
+
+    it('should throw error if config cannot be found', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false)
+
+      const payload: RunnerRequestBody = {
+        uid: 'test-1',
+        entryType: 'test'
+      }
+
+      const mockChild = {
+        once: vi.fn(),
+        pid: 12345
+      } as any
+
+      vi.mocked(spawn).mockReturnValue(mockChild)
+
+      await expect(testRunner.run(payload)).rejects.toThrow(
+        'Cannot locate WDIO config'
+      )
+    })
+  })
+
+  describe('spec file normalization', () => {
+    it('should handle file:// URLs', async () => {
+      const payload: RunnerRequestBody = {
+        uid: 'test-1',
+        entryType: 'test',
+        specFile: 'file:///project/test.spec.ts',
+        configFile: mockConfigPath
+      }
+
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run(payload)
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      expect(args.some((arg) => arg.includes('/project/test.spec.ts'))).toBe(
+        true
+      )
+    })
+
+    it('should extract spec from callSource', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run({
+        uid: 'test-1',
+        entryType: 'test',
+        callSource: '/project/test.spec.ts:10:5',
+        configFile: mockConfigPath
+      })
+      expect(spawn).toHaveBeenCalled()
+    })
+
+    it('should resolve relative paths', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run({
+        uid: 'test-1',
+        entryType: 'test',
+        specFile: 'test/test.spec.ts',
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      expect(
+        args.some((arg) => arg.startsWith('/') || path.isAbsolute(arg))
+      ).toBe(true)
+    })
+  })
+
+  describe('line number resolution', () => {
+    it('should use lineNumber from payload', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run({
+        uid: 'test-1',
+        entryType: 'test',
+        specFile: mockSpecFile,
+        lineNumber: 42,
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      expect(args.some((arg) => arg.includes(':42'))).toBe(true)
+    })
+
+    it('should extract line number from callSource', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run({
+        uid: 'test-1',
+        entryType: 'test',
+        specFile: mockSpecFile,
+        callSource: '/project/test.spec.ts:25:10',
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      expect(args.some((arg) => arg.includes(':25'))).toBe(true)
+    })
+  })
+
+  describe('runAll mode', () => {
+    it('should not use spec filter when runAll is true', async () => {
+      delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await testRunner.run({
+        uid: 'run-all',
+        entryType: 'suite',
+        runAll: true,
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      expect(args).not.toContain('--spec')
+    })
+
+    it('scopes runAll to DEVTOOLS_WDIO_INITIAL_SPECS when set', async () => {
+      const initial = ['/abs/a.feature', '/abs/b.feature'].join(path.delimiter)
+      process.env.DEVTOOLS_WDIO_INITIAL_SPECS = initial
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+
+      await testRunner.run({
+        uid: 'run-all',
+        entryType: 'suite',
+        runAll: true,
+        configFile: mockConfigPath
+      })
+
+      const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+      // Each detected spec should appear as its own --spec entry.
+      const specPositions = args
+        .map((a, i) => (a === '--spec' ? i : -1))
+        .filter((i) => i >= 0)
+      expect(specPositions).toHaveLength(2)
+      const specValues = specPositions.map((i) => args[i + 1])
+      expect(specValues).toEqual(['/abs/a.feature', '/abs/b.feature'])
+
+      delete process.env.DEVTOOLS_WDIO_INITIAL_SPECS
+    })
+
+    // Regression: Nightwatch's Run all ran every spec in the config, not the selection the run was launched with.
+    it('replays the selection a Nightwatch run was launched with', async () => {
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = JSON.stringify([
+        '/abs/tests/login.js',
+        '--tag',
+        'smoke'
+      ])
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-3)).toEqual([
+          '/abs/tests/login.js',
+          '--tag',
+          'smoke'
+        ])
+        expect(args).not.toContain('--spec')
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+
+    // Regression: resolving the binary from the launch directory missed a Nightwatch installed beside a nested config.
+    it('spawns from the launch directory but finds Nightwatch beside its config', async () => {
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_RUNNER_CWD = '/launch/dir'
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        expect(vi.mocked(resolveNightwatchBin)).toHaveBeenLastCalledWith(
+          path.dirname(mockConfigPath),
+          '/launch/dir'
+        )
+        expect(vi.mocked(spawn).mock.calls[0][2]?.cwd).toBe('/launch/dir')
+      } finally {
+        delete process.env.DEVTOOLS_RUNNER_CWD
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+
+    it('runs the whole Nightwatch config when the selection is absent or unreadable', async () => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      process.env.DEVTOOLS_NIGHTWATCH_BIN = '/mock/nightwatch/bin/nightwatch'
+      process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS = '{not json'
+      try {
+        await testRunner.run({
+          uid: 'run-all',
+          entryType: 'suite',
+          runAll: true,
+          framework: 'nightwatch',
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls[0][1] as string[]
+        expect(args.slice(-2)).toEqual(['--config', mockConfigPath])
+      } finally {
+        delete process.env.DEVTOOLS_NIGHTWATCH_INITIAL_ARGS
+        delete process.env.DEVTOOLS_NIGHTWATCH_BIN
+      }
+    })
+  })
+
+  describe('framework dispatch via Map (CodeQL hardening)', () => {
+    beforeEach(() => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+    })
+
+    // Unknown framework names — including prototype keys — must not reach a
+    // builder. They fall through to DEFAULT_FILTERS which only emits --spec.
+    it.each(['unknown', '__proto__', 'constructor', 'hasOwnProperty'])(
+      'falls back to DEFAULT_FILTERS for framework %s',
+      async (framework) => {
+        await testRunner.run({
+          uid: `t-${framework}`,
+          entryType: 'test',
+          framework: framework as any,
+          specFile: mockSpecFile,
+          configFile: mockConfigPath
+        })
+        const args = vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+        expect(args).toContain('--spec')
+        expect(args).not.toContain('--mochaOpts.grep')
+        expect(args).not.toContain('--jasmineOpts.grep')
+        expect(args).not.toContain('--cucumberOpts.name')
+        testRunner.stop()
+      }
+    )
+  })
+
+  // A pytest nodeid is matched LITERALLY, so the escaping the name-pattern
+  // runners need would turn it into an id no test has. Measured: `pytest
+  // 'test_thing\.py::test_a'` collects nothing and exits 0, so a broken slot
+  // reads as a rerun that ran and passed.
+  describe('exact-id rerun templates', () => {
+    const pythonRerun = `python3 -m pytest ${'{{testId}}'}`
+    const spawnedArgs = () => vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+
+    beforeEach(() => {
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+    })
+
+    it('substitutes the uid verbatim, never regex-escaped', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::TestLogin::test_valid',
+        entryType: 'test',
+        label: 'test_valid',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toEqual([
+        '-m',
+        'pytest',
+        'examples/test_login.py::TestLogin::test_valid'
+      ])
+    })
+
+    it('keeps a parametrized id with spaces as a single argument', async () => {
+      await testRunner.run({
+        uid: 'test_login.py::test_x[a b]',
+        entryType: 'test',
+        label: 'test_x[a b]',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toContain('test_login.py::test_x[a b]')
+    })
+
+    it('selects a suite by its id too — a nodeid addresses a file', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py',
+        entryType: 'suite',
+        label: 'test_login.py',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).toContain('examples/test_login.py')
+    })
+
+    it('prefers the uid over the label, which is only a display name', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::test_valid',
+        entryType: 'test',
+        label: 'logs in with valid credentials',
+        rerunCommand: pythonRerun
+      })
+
+      expect(spawnedArgs()).not.toContain('logs in with valid credentials')
+    })
+
+    it('targets on the uid alone, with no display name to fall back on', async () => {
+      await testRunner.run({
+        uid: 'examples/test_login.py::test_valid',
+        entryType: 'test',
+        rerunCommand: pythonRerun,
+        launchCommand: 'python3 -m pytest examples/'
+      })
+
+      expect(spawnedArgs()).toContain('examples/test_login.py::test_valid')
+    })
+
+    it('falls back to the launch command for a run-all', async () => {
+      await testRunner.run({
+        uid: '__RUN_ALL__',
+        entryType: 'suite',
+        runAll: true,
+        rerunCommand: pythonRerun,
+        launchCommand: 'python3 -m pytest examples/'
+      })
+
+      expect(spawnedArgs()).toEqual(['-m', 'pytest', 'examples/'])
+    })
+
+    // The Selenium adapter quotes its argv fallback this way; each argument must survive the backend's shell parse whole.
+    it('keeps quoted arguments of a run-all launch command whole', async () => {
+      await testRunner.run({
+        uid: '__RUN_ALL__',
+        entryType: 'suite',
+        runAll: true,
+        launchCommand: "node /x/mocha 'specs/my login.js' --grep 'a b'"
+      })
+
+      expect(spawnedArgs()).toEqual([
+        '/x/mocha',
+        'specs/my login.js',
+        '--grep',
+        'a b'
+      ])
+    })
+
+    it('still regex-escapes a name-pattern template', async () => {
+      await testRunner.run({
+        uid: 'some-uid',
+        entryType: 'test',
+        label: 'Login (failing)',
+        rerunCommand: `npx mocha --grep "${'{{testName}}'}"`
+      })
+
+      expect(spawnedArgs()).toContain('--grep')
+      expect(spawnedArgs()).toContain('Login \\(failing\\)')
+    })
+  })
+
+  describe('registerConfigFile', () => {
+    it('uses a worker-registered config path ahead of the default search', async () => {
+      const registered = '/proj/wdio.BUILD.conf.ts'
+      vi.mocked(fs.existsSync).mockImplementation(
+        (p) => p === registered || p === mockConfigPath || p === MOCK_WDIO_BIN
+      )
+      const { testRunner: tr } = await import('../src/runner.js')
+      tr.registerConfigFile(registered)
+
+      vi.mocked(spawn).mockReturnValue(createMockChild())
+      await tr.run({ uid: 'reg-1', entryType: 'test' })
+
+      const args = vi.mocked(spawn).mock.calls.at(-1)![1] as string[]
+      expect(args).toContain(registered)
+    })
+
+    it('ignores a non-existent path', async () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false)
+      const { testRunner: tr } = await import('../src/runner.js')
+      tr.registerConfigFile('/does/not/exist.ts')
+
+      // Internal state stays unchanged; tr.run still fails to locate any config
+      // (no change in behaviour from non-existent path).
+      await expect(tr.run({ uid: 'reg-2', entryType: 'test' })).rejects.toThrow(
+        'Cannot locate WDIO config'
+      )
+    })
+  })
+})

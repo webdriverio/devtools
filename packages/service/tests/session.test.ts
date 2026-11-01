@@ -1,0 +1,1363 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { CAPTURE_PERFORMANCE_SCRIPT } from '@wdio/devtools-core'
+import type { CommandLog } from '@wdio/devtools-shared'
+import { SessionCapturer } from '../src/session.js'
+import { WebSocket } from 'ws'
+import fs from 'node:fs/promises'
+import { LOG_SOURCES } from '../src/constants.js'
+
+// Mirrors the shape `SessionCapturer` itself reads the log as — `_id` is
+// internal dedup bookkeeping that never reaches the public CommandLog.
+type LoggedCommand = CommandLog & { _id?: number }
+
+vi.mock('ws')
+vi.mock('node:fs/promises')
+
+describe('SessionCapturer', () => {
+  const mockBrowser = {
+    takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+  } as any
+
+  const executeCommand = async (
+    capturer: SessionCapturer,
+    command: string,
+    args: any[] = [],
+    result: any = undefined,
+    callSource?: string
+  ) => {
+    return capturer.afterCommand(
+      mockBrowser,
+      command as any,
+      args,
+      result,
+      undefined,
+      callSource
+    )
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(fs.access).mockRejectedValue(new Error('File not found'))
+  })
+
+  describe('constructor and connection', () => {
+    it('should initialize properties and create websocket connection', () => {
+      const capturer1 = new SessionCapturer()
+      expect(capturer1.isReportingUpstream).toBe(false)
+      expect(capturer1.commandsLog).toEqual([])
+
+      const capturer2 = new SessionCapturer({
+        hostname: 'localhost',
+        port: 3000
+      })
+      // The run id is generated per process, so match the path and assert the
+      // param separately (see core's session-capturer-connect specs).
+      const [openedUrl] = vi.mocked(WebSocket).mock.calls[0]
+      const url = new URL(String(openedUrl))
+      expect(`${url.protocol}//${url.host}${url.pathname}`).toBe(
+        'ws://localhost:3000/worker'
+      )
+      expect(url.searchParams.get('runId')).toBeTruthy()
+      expect(capturer2.isReportingUpstream).toBe(false)
+    })
+  })
+
+  describe('afterCommand - screenshots', () => {
+    it('should capture screenshots for every command', async () => {
+      const capturer = new SessionCapturer()
+      const mockScreenshot = 'base64EncodedScreenshotData'
+      mockBrowser.takeScreenshot.mockResolvedValueOnce(mockScreenshot)
+
+      await executeCommand(capturer, 'click', ['.button'])
+
+      expect(mockBrowser.takeScreenshot).toHaveBeenCalledTimes(1)
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].screenshot).toBe(mockScreenshot)
+    })
+
+    // A native session has no DOM to replay and no per-action snapshot outside
+    // trace mode, so this screenshot is the only visual any command can carry —
+    // without it the player shows nothing per command and the device pane falls
+    // back to desktop browser chrome.
+    it('captures one for a native session in live mode, its only visual', async () => {
+      const capturer = new SessionCapturer()
+      capturer.traceMode = 'live'
+      const nativeBrowser = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('native-shot')
+
+      await capturer.afterCommand(
+        nativeBrowser as never,
+        'click' as never,
+        ['~btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBe('native-shot')
+    })
+
+    // The per-action pre-capture already screenshots the same command in trace
+    // mode; two Appium round trips at ~1.2s each is the cost #351 exists to
+    // remove.
+    it('skips one for a native session in trace mode', async () => {
+      const capturer = new SessionCapturer()
+      capturer.traceMode = 'trace'
+      const nativeBrowser = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }
+
+      await capturer.afterCommand(
+        nativeBrowser as never,
+        'click' as never,
+        ['~btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBeUndefined()
+    })
+
+    // It replays from its mutation stream instead, and a screenshot per command
+    // on a phone is ~1.2s of round trip.
+    it('skips one for a mobile browser session', async () => {
+      const capturer = new SessionCapturer()
+      const mobileWeb = {
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: { platformName: 'Android', browserName: 'chrome' }
+      }
+
+      await capturer.afterCommand(
+        mobileWeb as never,
+        'click' as never,
+        ['#btn'],
+        undefined,
+        undefined,
+        undefined
+      )
+
+      expect(capturer.commandsLog[0].screenshot).toBeUndefined()
+    })
+
+    it('should handle screenshot failures gracefully', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockRejectedValueOnce(
+        new Error('Screenshot failed')
+      )
+
+      await executeCommand(capturer, 'click', ['.button'])
+
+      expect(mockBrowser.takeScreenshot).toHaveBeenCalled()
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].screenshot).toBeUndefined()
+    })
+
+    it('should capture screenshots for multiple commands in sequence', async () => {
+      const capturer = new SessionCapturer()
+      const screenshots = ['screenshot1', 'screenshot2', 'screenshot3']
+      mockBrowser.takeScreenshot
+        .mockResolvedValueOnce(screenshots[0])
+        .mockResolvedValueOnce(screenshots[1])
+        .mockResolvedValueOnce(screenshots[2])
+
+      await executeCommand(capturer, 'url', ['https://example.com'])
+      await executeCommand(capturer, 'click', ['.btn'])
+      await executeCommand(capturer, 'getText', ['.result'], 'Success')
+
+      expect(mockBrowser.takeScreenshot).toHaveBeenCalledTimes(3)
+      screenshots.forEach((screenshot, i) => {
+        expect(capturer.commandsLog[i].screenshot).toBe(screenshot)
+      })
+    })
+  })
+
+  describe('afterCommand - errors', () => {
+    // Regression: the raw Error was stored, and its message is non-enumerable, so the socket carried `{}`.
+    it("keeps a failed command's message across the wire", async () => {
+      const capturer = new SessionCapturer()
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['#logout'],
+        undefined,
+        new Error('no such element: #logout')
+      )
+      const onTheWire = JSON.parse(JSON.stringify(capturer.commandsLog[0]))
+      expect(onTheWire.error).toMatchObject({
+        name: 'Error',
+        message: 'no such element: #logout'
+      })
+    })
+  })
+
+  describe('afterCommand - source capture', () => {
+    it('should capture source code and filter internal frames', async () => {
+      const capturer = new SessionCapturer()
+      const sourceCode = 'const test = "hello";'
+      const sourcePath = '/test/spec.ts'
+
+      vi.mocked(fs.access).mockResolvedValue(undefined)
+      vi.mocked(fs.readFile).mockResolvedValue(sourceCode as any)
+
+      await executeCommand(
+        capturer,
+        'click',
+        [],
+        undefined,
+        `${sourcePath}:10:5`
+      )
+      await executeCommand(
+        capturer,
+        'getText',
+        [],
+        'text',
+        `${sourcePath}:15:5`
+      )
+
+      expect(capturer.sources.size).toBeGreaterThan(0)
+
+      vi.mocked(fs.access).mockRejectedValue(new Error('File not found'))
+      await executeCommand(capturer, 'url', ['https://example.com'])
+
+      expect(capturer.commandsLog.length).toBeGreaterThan(0)
+    })
+  })
+
+  describe('data collection', () => {
+    it('should accumulate commands and handle mutations', async () => {
+      const capturer = new SessionCapturer()
+      const commands = [
+        ['url', ['https://example.com'], undefined],
+        ['click', ['.button'], undefined],
+        ['getText', ['.result'], 'Success']
+      ]
+
+      for (const [cmd, args, result] of commands) {
+        await executeCommand(capturer, cmd as string, args as any[], result)
+      }
+
+      expect(capturer.commandsLog).toHaveLength(3)
+      expect(capturer.commandsLog[0].command).toBe('url')
+
+      const mutations: TraceMutation[] = [
+        {
+          type: 'childList',
+          timestamp: Date.now(),
+          target: 'ref-1',
+          addedNodes: [],
+          removedNodes: []
+        }
+      ]
+
+      capturer.mutations = mutations
+      expect(capturer.mutations).toHaveLength(1)
+      expect(capturer.mutations[0].type).toBe('childList')
+    })
+  })
+
+  describe('assertion target selector', () => {
+    const assertEntry = (command: string) =>
+      ({ command, args: [], timestamp: Date.now() }) as any
+
+    it('stamps the element resolved during the matcher onto a fresh assert row', () => {
+      const capturer = new SessionCapturer()
+      // expect($('#flash')) resolves the element inside the matcher.
+      capturer.beginAssertionSelector()
+      capturer.noteResolvedSelector('#flash')
+      capturer.captureMatcherCommand(assertEntry('expect.toExist'))
+      expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
+    })
+
+    it('folds the resolved selector into the matcher read', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push(assertEntry('getText'))
+      capturer.beginAssertionSelector()
+      capturer.noteResolvedSelector('#flash')
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        {
+          command: 'expect.toHaveText',
+          args: ['hi'],
+          timestamp: Date.now()
+        } as any,
+        (c) => c === 'getText'
+      )
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog.at(-1)!.selector).toBe('#flash')
+    })
+
+    it('leaves a value assertion blank (no element resolved during it)', () => {
+      const capturer = new SessionCapturer()
+      capturer.noteResolvedSelector('#flash') // stale, from a prior assertion
+      capturer.beginAssertionSelector() // expect(x).toBe(y) resolves nothing
+      capturer.captureMatcherCommand(assertEntry('expect.toBe'))
+      expect(capturer.commandsLog.at(-1)!.selector).toBeUndefined()
+    })
+  })
+
+  describe('websocket communication', () => {
+    it('should handle connection states and errors', () => {
+      const mockWs = {
+        readyState: WebSocket.CONNECTING,
+        on: vi.fn(),
+        send: vi.fn()
+      } as any
+
+      vi.mocked(WebSocket).mockImplementation(function (this: any) {
+        return mockWs
+      } as any)
+
+      const capturer = new SessionCapturer({
+        hostname: 'localhost',
+        port: 3000
+      })
+
+      expect(capturer.isReportingUpstream).toBe(false)
+
+      mockWs.readyState = WebSocket.OPEN
+      expect(capturer.isReportingUpstream).toBe(true)
+
+      const errorHandler = mockWs.on.mock.calls.find(
+        (call: any) => call[0] === 'error'
+      )?.[1]
+      if (errorHandler) {
+        expect(() => errorHandler(new Error('Connection failed'))).not.toThrow()
+      }
+    })
+  })
+
+  describe('console log capture', () => {
+    /**
+     * Test: All console methods (log, info, warn, error) are properly captured
+     * Validates: method type, arguments, source attribution, and timestamp
+     */
+    it('should capture all console methods from test code', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      // Execute all console methods with different argument patterns
+      console.log('Log message')
+      console.info('Info message', 'with multiple', 'arguments')
+      console.warn('Warning message')
+      console.error('Error message')
+
+      // Verify all 4 logs were captured
+      expect(capturer.consoleLogs).toHaveLength(initialLength + 4)
+
+      // Validate console.log capture
+      const logEntry = capturer.consoleLogs[initialLength]
+      expect(logEntry.type).toBe('log')
+      expect(logEntry.args).toEqual(['Log message'])
+      expect(logEntry.source).toBe(LOG_SOURCES.TEST)
+      expect(logEntry.timestamp).toBeDefined()
+
+      // Validate console.info capture with multiple arguments
+      const infoEntry = capturer.consoleLogs[initialLength + 1]
+      expect(infoEntry.type).toBe('info')
+      expect(infoEntry.args).toEqual([
+        'Info message',
+        'with multiple',
+        'arguments'
+      ])
+      expect(infoEntry.source).toBe(LOG_SOURCES.TEST)
+
+      // Validate console.warn capture
+      const warnEntry = capturer.consoleLogs[initialLength + 2]
+      expect(warnEntry.type).toBe('warn')
+      expect(warnEntry.args).toEqual(['Warning message'])
+      expect(warnEntry.source).toBe(LOG_SOURCES.TEST)
+
+      // Validate console.error capture
+      const errorEntry = capturer.consoleLogs[initialLength + 3]
+      expect(errorEntry.type).toBe('error')
+      expect(errorEntry.args).toEqual(['Error message'])
+      expect(errorEntry.source).toBe(LOG_SOURCES.TEST)
+    })
+
+    /**
+     * Test: Complex argument types are handled correctly
+     * Validates: object serialization, circular reference handling, null/undefined conversion
+     */
+    it('should handle various argument types', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      // Create test data: object, circular reference
+      const testObject = { foo: 'bar', nested: { value: 42 } }
+      const circular: any = { a: 1 }
+      circular.self = circular
+
+      // Log various argument types in sequence
+      console.log('Object:', testObject)
+      console.log('Circular:', circular)
+      console.log('Values:', null, undefined)
+
+      expect(capturer.consoleLogs).toHaveLength(initialLength + 3)
+
+      // Verify object is stringified to JSON
+      const objLog = capturer.consoleLogs[initialLength]
+      expect(objLog.args[0]).toBe('Object:')
+      expect(objLog.args[1]).toBe(JSON.stringify(testObject))
+
+      // Verify circular references don't crash and fallback to [object Object]
+      const circularLog = capturer.consoleLogs[initialLength + 1]
+      expect(circularLog.args[1]).toBe('[object Object]')
+
+      // Verify null and undefined are converted to strings
+      const nullLog = capturer.consoleLogs[initialLength + 2]
+      expect(nullLog.args).toEqual(['Values:', 'null', 'undefined'])
+    })
+
+    /**
+     * Test: Integration scenarios - cleanup, WebSocket transmission, browser source attribution
+     * Validates: console restoration on cleanup, upstream WebSocket communication, source distinction
+     */
+    it('should handle cleanup, upstream transmission, and browser source attribution', async () => {
+      // Part 1: Test console restoration on cleanup
+      const originalLog = console.log
+      const originalInfo = console.info
+      const originalWarn = console.warn
+      const originalError = console.error
+
+      let capturer = new SessionCapturer()
+      expect(console.log).not.toBe(originalLog)
+
+      capturer.cleanup()
+      expect(console.log).toBe(originalLog)
+      expect(console.info).toBe(originalInfo)
+      expect(console.warn).toBe(originalWarn)
+      expect(console.error).toBe(originalError)
+
+      // Part 2: Test WebSocket upstream transmission
+      const mockWs = {
+        readyState: WebSocket.OPEN,
+        send: vi.fn(),
+        on: vi.fn(),
+        close: vi.fn()
+      }
+
+      vi.mocked(WebSocket).mockImplementation(function (this: any) {
+        return mockWs
+      } as any)
+
+      capturer = new SessionCapturer({
+        hostname: 'localhost',
+        port: 3000
+      })
+
+      console.log('Test message')
+
+      expect(mockWs.send).toHaveBeenCalled()
+      const sentData = JSON.parse(
+        mockWs.send.mock.calls[mockWs.send.mock.calls.length - 1][0]
+      )
+      expect(sentData.scope).toBe('consoleLogs')
+      expect(sentData.data).toHaveLength(1)
+      expect(sentData.data[0].args).toEqual(['Test message'])
+      expect(sentData.data[0].source).toBe(LOG_SOURCES.TEST)
+
+      capturer.cleanup()
+
+      // Part 3: Test browser console logs source attribution
+      capturer = new SessionCapturer()
+      const mockBrowserLogs = [
+        {
+          timestamp: Date.now(),
+          type: 'log' as const,
+          args: ['Browser log 1']
+        },
+        {
+          timestamp: Date.now(),
+          type: 'warn' as const,
+          args: ['Browser warning']
+        }
+      ]
+
+      const mockExecuteResult = {
+        mutations: [],
+        traceLogs: [],
+        consoleLogs: mockBrowserLogs,
+        metadata: { url: 'http://test.com', viewport: {} as VisualViewport }
+      }
+
+      mockBrowser.execute = vi.fn().mockResolvedValue(mockExecuteResult)
+      mockBrowser.scriptAddPreloadScript = vi.fn().mockResolvedValue(undefined)
+      mockBrowser.isBidi = true
+      await capturer.injectScript(mockBrowser)
+      await capturer.afterCommand(
+        mockBrowser,
+        'url' as any,
+        ['http://test.com'],
+        undefined,
+        undefined
+      )
+
+      const browserLogs = capturer.consoleLogs.filter(
+        (log) => log.source === LOG_SOURCES.BROWSER
+      )
+      expect(browserLogs).toHaveLength(2)
+      expect(browserLogs[0].source).toBe(LOG_SOURCES.BROWSER)
+      expect(browserLogs[1].source).toBe(LOG_SOURCES.BROWSER)
+    })
+
+    /**
+     * Test: Terminal logs are captured with proper log level detection
+     */
+    it('should capture terminal logs with correct log levels and source', () => {
+      const capturer = new SessionCapturer()
+      const initialLength = capturer.consoleLogs.length
+
+      process.stdout.write('INFO: Test message\n')
+      process.stderr.write('ERROR: Test error\n')
+
+      const terminalLogs = capturer.consoleLogs.slice(initialLength)
+      expect(terminalLogs.length).toBeGreaterThanOrEqual(2)
+
+      const infoLog = terminalLogs.find((log) => log.type === 'info')
+      const errorLog = terminalLogs.find((log) => log.type === 'error')
+
+      expect(infoLog?.source).toBe(LOG_SOURCES.TERMINAL)
+      expect(errorLog?.source).toBe(LOG_SOURCES.TERMINAL)
+
+      capturer.cleanup()
+    })
+  })
+
+  describe('resetScriptInjection', () => {
+    // node:fs/promises is auto-mocked at module scope, so stub the preload-file
+    // read injectScript performs (otherwise readFile → undefined → throws).
+    beforeEach(() => {
+      vi.mocked(fs.readFile).mockResolvedValue(Buffer.from('// preload'))
+    })
+
+    // Minimal BiDi browser stub — injectScript only needs isBidi + the preload
+    // hook; the script body comes from the mocked readFile above.
+    const bidiBrowser = () =>
+      ({
+        isBidi: true,
+        scriptAddPreloadScript: vi.fn().mockResolvedValue(undefined)
+      }) as unknown as WebdriverIO.Browser
+
+    it('guards against double preload injection within one session', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
+    })
+
+    it('re-adds the preload script for the new session after a reload reset', async () => {
+      const capturer = new SessionCapturer()
+      const browser = bidiBrowser()
+      await capturer.injectScript(browser)
+      capturer.resetScriptInjection()
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
+
+    // A guard left closed by a failed attempt silently disables DOM capture for
+    // the rest of the session — the retry has to stay possible.
+    it('reopens the guard when the preload add fails', async () => {
+      const capturer = new SessionCapturer()
+      const browser = {
+        isBidi: true,
+        scriptAddPreloadScript: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('no such window'))
+          .mockResolvedValue(undefined)
+      } as unknown as WebdriverIO.Browser
+
+      await expect(capturer.injectScript(browser)).rejects.toThrow(
+        'no such window'
+      )
+      await capturer.injectScript(browser)
+      expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('integration', () => {
+    it('should handle complete session capture workflow', async () => {
+      const capturer = new SessionCapturer()
+      const commands = [
+        ['url', ['https://example.com']],
+        ['click', ['.btn']],
+        ['getText', ['.result'], 'Success']
+      ]
+
+      for (const [cmd, args, result] of commands) {
+        await executeCommand(capturer, cmd as string, args as any[], result)
+      }
+
+      expect(capturer.commandsLog).toHaveLength(3)
+      const expectedCommands = ['url', 'click', 'getText']
+      capturer.commandsLog.forEach((log, i) => {
+        expect(log.command).toBe(expectedCommands[i])
+      })
+      expect(capturer.commandsLog[2].result).toBe('Success')
+      expect(mockBrowser.takeScreenshot).toHaveBeenCalledTimes(3)
+    })
+  })
+
+  describe('Network Request Capture', () => {
+    let capturer: SessionCapturer
+
+    // Helper to create request event
+    const createRequestEvent = (id: string, url: string, method = 'GET') => ({
+      request: {
+        request: id,
+        url,
+        method,
+        headers: [],
+        timings: { timeOrigin: 1000 }
+      }
+    })
+
+    // Helper to create response event
+    const createResponseEvent = (
+      id: string,
+      url: string,
+      options: {
+        status?: number
+        statusText?: string
+        contentType?: string
+        size?: number
+        timeOrigin?: number
+      } = {}
+    ) => {
+      const headers = options.contentType
+        ? [
+            {
+              name: 'Content-Type',
+              value: { type: 'string', value: options.contentType }
+            }
+          ]
+        : []
+
+      return {
+        request: { request: id },
+        response: {
+          url,
+          status: options.status ?? 200,
+          statusText: options.statusText ?? 'OK',
+          headers,
+          fromCache: false,
+          bytesReceived: options.size ?? 1024,
+          timings: { timeOrigin: options.timeOrigin ?? 1500 }
+        }
+      }
+    }
+
+    // Helper to verify request properties
+    const verifyRequest = (
+      req: any,
+      expected: {
+        url: string
+        method?: string
+        status?: number
+        contentType?: string
+        size?: number
+      }
+    ) => {
+      expect(req).toBeDefined()
+      expect(req.url).toBe(expected.url)
+      expect(req.method).toBe(expected.method ?? 'GET')
+      expect(req.status).toBe(expected.status ?? 200)
+      expect(req.statusText).toBe('OK')
+      if (expected.contentType) {
+        expect(req.responseHeaders).toBeDefined()
+        expect(req.responseHeaders?.['content-type']).toBe(expected.contentType)
+      }
+      if (expected.size) {
+        expect(req.size).toBe(expected.size)
+      }
+      expect(req.time).toBeDefined()
+      expect(typeof req.time).toBe('number')
+      expect(req.time).toBeGreaterThanOrEqual(0)
+    }
+
+    beforeEach(() => {
+      capturer = new SessionCapturer()
+    })
+
+    afterEach(() => {
+      capturer.networkRequests = []
+    })
+
+    it('should capture, merge, and filter network requests correctly', () => {
+      // Test 1: Successful request capture and merge
+      const req1 = createRequestEvent('1', 'https://api.example.com/users')
+      capturer.handleNetworkRequestStarted(req1 as any)
+
+      const res1 = createResponseEvent('1', 'https://api.example.com/users', {
+        contentType: 'application/json',
+        size: 1024
+      })
+      capturer.handleNetworkResponseCompleted(res1 as any)
+
+      expect(capturer.networkRequests).toHaveLength(1)
+      verifyRequest(capturer.networkRequests[0], {
+        url: 'https://api.example.com/users',
+        method: 'GET',
+        status: 200,
+        contentType: 'application/json',
+        size: 1024
+      })
+
+      // Test 2: Request without content-type should be filtered
+      const req2 = createRequestEvent('2', 'https://api.example.com/no-type')
+      capturer.handleNetworkRequestStarted(req2 as any)
+
+      const res2 = createResponseEvent(
+        '2',
+        'https://api.example.com/no-type',
+        {}
+      )
+      capturer.handleNetworkResponseCompleted(res2 as any)
+
+      // Should still have only 1 request (the first one)
+      expect(capturer.networkRequests).toHaveLength(1)
+    })
+
+    it('should handle multiple concurrent requests', () => {
+      const endpoints = ['endpoint1', 'endpoint2', 'endpoint3']
+
+      // Start all requests
+      endpoints.forEach((endpoint, i) => {
+        const req = createRequestEvent(
+          String(i + 1),
+          `https://api.example.com/${endpoint}`
+        )
+        capturer.handleNetworkRequestStarted(req as any)
+      })
+
+      // Complete all requests
+      endpoints.forEach((endpoint, i) => {
+        const res = createResponseEvent(
+          String(i + 1),
+          `https://api.example.com/${endpoint}`,
+          { contentType: 'application/json', size: 1024 }
+        )
+        capturer.handleNetworkResponseCompleted(res as any)
+      })
+
+      expect(capturer.networkRequests).toHaveLength(3)
+
+      // Verify all URLs
+      const urls = capturer.networkRequests.map((r) => r.url)
+      expect(urls).toEqual([
+        'https://api.example.com/endpoint1',
+        'https://api.example.com/endpoint2',
+        'https://api.example.com/endpoint3'
+      ])
+
+      // Verify each request
+      capturer.networkRequests.forEach((req, index) => {
+        verifyRequest(req, {
+          url: `https://api.example.com/endpoint${index + 1}`,
+          method: 'GET',
+          status: 200,
+          contentType: 'application/json',
+          size: 1024
+        })
+      })
+    })
+  })
+
+  describe('ensureSourceLoaded', () => {
+    it('reads a file once and emits a sources message', async () => {
+      const capturer = new SessionCapturer()
+      const send = vi.spyOn(capturer, 'sendUpstream' as any)
+      vi.mocked(fs.readFile).mockResolvedValueOnce(
+        Buffer.from('export default 1\n')
+      )
+
+      await capturer.ensureSourceLoaded('/abs/path/given.ts:24')
+
+      expect(fs.readFile).toHaveBeenCalledWith('/abs/path/given.ts', 'utf-8')
+      expect(capturer.sources.get('/abs/path/given.ts')).toBe(
+        'export default 1\n'
+      )
+      expect(send).toHaveBeenCalledWith('sources', {
+        '/abs/path/given.ts': 'export default 1\n'
+      })
+
+      // Second call for same path is a no-op.
+      vi.mocked(fs.readFile).mockClear()
+      send.mockClear()
+      await capturer.ensureSourceLoaded('/abs/path/given.ts')
+      expect(fs.readFile).not.toHaveBeenCalled()
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('is a no-op on missing path or unreadable file', async () => {
+      const capturer = new SessionCapturer()
+      const send = vi.spyOn(capturer, 'sendUpstream' as any)
+
+      await capturer.ensureSourceLoaded(undefined)
+      await capturer.ensureSourceLoaded('')
+      vi.mocked(fs.readFile).mockRejectedValueOnce(new Error('ENOENT'))
+      await capturer.ensureSourceLoaded('/missing.ts')
+
+      expect(capturer.sources.size).toBe(0)
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('converts file:// URLs to filesystem paths', async () => {
+      const capturer = new SessionCapturer()
+      vi.mocked(fs.readFile).mockResolvedValueOnce(Buffer.from('content'))
+
+      await capturer.ensureSourceLoaded('file:///home/u/spec.ts:1:1')
+
+      expect(fs.readFile).toHaveBeenCalledWith('/home/u/spec.ts', 'utf-8')
+    })
+  })
+
+  describe('handleLogEntryAdded', () => {
+    it('records a console-method entry with browser source', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'console',
+        method: 'warn',
+        text: 'oops',
+        timestamp: 12345,
+        args: [{ type: 'string', value: 'oops' }]
+      })
+
+      expect(capturer.consoleLogs).toHaveLength(1)
+      expect(capturer.consoleLogs[0]).toMatchObject({
+        type: 'warn',
+        source: LOG_SOURCES.BROWSER,
+        timestamp: 12345,
+        args: ['oops']
+      })
+    })
+
+    it('falls back to level when method is absent (javascript log entries)', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'javascript',
+        level: 'error',
+        text: 'uncaught TypeError'
+      })
+
+      expect(capturer.consoleLogs[0].type).toBe('error')
+      expect(capturer.consoleLogs[0].args).toEqual(['uncaught TypeError'])
+    })
+
+    it('maps unknown method/level to "log"', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({ method: 'table', text: 'x' } as any)
+
+      expect(capturer.consoleLogs[0].type).toBe('log')
+    })
+
+    it('serialises non-string remote values via JSON.stringify', () => {
+      const capturer = new SessionCapturer()
+      capturer.handleLogEntryAdded({
+        type: 'console',
+        method: 'log',
+        args: [
+          { type: 'number', value: 42 },
+          { type: 'object', value: { a: 1 } } as any,
+          { type: 'undefined' } as any
+        ],
+        timestamp: 0
+      })
+
+      expect(capturer.consoleLogs[0].args).toEqual([
+        '42',
+        '{"a":1}',
+        '[undefined]'
+      ])
+    })
+  })
+
+  describe('resetLastSelector', () => {
+    it('clears the cached selector so the next test does not inherit it', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValue('screenshot')
+
+      // Step 1: findElement caches '.stale-selector' internally.
+      await capturer.afterCommand(
+        mockBrowser,
+        'findElement' as any,
+        ['.stale-selector'],
+        {},
+        undefined
+      )
+
+      // Step 2: a bare click inherits the cached selector.
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        [],
+        undefined,
+        undefined
+      )
+      expect(capturer.commandsLog[1].args).toEqual(['.stale-selector'])
+
+      // Step 3: reset between tests.
+      capturer.resetLastSelector()
+
+      // Step 4: a bare click after reset does NOT inherit the stale selector.
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        [],
+        undefined,
+        undefined
+      )
+      expect(capturer.commandsLog[2].args).toEqual([])
+    })
+
+    it('is idempotent — safe to call multiple times', () => {
+      const capturer = new SessionCapturer()
+      capturer.resetLastSelector()
+      capturer.resetLastSelector()
+      // No throw = pass. Private #lastSelector is undefined after each call.
+      expect(capturer).toBeDefined()
+    })
+  })
+
+  describe('afterCommand — testUid propagation', () => {
+    it('stores testUid on the captured CommandLog entry', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('screenshot')
+
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['.btn'],
+        undefined,
+        undefined,
+        '/test/spec.ts:10:5',
+        Date.now(),
+        'uid-test-123'
+      )
+
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].testUid).toBe('uid-test-123')
+    })
+
+    it('leaves testUid undefined when not provided', async () => {
+      const capturer = new SessionCapturer()
+      mockBrowser.takeScreenshot.mockResolvedValueOnce('screenshot')
+
+      await capturer.afterCommand(
+        mockBrowser,
+        'click' as any,
+        ['.btn'],
+        undefined,
+        undefined,
+        '/test/spec.ts:10:5',
+        Date.now()
+      )
+
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].testUid).toBeUndefined()
+    })
+  })
+
+  describe('coalesceAssertionIntoLastRead', () => {
+    const isRead = (c: string) => c === 'getText'
+
+    it('folds the assertion into the trailing matcher read, in place', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        startTime: 90,
+        callSource: '/spec.ts:13:5',
+        screenshot: 'READ_SHOT',
+        _id: 7
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        {
+          command: 'expect.toHaveText',
+          args: ['x'],
+          timestamp: 999,
+          result: 'passed'
+        } as never,
+        isRead
+      )
+
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog).toHaveLength(1)
+      const row: LoggedCommand = capturer.commandsLog[0]
+      expect(row.command).toBe('expect.toHaveText') // became the assertion
+      expect(row.callSource).toBe('/spec.ts:13:5') // inherited from the read
+      expect(row.screenshot).toBe('READ_SHOT') // inherited from the read
+      expect(row.timestamp).toBe(100) // kept the read's timeline position
+      expect(row._id).toBe(7) // local dedup bookkeeping preserved
+      // No public `id`: WDIO replaces by timestamp, and commandCounter resets
+      // per worker/spec, so a bare id would collide across specs and the app's
+      // id-first replaceCommand would swap the wrong row.
+      expect(row.id).toBeUndefined()
+    })
+
+    it('returns false and leaves the log untouched when the last command is not a matcher read', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'click',
+        args: [],
+        timestamp: 100
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toExist', args: [], timestamp: 999 } as never,
+        isRead
+      )
+
+      expect(folded).toBe(false)
+      expect(capturer.commandsLog).toHaveLength(1)
+      expect(capturer.commandsLog[0].command).toBe('click')
+    })
+
+    it('returns false when the trailing read hard-threw (carries an error)', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        error: { message: 'element not found' }
+      } as never)
+
+      expect(
+        capturer.coalesceAssertionIntoLastRead(
+          { command: 'expect.toHaveText', args: [], timestamp: 999 } as never,
+          isRead
+        )
+      ).toBe(false)
+    })
+
+    it('foldErrored=true folds a throwing read, keeping its error (hard-throw)', () => {
+      const capturer = new SessionCapturer()
+      capturer.commandsLog.push({
+        command: 'getText',
+        args: [],
+        timestamp: 100,
+        callSource: '/spec.ts:22:5',
+        error: { message: 'element not found' },
+        _id: 3
+      } as never)
+
+      const folded = capturer.coalesceAssertionIntoLastRead(
+        { command: 'expect.toHaveText', args: ['x'], timestamp: 999 } as never,
+        isRead,
+        true
+      )
+
+      expect(folded).toBe(true)
+      expect(capturer.commandsLog).toHaveLength(1)
+      const row: LoggedCommand = capturer.commandsLog[0]
+      expect(row.command).toBe('expect.toHaveText') // relabelled from the read
+      expect(row.callSource).toBe('/spec.ts:22:5') // inherited from the read
+      expect(row.timestamp).toBe(100) // kept the read's timeline position
+      expect(row.error?.message).toBe('element not found') // the throw's error carries through
+      expect(row.id).toBeUndefined() // still no cross-spec-colliding public id
+    })
+  })
+  // #376: the switch command carries the context it moved to, so the capture
+  // follows a hybrid app between its native and webview halves without a round
+  // trip of its own.
+  describe('following the Appium context', () => {
+    const nativeBrowser = () =>
+      ({
+        ...mockBrowser,
+        isMobile: true,
+        capabilities: {
+          platformName: 'Android',
+          'appium:automationName': 'UiAutomator2'
+        }
+      }) as never
+
+    const switchTo = async (
+      capturer: SessionCapturer,
+      context: unknown,
+      error?: Error
+    ) =>
+      capturer.afterCommand(
+        nativeBrowser(),
+        'switchContext' as never,
+        [context],
+        undefined,
+        error,
+        undefined
+      )
+
+    it('starts with no document, which is the native context it booted in', () => {
+      const capturer = new SessionCapturer()
+      expect(capturer.currentContext).toBeUndefined()
+    })
+
+    it('records the context a successful switch moved to', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, 'WEBVIEW_com.example')
+      expect(capturer.currentContext).toBe('WEBVIEW_com.example')
+    })
+
+    it('accepts the object form the protocol also takes', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, { name: 'WEBVIEW_com.example' })
+      expect(capturer.currentContext).toBe('WEBVIEW_com.example')
+    })
+
+    // Moving the capture's idea of where the session is on a failed switch
+    // would point every page-side probe at a context that was never entered.
+    it('ignores a switch that failed', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(
+        capturer,
+        'WEBVIEW_com.example',
+        new Error('no such context')
+      )
+      expect(capturer.currentContext).toBeUndefined()
+    })
+
+    it('follows the session back into the native context', async () => {
+      const capturer = new SessionCapturer()
+      await switchTo(capturer, 'WEBVIEW_com.example')
+      await switchTo(capturer, 'NATIVE_APP')
+      expect(capturer.currentContext).toBe('NATIVE_APP')
+    })
+  })
+})
+
+/**
+ * A native app has no document to drain: the collector probe, the recovery
+ * injection and the url read are all page-side, so each is a round trip to the
+ * device that can only fail. Measured on a Pixel 7 before this guard: 5 failed
+ * round trips per run, each printing `Method is not implemented` at ERROR.
+ *
+ * Guarded inside `captureTrace` because two of its four call sites asked and
+ * two did not — the assumption lives here, so the guard does too.
+ */
+/**
+ * BiDi counts as the network source only once it has delivered an event.
+ * `browser.isBidi` says the session advertised BiDi; Appium 3.7's XCUITest
+ * driver advertises it, accepts the subscription and sends nothing, and gating
+ * on the advertisement left such a trace with zero network rows.
+ */
+describe('captureTrace and BiDi evidence', () => {
+  const resourceTimingRow = {
+    id: 'rt-1',
+    url: 'https://example.com/app.js',
+    method: 'GET',
+    type: 'script',
+    timestamp: 2,
+    startTime: 1,
+    source: 'resource-timing'
+  }
+  const patchedRow = {
+    id: 'p-1',
+    url: 'https://example.com/api',
+    method: 'POST',
+    type: 'fetch',
+    timestamp: 3,
+    startTime: 2
+  }
+  /** A session that advertises BiDi and whose drain answers both rows. */
+  const advertisingBrowser = () =>
+    ({
+      isBidi: true,
+      execute: vi.fn().mockResolvedValue({
+        networkRequests: [resourceTimingRow, patchedRow]
+      }),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('keeps the page’s Resource Timing rows while BiDi has delivered nothing', async () => {
+    const capturer = new SessionCapturer()
+    await capturer.captureTrace(advertisingBrowser())
+    expect(capturer.networkRequests.map((r) => r.id)).toEqual(['rt-1', 'p-1'])
+  })
+
+  it('drops them once a BiDi network event has arrived, keeping the patched row', async () => {
+    const capturer = new SessionCapturer()
+    capturer.handleNetworkRequestStarted({
+      request: { request: 'req-1', url: 'https://example.com/', method: 'GET' },
+      timestamp: 1
+    })
+    await capturer.captureTrace(advertisingBrowser())
+    expect(capturer.networkRequests.map((r) => r.id)).toEqual(['p-1'])
+  })
+})
+
+describe('captureTrace on a native session', () => {
+  /** A driver that answers nothing: any page-side call is a failure here. No
+   *  `browserName`, which is what makes it an APP session. */
+  const nativeBrowser = () =>
+    ({
+      isMobile: true,
+      isAndroid: true,
+      capabilities: {
+        platformName: 'Android',
+        'appium:automationName': 'UiAutomator2',
+        'appium:app': '/app.apk'
+      },
+      execute: vi
+        .fn()
+        .mockRejectedValue(new Error('Method is not implemented')),
+      getUrl: vi.fn().mockRejectedValue(new Error('Method is not implemented')),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  /** Appium driving Chrome on a device: mobile, but with a real page. WDIO's
+   *  own `isMobile` is FALSE for these capabilities while `isAndroid` is true,
+   *  which is how the broader predicate came to claim them. */
+  const mobileWebBrowser = () =>
+    ({
+      isMobile: false,
+      isAndroid: true,
+      capabilities: {
+        platformName: 'Android',
+        browserName: 'Chrome',
+        'appium:automationName': 'Chrome'
+      },
+      execute: vi.fn().mockResolvedValue(null),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  const webBrowser = () =>
+    ({
+      execute: vi.fn().mockResolvedValue(null),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('makes no round trip at all', async () => {
+    const browser = nativeBrowser()
+    const capturer = new SessionCapturer()
+
+    await capturer.captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+    expect(
+      (browser as unknown as { getUrl: ReturnType<typeof vi.fn> }).getUrl
+    ).not.toHaveBeenCalled()
+  })
+
+  it('makes none when a caller forces an anchor either', async () => {
+    // The teardown drain passes forceAnchor, and was one of the unguarded two.
+    const browser = nativeBrowser()
+
+    await new SessionCapturer().captureTrace(browser, true)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+  })
+
+  it('still drains a web session', async () => {
+    const browser = webBrowser()
+
+    await new SessionCapturer().captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+
+  it('drains after a page transition on a mobile BROWSER session', async () => {
+    // The other half of the same gate: `afterCommand` decides whether a
+    // navigating command is followed by a drain and a performance read, both
+    // page-side. A mobile browser session navigates like any other.
+    const browser = mobileWebBrowser()
+
+    await new SessionCapturer().afterCommand(
+      browser,
+      'navigateTo',
+      ['https://example.com'],
+      undefined,
+      undefined
+    )
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+
+  // Regression: the timings were sent as a new command, so every navigation was listed twice.
+  it('replaces the navigation row with its performance timings', async () => {
+    const browser = webBrowser()
+    const execute = (
+      browser as unknown as { execute: ReturnType<typeof vi.fn> }
+    ).execute
+    execute.mockImplementation(async (script: unknown) =>
+      script === CAPTURE_PERFORMANCE_SCRIPT
+        ? { navigation: { url: 'https://example.com', timing: {} } }
+        : null
+    )
+    const capturer = new SessionCapturer()
+    const send = vi.spyOn(capturer, 'sendUpstream' as any)
+
+    await capturer.afterCommand(
+      browser,
+      'navigateTo',
+      ['https://example.com'],
+      undefined,
+      undefined
+    )
+
+    const scopes = send.mock.calls.map(([scope]) => scope)
+    expect(scopes.filter((s) => s === 'commands')).toHaveLength(1)
+    expect(send).toHaveBeenCalledWith(
+      'replaceCommand',
+      expect.objectContaining({
+        command: expect.objectContaining({
+          command: 'navigateTo',
+          performance: expect.anything()
+        })
+      })
+    )
+  })
+
+  it('makes no page call after a transition on a native app', async () => {
+    const browser = nativeBrowser()
+
+    await new SessionCapturer().afterCommand(
+      browser,
+      'navigateTo',
+      ['/some/deeplink'],
+      undefined,
+      undefined
+    )
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).not.toHaveBeenCalled()
+  })
+
+  it('still drains a mobile BROWSER session', async () => {
+    // The guard's whole reason is a missing document, and this session has one.
+    // It is also the session with the most to lose: the BiDi preload is skipped
+    // for every Appium session, so this drain's recovery injection is the only
+    // collector it ever gets — gated, it captured no DOM at all.
+    const browser = mobileWebBrowser()
+
+    await new SessionCapturer().captureTrace(browser)
+
+    expect(
+      (browser as unknown as { execute: ReturnType<typeof vi.fn> }).execute
+    ).toHaveBeenCalled()
+  })
+})

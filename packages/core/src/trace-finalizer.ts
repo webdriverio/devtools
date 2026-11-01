@@ -1,0 +1,518 @@
+/**
+ * Framework-agnostic orchestration of the trace-mode export at end-of-run:
+ * session vs per-spec fan-out, the spec-granularity-without-boundaries
+ * fallback, retention gating, and per-write error isolation. The three
+ * adapters assemble a TraceExportContext from their own state and call
+ * finalizeTraceExport — all sequencing lives here.
+ */
+
+import type {
+  ActionSnapshot,
+  DevToolsMode,
+  ScreencastFrame,
+  TestMetadataMap,
+  TraceFormat,
+  TraceGranularity,
+  TraceRetentionPolicy
+} from '@wdio/devtools-shared'
+import { reportCaptureTiming } from './capture-timing.js'
+import { errorMessage } from './error.js'
+import {
+  buildArtifactsManifest,
+  writeArtifactsManifest
+} from './artifacts-manifest.js'
+import {
+  filterTestMetadataBySpec,
+  filterTestMetadataByUid,
+  writeSpecTrace,
+  writeTestSliceTrace,
+  type SpecRange
+} from './spec-trace-helpers.js'
+import {
+  shouldRetainTrace,
+  type TestOutcome
+} from '@wdio/devtools-trace/trace-retention'
+import type { RetryOutcomeView } from './attempt-tracker.js'
+import {
+  writeTraceZip,
+  type TraceCapturer
+} from '@wdio/devtools-trace/trace-exporter'
+
+/** One artifact produced (or, when `retained` is false, decided-against) by a
+ *  trace-mode run — a trace slice, a screencast video, or a per-test
+ *  screenshot. */
+export interface TraceArtifact {
+  kind: 'trace' | 'video' | 'screenshot'
+  path: string
+  scope: 'session' | 'spec' | 'test'
+  /** specFile for spec scope, testUid for test scope. */
+  key?: string
+  testUids: string[]
+  /** false = decided-not-to-write (reported, not written). Always true today. */
+  retained: boolean
+}
+
+export interface TraceExportContext {
+  mode?: DevToolsMode
+  /** undefined → treated as `on` (always retain) by the retention evaluator. */
+  policy?: TraceRetentionPolicy
+  /** True when the adapter fed real per-test attempt numbers (B4); retry-aware
+   *  policies degrade to retain-on-failure when this is false. */
+  attemptInfoAvailable?: boolean
+  /** Per-attempt outcome ledger. When present, retention is evaluated against
+   *  real per-attempt outcomes (scoped per session/spec/test) instead of the
+   *  collapsed final-attempt state in `testMetadata` — this is what lets
+   *  retain-on-first-failure see a failed-then-passed first attempt and stops
+   *  retain-on-failure over-retaining it. Absent → falls back to `testMetadata`
+   *  (unchanged behavior). */
+  outcomes?: RetryOutcomeView
+  granularity?: TraceGranularity
+  format?: TraceFormat
+  capturer: TraceCapturer
+  actionSnapshots?: ActionSnapshot[]
+  /** Continuous screencast frame buffer for the dense filmstrip (filmstrip
+   *  option on). Session write uses all; slice writes window per test. */
+  screencastFrames?: readonly ScreencastFrame[]
+  sessionId: string
+  capabilities?: unknown
+  testMetadata: TestMetadataMap
+  /** Recorded spec boundaries; empty for session granularity. */
+  ranges: SpecRange[]
+  /** Spec-file dedupe set shared with the adapter's boundary flushes. */
+  flushed: Set<string>
+  /** Adapters keep their differing dir logic; range is set for spec writes. */
+  resolveOutputDir: (range?: SpecRange) => string
+  /** Everything finalize must settle before writing: the adapters' in-flight
+   *  captures AND their eager slice-write promises (selenium/nightwatch). */
+  awaitPending?: Promise<unknown>[]
+  /** The captures alone, live by reference and in record order, so an eager
+   *  flush can settle the ones from `SpecRange.captureStartIdx` on — its own —
+   *  without waiting on another slice's. */
+  pendingCaptures?: readonly Promise<unknown>[]
+  /** Session-wide work every slice depends on whatever its window: the metadata
+   *  read (viewport, device, capabilities), captured once at session start and
+   *  stamped on every trace written after it. Scoping cannot cover this — it
+   *  belongs to no slice — and a slice written before it resolves carries the
+   *  fallback viewport, which finalize cannot correct once the artifact exists.
+   *  Only the WDIO service defers it; the others await theirs inline. */
+  metadataCapture?: Promise<unknown>
+  log?: (level: 'info' | 'warn', msg: string) => void
+  onArtifact?: (a: TraceArtifact) => void
+  /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
+   *  enumerating every artifact (retained or not) plus per-test states, for
+   *  ecosystem reporters (Allure, CI collectors) to consume. */
+  emitManifest?: boolean
+  /** Every artifact seen via `onArtifact` across the run (including eager
+   *  mid-run test-slice flushes, which the end-of-run fan-out dedupes away).
+   *  Pass the same list the adapter accumulates so the manifest is complete;
+   *  finalize falls back to its own fan-out results when this is omitted. */
+  collectedArtifacts?: readonly TraceArtifact[]
+}
+
+const SPEC_WITHOUT_BOUNDARIES_WARNING =
+  'traceGranularity is "spec" but no spec boundaries were detected ' +
+  '(the runner may not expose per-test hooks). Falling back to ' +
+  'session-level trace.'
+
+const TEST_WITHOUT_BOUNDARIES_WARNING =
+  'traceGranularity is "test" but no test boundaries were detected ' +
+  '(the runner may not expose per-test hooks). Falling back to ' +
+  'session-level trace.'
+
+/** Above this many slices, warn to pair granularity with a retention policy. */
+const SLICE_COUNT_WARN_THRESHOLD = 200
+
+/** Cap on how long finalize waits for still-in-flight snapshot captures. A
+ *  fire-and-forget capture against a tearing-down session can hang forever
+ *  (never resolves nor rejects); blocking the export on it would deadlock the
+ *  whole run (finalize never returns → the runner never tears the session down
+ *  → the capture stays stuck). Past this bound we write whatever snapshots
+ *  resolved in time — the same "flush from what exists" rule slices use. */
+export const PENDING_SETTLE_TIMEOUT_MS = 5000
+
+/**
+ * `Promise.allSettled` bounded by a timeout. Resolves when every pending
+ * capture settles OR the cap elapses, whichever comes first — a stuck capture
+ * can never hang the export. Returns whether it timed out so the caller can
+ * warn. The timer is unref'd so it can't itself keep the process alive.
+ */
+export async function settlePending(
+  pending: Promise<unknown>[],
+  timeoutMs: number
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<true>((resolve) => {
+    timer = setTimeout(() => resolve(true), timeoutMs)
+    timer.unref?.()
+  })
+  const settled = Promise.allSettled(pending).then(() => false)
+  const result = await Promise.race([settled, timedOut])
+  if (timer) {
+    clearTimeout(timer)
+  }
+  return result
+}
+
+/**
+ * Settle in-flight work under the timeout cap, warning if the bound elapses.
+ * Never throws; never hangs.
+ *
+ * `sliceFrom` is an eager per-slice flush, and it waits on exactly its OWN
+ * captures: the ones the adapter recorded after this slice opened. A capture
+ * from an earlier slice is that slice's business and has already had its wait,
+ * so a single wedged driver read cannot tax every later slice — and nothing of
+ * this slice's own is skipped, which guessing by "have we awaited this promise
+ * before" could not promise.
+ *
+ * Finalize passes no index and waits on everything, deliberately: the full list
+ * also carries the adapters' eager slice-WRITE promises, and the artifacts
+ * manifest is written from what they produce, so skipping one there would let
+ * the manifest be written while a slice still is.
+ */
+async function awaitPendingCaptures(
+  ctx: TraceExportContext,
+  sliceFrom?: number
+): Promise<void> {
+  // Session-wide prerequisites ride along with both: they belong to no slice,
+  // and re-awaiting a settled one is free.
+  const sessionWide = ctx.metadataCapture ? [ctx.metadataCapture] : []
+  const pending =
+    sliceFrom === undefined
+      ? [...sessionWide, ...(ctx.awaitPending ?? [])]
+      : [
+          ...sessionWide,
+          ...Array.from(ctx.pendingCaptures ?? []).slice(sliceFrom)
+        ]
+  if (!pending.length) {
+    return
+  }
+  const timedOut = await settlePending(pending, PENDING_SETTLE_TIMEOUT_MS)
+  if (timedOut) {
+    ctx.log?.(
+      'warn',
+      `One or more of ${pending.length} snapshot capture(s) did not ` +
+        `settle within ${PENDING_SETTLE_TIMEOUT_MS}ms; writing trace with the ` +
+        'snapshots captured so far.'
+    )
+  }
+}
+
+/** The range that bounds `range`, read from the adapter's LIVE list — the next
+ *  test's boundary is appended to it as that test starts, so a flush that waited
+ *  sees a bound that did not exist when it began. Identity lookup: every caller
+ *  passes a range it took from this same array. */
+function successorOf(
+  ctx: TraceExportContext,
+  range: SpecRange
+): SpecRange | undefined {
+  const index = ctx.ranges.indexOf(range)
+  return index === -1 ? undefined : ctx.ranges[index + 1]
+}
+
+function sliceCountWarning(count: number): string {
+  return (
+    `traceGranularity produced ${count} trace slices. Consider pairing it ` +
+    'with a retention policy (e.g. tracePolicy: "retain-on-failure") to ' +
+    'avoid writing hundreds of trace archives.'
+  )
+}
+
+/** Project a metadata slice onto the retention evaluator's outcome shape. */
+function toOutcomes(metadata: TestMetadataMap): TestOutcome[] {
+  return Array.from(metadata.values(), (m) => ({
+    state: m.state,
+    attempt: m.attempt
+  }))
+}
+
+/**
+ * Evaluate the retention policy for one trace slice. Adapters that feed real
+ * per-test attempt numbers also set `attemptInfoAvailable`; when they don't,
+ * retry-aware policies degrade to retain-on-failure (see trace-retention.ts).
+ */
+function shouldRetain(
+  ctx: TraceExportContext,
+  metadata: TestMetadataMap,
+  ledgerOutcomes?: TestOutcome[]
+): boolean {
+  // An empty scoped ledger view (adapter fed outcomes but not for this scope)
+  // falls back to metadata rather than fail-opening the evaluator into retaining
+  // everything — only a genuinely empty metadata slice fails open.
+  return shouldRetainTrace(ctx.policy, {
+    outcomes: ledgerOutcomes?.length ? ledgerOutcomes : toOutcomes(metadata),
+    attemptInfoAvailable: ctx.attemptInfoAvailable ?? false
+  }).retain
+}
+
+/** Attempt number encoded in a test-slice key (`<uid>-retry<n>`); 0 when the
+ *  key is the base uid (the first attempt / no retry suffix). */
+function attemptFromKey(key: string): number {
+  const match = /-retry(\d+)$/.exec(key)
+  return match ? Number(match[1]) : 0
+}
+
+/** Scope the per-attempt ledger to a slice: a test slice sees only its own
+ *  attempt (so a passing retry isn't retained on first-failure); a spec slice
+ *  sees every attempt of its tests. */
+function sliceOutcomeView(
+  ctx: TraceExportContext,
+  range: SpecRange,
+  isTestSlice: boolean
+): TestOutcome[] | undefined {
+  if (!ctx.outcomes) {
+    return undefined
+  }
+  return isTestSlice
+    ? ctx.outcomes.forTest(range.testUid!, attemptFromKey(range.key))
+    : ctx.outcomes.forSpec(range.specFile)
+}
+
+/**
+ * Policy-aware single-range flush: dedupes via `ctx.flushed` on the slice
+ * `key`, applies the retention decision, and delegates the byte-level
+ * slicing/naming to `writeSpecTrace` (spec slices) or `writeTestSliceTrace`
+ * (test slices, distinguished by `range.testUid`). Returns the artifact, or
+ * undefined when the range was already flushed.
+ */
+export async function flushRangeTrace(
+  ctx: TraceExportContext,
+  range: SpecRange,
+  nextRange?: SpecRange
+): Promise<TraceArtifact | undefined> {
+  // Eager mid-run flushes reach here directly, bypassing finalizeTraceExport's
+  // gate, so enforce trace-mode here too — a live run must not write slices.
+  if (ctx.mode !== 'trace') {
+    return undefined
+  }
+  if (ctx.flushed.has(range.key)) {
+    return undefined
+  }
+  ctx.flushed.add(range.key)
+
+  // A slice is written from whatever the capturer holds RIGHT NOW, and the
+  // adapters' DOM captures are fire-and-forget, so an eager flush has to settle
+  // them or it writes a slice describing a page nobody has read yet. Cheap
+  // where those captures already resolved (a desktop drain is milliseconds),
+  // and load-bearing where they cannot: on Appium every page-side call is a
+  // round trip of hundreds of ms to seconds, so the per-test slice reliably
+  // beat the collector and carried no `trace.mutations` at all. Bounded by the
+  // same timeout the finalizer uses, so a stuck capture delays a test hook
+  // rather than hanging it. Scoped to this slice's own captures; finalize
+  // waits on everything.
+  await awaitPendingCaptures(ctx, range.captureStartIdx ?? 0)
+
+  const isTestSlice = range.testUid !== undefined
+  const sliceMetadata = isTestSlice
+    ? filterTestMetadataByUid(ctx.testMetadata, range.testUid!)
+    : filterTestMetadataBySpec(ctx.testMetadata, range.specFile)
+  const outcomes = sliceOutcomeView(ctx, range, isTestSlice)
+  const artifact: TraceArtifact = {
+    kind: 'trace',
+    path: '',
+    scope: isTestSlice ? 'test' : 'spec',
+    key: range.key,
+    testUids: Array.from(sliceMetadata.keys()),
+    retained: shouldRetain(ctx, sliceMetadata, outcomes)
+  }
+  if (!artifact.retained) {
+    ctx.onArtifact?.(artifact)
+    return artifact
+  }
+
+  const writeSlice = isTestSlice ? writeTestSliceTrace : writeSpecTrace
+  artifact.path = await writeSlice({
+    range,
+    // Re-resolved AFTER the wait, which can span the start of the next test:
+    // Nightwatch — and Selenium's cucumber hook — start the flush without
+    // awaiting it, and an eager flush is open-ended, so that test's commands
+    // and mutations would land in this test's trace. Its boundary appears in
+    // `ctx.ranges` as it starts, which closes this slice on exactly the bound
+    // that now exists. Freezing indexes before the wait cannot serve: the
+    // captures being waited for append to those same arrays.
+    nextRange: nextRange ?? successorOf(ctx, range),
+    capturer: ctx.capturer,
+    actionSnapshots: ctx.actionSnapshots ?? [],
+    screencastFrames: ctx.screencastFrames,
+    sessionId: ctx.sessionId,
+    outputDir: ctx.resolveOutputDir(range),
+    format: ctx.format,
+    testMetadata: ctx.testMetadata,
+    capabilities: ctx.capabilities
+  })
+  ctx.log?.(
+    'info',
+    `Trace for ${isTestSlice ? 'test' : 'spec'} "${range.key}" saved to ${artifact.path}`
+  )
+  ctx.onArtifact?.(artifact)
+  return artifact
+}
+
+/**
+ * Flush one slice via {@link flushRangeTrace}, logging the shared spec/test
+ * error string on failure so a failed boundary flush can't abort the next test.
+ * All three adapters wrapped this identically; the label + identity are derived
+ * from `range.testUid` (test slice → `test "<key>"`, else `spec "<specFile>"`),
+ * so each call site keeps its exact message. Errors are logged and swallowed
+ * (resolves `undefined`), so callers `await` it when the write must land before
+ * a retry overwrites metadata, or fire-and-forget (`void`, or tracked in an
+ * in-flight list) otherwise. Callers keep their own find-current-range strategy
+ * and pass the resolved range in.
+ */
+export async function flushRangeLogged(
+  ctx: TraceExportContext,
+  range: SpecRange
+): Promise<TraceArtifact | undefined> {
+  try {
+    return await flushRangeTrace(ctx, range)
+  } catch (err) {
+    const label =
+      range.testUid !== undefined
+        ? `test "${range.key}"`
+        : `spec "${range.specFile}"`
+    ctx.log?.(
+      'warn',
+      `Failed to flush trace for ${label}: ${errorMessage(err)}`
+    )
+    return undefined
+  }
+}
+
+async function writeSessionTrace(
+  ctx: TraceExportContext
+): Promise<TraceArtifact | undefined> {
+  const snapshots = ctx.actionSnapshots ?? []
+  const artifact: TraceArtifact = {
+    kind: 'trace',
+    path: '',
+    scope: 'session',
+    testUids: Array.from(ctx.testMetadata.keys()),
+    retained: shouldRetain(ctx, ctx.testMetadata, ctx.outcomes?.all())
+  }
+  if (!artifact.retained) {
+    ctx.onArtifact?.(artifact)
+    return artifact
+  }
+
+  artifact.path = await writeTraceZip(ctx.capturer, {
+    outputDir: ctx.resolveOutputDir(),
+    sessionId: ctx.sessionId,
+    capabilities: ctx.capabilities,
+    actionSnapshots: snapshots.length ? snapshots : undefined,
+    screencastFrames: ctx.screencastFrames,
+    format: ctx.format,
+    testMetadata: ctx.testMetadata
+  })
+  ctx.log?.('info', `Trace saved to ${artifact.path}`)
+  ctx.onArtifact?.(artifact)
+  return artifact
+}
+
+/** Run one write, logging and swallowing its error so siblings still write. */
+async function safely(
+  ctx: TraceExportContext,
+  write: () => Promise<TraceArtifact | undefined>
+): Promise<TraceArtifact | undefined> {
+  try {
+    return await write()
+  } catch (err) {
+    ctx.log?.('warn', `trace write failed: ${errorMessage(err)}`)
+    return undefined
+  }
+}
+
+async function flushAllRanges(
+  ctx: TraceExportContext
+): Promise<TraceArtifact[]> {
+  const artifacts: TraceArtifact[] = []
+  // Bound each slice by the next range's start indices; the final range (no
+  // nextRange) runs to the end of the arrays. Without this, every slice would
+  // run to the end and each test slice would swallow all later tests.
+  for (let i = 0; i < ctx.ranges.length; i++) {
+    const range = ctx.ranges[i]!
+    const nextRange = ctx.ranges[i + 1]
+    const artifact = await safely(ctx, () =>
+      flushRangeTrace(ctx, range, nextRange)
+    )
+    if (artifact) {
+      artifacts.push(artifact)
+    }
+  }
+  return artifacts
+}
+
+/**
+ * Entry point for the after/end-of-run hook. No-op outside trace mode. Settles
+ * in-flight captures and eager flushes, then fans out to per-spec, per-test, or
+ * session writes and finally the artifacts manifest. `spec`/`test` granularity
+ * with no recorded boundaries warns and falls back to a single session-level
+ * trace.
+ */
+export async function finalizeTraceExport(
+  ctx: TraceExportContext
+): Promise<TraceArtifact[]> {
+  if (ctx.mode !== 'trace') {
+    return []
+  }
+  // Settle in-flight snapshot captures AND the adapters' tracked fire-and-forget
+  // eager flushes (Selenium/Nightwatch put both in awaitPending) before writing
+  // anything: every eager-flushed range is a synchronous dedupe-hit in the
+  // fan-out below, so this is the one place that awaits those eager-flush
+  // promises. Without it the last eager write can race teardown and its artifact
+  // can miss the manifest. A no-op for WDIO (awaits eager flushes inline).
+  await awaitPendingCaptures(ctx)
+  const artifacts = await fanOutTraceWrites(ctx)
+  await maybeWriteManifest(ctx, artifacts)
+  // After the writes, so the report's own output cannot land in the trace's console.
+  await reportCaptureTiming(ctx.resolveOutputDir())
+  return artifacts
+}
+
+/** Session vs per-slice fan-out (with the no-boundaries fallback). */
+async function fanOutTraceWrites(
+  ctx: TraceExportContext
+): Promise<TraceArtifact[]> {
+  const sliced = ctx.granularity === 'spec' || ctx.granularity === 'test'
+  if (sliced && ctx.ranges.length > 0) {
+    if (ctx.ranges.length > SLICE_COUNT_WARN_THRESHOLD) {
+      ctx.log?.('warn', sliceCountWarning(ctx.ranges.length))
+    }
+    return flushAllRanges(ctx)
+  }
+  if (ctx.granularity === 'spec') {
+    ctx.log?.('warn', SPEC_WITHOUT_BOUNDARIES_WARNING)
+  } else if (ctx.granularity === 'test') {
+    ctx.log?.('warn', TEST_WITHOUT_BOUNDARIES_WARNING)
+  }
+  const artifact = await safely(ctx, () => writeSessionTrace(ctx))
+  return artifact ? [artifact] : []
+}
+
+/** Write the artifacts manifest when enabled, preferring the adapter's full
+ *  collected list (includes eager slices) over this pass's fan-out results.
+ *  Never throws — a manifest failure must not abort the run. */
+async function maybeWriteManifest(
+  ctx: TraceExportContext,
+  fanOutArtifacts: readonly TraceArtifact[]
+): Promise<void> {
+  if (!ctx.emitManifest) {
+    return
+  }
+  const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts
+  try {
+    const path = await writeArtifactsManifest(
+      ctx.resolveOutputDir(),
+      buildArtifactsManifest({
+        sessionId: ctx.sessionId,
+        format: ctx.format ?? 'zip',
+        artifacts,
+        testMetadata: ctx.testMetadata
+      })
+    )
+    ctx.log?.('info', `Artifacts manifest written to ${path}`)
+  } catch (err) {
+    ctx.log?.(
+      'warn',
+      `Failed to write artifacts manifest: ${errorMessage(err)}`
+    )
+  }
+}

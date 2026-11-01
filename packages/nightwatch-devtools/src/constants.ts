@@ -1,0 +1,84 @@
+/**
+ * Internal Nightwatch commands to exclude from capture
+ */
+export const INTERNAL_COMMANDS_TO_IGNORE = [
+  'isAppiumClient',
+  'isSafari',
+  'isChrome',
+  'isFirefox',
+  'isEdge',
+  'isMobile',
+  'isAndroid',
+  'isIOS',
+  'session',
+  'sessions',
+  'timeouts',
+  'timeoutsAsyncScript',
+  'timeoutsImplicitWait',
+  'getLog',
+  'getLogTypes',
+  'screenshot',
+  'availableContexts',
+  'currentContext',
+  'setChromeOptions',
+  'setDeviceName',
+  'perform',
+  'execute',
+  'executeAsync',
+  'executeScript',
+  // Internal Nightwatch transport commands (used for log capture, not user actions)
+  'sessionLog',
+  'sessionLogTypes',
+  'isLogAvailable',
+  'end'
+] as const
+
+// Console capture constants are defined in @wdio/devtools-core; re-exported
+// here so existing imports from ./constants.js continue to work.
+export {
+  ANSI_REGEX,
+  CONSOLE_METHODS,
+  LOG_LEVEL_PATTERNS,
+  LOG_SOURCES
+} from '@wdio/devtools-core'
+
+import { DEFAULTS_BASE, TIMING_BASE } from '@wdio/devtools-shared'
+
+export const DEFAULTS = {
+  ...DEFAULTS_BASE,
+  TEST_NAME: 'unknown',
+  FILE_NAME: 'unknown'
+} as const
+
+export const TIMING = {
+  ...TIMING_BASE,
+  /** Nightwatch boots slower than selenium — give the dashboard 10s. */
+  UI_CONNECTION_WAIT: 10000
+} as const
+
+export { TEST_STATE } from '@wdio/devtools-shared'
+
+/**
+ * Generic pattern matching Nightwatch commands whose result is a boolean.
+ */
+export const BOOLEAN_COMMAND_PATTERN =
+  /^waitFor|^is[A-Z]|^has[A-Z]|(Visible|Present|Enabled|Selected|NotVisible|NotPresent)$/
+
+export const NAVIGATION_COMMANDS = ['url', 'navigate', 'navigateTo'] as const
+
+export { SPINNER_RE } from '@wdio/devtools-core'
+
+/** Matches file names that follow the *.test.ts / *.spec.js naming
+ *  convention. Re-exported from @wdio/devtools-shared (single source of
+ *  truth — service uses the same pattern under the name SPEC_FILE_RE). */
+export { SPEC_FILE_RE as TEST_FILE_PATTERN } from '@wdio/devtools-shared'
+
+/** The CLI flags that name the config file, left out of the selection Run all replays (the backend passes its own). */
+export const NIGHTWATCH_CONFIG_FLAGS = ['--config', '-c']
+
+/**
+ * Global key used to share the plugin instance with Cucumber hooks.
+ * Defined in its own leaf module so the Cucumber hooks can bundle it standalone
+ * (see plugin-global-key.ts); re-exported here for the rest of the plugin.
+ */
+export { PLUGIN_GLOBAL_KEY } from './plugin-global-key.js'

@@ -1,0 +1,286 @@
+
+# @wdio/devtools-service
+
+A WebdriverIO service that provides a developer tools UI for running, debugging, and inspecting browser automation tests. Features include DOM mutation replay, per-command screenshots, network request inspection, console log capture, and session screencast recording.
+
+## Quick Start
+
+**1. Install the package** as a dev dependency:
+
+```sh
+npm install @wdio/devtools-service --save-dev
+# or
+pnpm add -D @wdio/devtools-service
+```
+
+**2. Add the service** to your WebdriverIO config:
+
+```ts
+// wdio.conf.ts
+export const config = {
+  services: ['devtools'],
+}
+```
+
+**3. Run your tests as you normally do** — the DevTools UI opens automatically, showing each test's commands, screenshots, console logs, and network activity in real time.
+
+## Configuration
+
+Options are passed as the second element of the service tuple:
+
+```ts
+services: [['devtools', options]]
+```
+
+All options are optional — the service runs with sensible defaults out of the box. See [Reference](#reference) for the full options table.
+
+## Live Mode
+
+### Test Runner
+
+```ts
+// wdio.conf.ts
+export const config = {
+  services: ['devtools'],
+}
+```
+
+### Standalone
+
+```ts
+import { remote } from 'webdriverio'
+import { setupForDevtools } from '@wdio/devtools-service'
+
+const browser = await remote(setupForDevtools({
+  capabilities: { browserName: 'chrome' }
+}))
+await browser.url('https://example.com')
+await browser.deleteSession()
+```
+
+## Trace Mode
+
+Set `mode: 'trace'` to skip the live UI window and write a portable `trace.zip`
+(or, with `traceFormat: 'ndjson-directory'`, an unpacked directory) under a
+`test-results/` directory at session end — meant for CI, offline replay, and
+agentic diffing. See the [full trace mode docs](https://webdriver.io/docs/devtools/wdio/trace-mode).
+
+Open a trace in the first-party player:
+
+```sh
+pnpm show-trace path/to/trace.zip     # from this repo
+npx show-trace path/to/trace.zip      # in a project that installs an adapter
+```
+
+The `show-trace` bin ships with this service (and with the Selenium/Nightwatch
+adapters), so it's available wherever one is installed — no extra dependency. It
+boots the DevTools UI in a dedicated **player** mode:
+
+- **DOM time-travel** — the page pane rebuilds the real DOM as of the selected
+  action from the captured mutation stream (not just a screenshot), replaying
+  form-field state (typed values, checked/selected) so each step shows the page
+  exactly as it was at that moment.
+- **A11y tab** — the accessibility tree (roles + accessible names) captured for
+  the selected action; the semantic view a screen reader sees, distinct from the
+  raw DOM in the snapshot pane.
+- **Element overlay ("pick locator")** — every locator the test interacted with
+  is outlined on the replayed page. Hover a box to highlight the matching A11y
+  row; click to copy a resilient locator to the clipboard. Hovering an A11y row
+  highlights the element back — the two views are linked bidirectionally.
+- **Transcript tab + Copy-for-LLM** — the run's `transcript.md` rendered
+  in-panel, with a one-click **Copy prompt** that bundles the transcript and any
+  failing-command errors into paste-ready LLM context.
+- **Timeline** — categorized action markers (navigation / input / assertion /
+  query / …), a dense filmstrip when `filmstrip` is enabled, Network and Console
+  tracks, a draggable playhead, and playback controls (play/pause, step, speed).
+  Cucumber runs nest as Feature → Scenario → Step.
+- **Errors, Console, Network, and Source tabs** — the same workbench tabs as
+  live mode.
+
+The same `trace.zip` also opens in other compatible standalone trace viewers,
+and its on-disk format is what an Allure report's embedded trace viewer reads
+(Allure ≥ 2.35).
+
+## Waits and assertion rows
+
+These apply in live mode and in the trace player alike.
+
+**Waits.** A `waitUntil` or `waitFor*` call is one row, named after what it waited for: `Element.waitForExist`, `Element.waitForDisplayed` and the rest of the family on their selector, and `Browser.waitForFunction` for a `waitUntil`. The row appears as soon as the wait starts and is updated when it ends, and a wait that times out is a failed row carrying the timeout. The commands a `waitUntil` condition issued, and the polls of an element wait (such as `isExisting`), nest under the wait's row, one row per distinct call rather than one per poll. They are collapsed by default and open by themselves when the wait failed or holds the selected row. A command under a passing wait that failed before the wait passed is a poll the wait retried past, not a failure: it shows neutral with its error in a tooltip, and is left out of the Errors tab, the copied failures and the trace's errors. Under a wait that timed out, the same commands keep their errors. See [Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
+
+**Assertion targets.** An assertion row names the element it is about, so selecting it boxes that element in the snapshot. A `node:assert` call takes values rather than elements, so its element comes from where the asserted value was read: `assert.equal(await heading.getText(), 'Secure Area')` names `heading`'s selector, and so does a value from any other element read, `getHTML` and `getComputedRole` included. Only a read made earlier in the same test (or Cucumber scenario) counts, and a value read from the page itself, such as the title or the URL, names no element, even when some element's text reads the same. `browser.getTitle()` is a `Page.getTitle` row of its own, and `expect(browser).toHaveTitle(...)` folds into that read as one `expect.toHaveTitle` row.
+
+## Allure integration
+
+When `@wdio/allure-reporter` is installed, trace-mode artifacts are attached to
+the Allure report automatically (and `emitArtifactsManifest` is auto-enabled, so
+the run also writes the `devtools-artifacts-<sessionId>.json` index):
+
+- **`traceGranularity: 'test'`** — each test's trace (`application/zip`, a
+  download that opens in `pnpm show-trace`), screenshot (`image/png`, inline)
+  and video (`video/webm`, inline) attach to that test's card. This is the mode
+  to use for a per-test Allure report.
+- **`traceGranularity: 'session'` / `'spec'`** — a session/spec-spanning
+  `trace.zip` is written to disk and enumerated in
+  `devtools-artifacts-<sessionId>.json` (the artifacts manifest, listing every
+  artifact + each test's state), but it is **not** attached to individual test
+  cards.
+
+### Why session/spec traces aren't attached per test
+
+The reporter's `addAttachment` targets the **currently-running test**. A
+session/spec trace is only finalized **after** all its tests have run — by which
+point their Allure cards are already closed — so there is no open test to attach
+it to. Per-test attachment therefore requires `traceGranularity: 'test'`, where
+each slice is written during its own test hook while the card is still open.
+
+To surface a session/spec trace in Allure anyway, post-process the manifest in
+your **own** `onComplete` hook (copying the `trace.zip` into `allure-results/`
+and appending it to the result files). This is deliberately left to userland —
+baking it into the adapter would couple it to Allure's on-disk result format.
+
+### Report noise
+
+In trace mode the service captures a per-action snapshot (a `takeScreenshot`
+WebDriver command) to build the trace timeline; `@wdio/allure-reporter` logs
+every WebDriver command as a step and attaches a screenshot per `takeScreenshot`.
+Silence that flood with the reporter's own options — the `trace.zip` /
+screenshot / video attachments are unaffected:
+
+```ts
+reporters: [
+  ['allure', {
+    outputDir: 'allure-results',
+    disableWebdriverStepsReporting: true,
+    disableWebdriverScreenshotsReporting: true
+  }]
+]
+```
+
+## Screencast Recording
+
+Records browser sessions as `.webm` videos. Videos are displayed in the DevTools UI alongside the snapshot and DOM mutation views.
+
+Available across all three adapters — WebdriverIO uses CDP push for Chrome (and polling fallback otherwise); see the [Nightwatch](../nightwatch-devtools/README.md#screencast) and [Selenium](../selenium-devtools/README.md) READMEs for their adapter-specific modes.
+
+### Setup
+
+Screencast encoding requires the **ffmpeg** binary on `PATH`; the `fluent-ffmpeg` wrapper installs with the service:
+
+```sh
+# Install ffmpeg: https://ffmpeg.org/download.html
+brew install ffmpeg        # macOS
+sudo apt install ffmpeg    # Ubuntu/Debian
+```
+
+### Configuration
+
+```ts
+services: [
+  [
+    'devtools',
+    {
+      screencast: {
+        enabled: true,
+        captureFormat: 'jpeg',
+        quality: 70,
+        maxWidth: 1280,
+        maxHeight: 720,
+      }
+    }
+  ]
+]
+```
+
+### Options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | `boolean` | `false` | Enable session recording |
+| `captureFormat` | `'jpeg' \| 'png'` | `'jpeg'` | Frame image format. **Chrome/Chromium only** — controls the format Chrome sends over CDP. Ignored in polling mode (Firefox, Safari) where screenshots are always PNG. Does not affect the output video container, which is always `.webm` |
+| `quality` | `number` | `70` | JPEG compression quality 0–100. Only applies in Chrome/Chromium CDP mode with `captureFormat: 'jpeg'` |
+| `maxWidth` | `number` | `1280` | Maximum frame width in pixels. **Chrome/Chromium only** — Chrome scales frames before sending over CDP. Ignored in polling mode |
+| `maxHeight` | `number` | `720` | Maximum frame height in pixels. **Chrome/Chromium only** — same as above |
+| `pollIntervalMs` | `number` | `200` | Screenshot interval in milliseconds for non-Chrome browsers (polling mode). Lower = smoother video but more WebDriver round-trips during test execution |
+
+### Browser support
+
+Recording works across all major browsers using automatic mode selection:
+
+| Browser | Mode | Notes |
+|---|---|---|
+| Chrome / Chromium / Edge | **CDP push** | Chrome pushes frames over the DevTools Protocol. Efficient — no impact on test command timing |
+| Firefox / Safari / others | **BiDi polling** | Falls back to calling `browser.takeScreenshot()` at `pollIntervalMs` intervals. Works wherever WebDriver screenshots are supported; adds a small overhead proportional to the interval |
+
+No configuration change is needed to switch modes — the service detects browser capabilities automatically and logs which mode is active.
+
+### Behaviour
+
+- Recording starts when the browser session opens and stops when it closes.
+- Leading blank frames (captured before the first URL navigation) are automatically trimmed so videos begin at the first meaningful page action.
+- If `browser.reloadSession()` is called mid-run, the service finalises the current recording and starts a fresh one for the new session. Each session produces its own `.webm` file.
+- When multiple recordings exist, the DevTools UI shows a **Recording N** dropdown to switch between them.
+- Output files are written to a `test-results/` folder under `outputDir` if explicitly configured, otherwise under the directory containing `wdio.conf.ts` (WDIO's `rootDir`).
+
+### Output files
+
+| File | Description |
+|---|---|
+| `wdio-video-{sessionId}.webm` | Screencast video (only produced when `screencast.enabled: true`) |
+
+## Performance API capture
+
+After every navigation command (`url`, `navigateTo`, etc.), the service runs the shared `CAPTURE_PERFORMANCE_SCRIPT` from `@wdio/devtools-core` to read `window.performance.getEntriesByType('navigation' | 'resource')`, cookies, and document info. The result is attached to the command entry in the Actions tab so you see `loadTime` / `domReady` / `responseTime` / resource counts per navigation. The row's summary shows the load time in milliseconds to two decimals, such as `246.40 ms`; the full-precision timings stay in the row's performance data. Same script and `applyPerformanceData` post-processing used by selenium-devtools and nightwatch-devtools, so the dashboard fields are the same across all three adapters.
+
+## Native app network (Appium)
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The service can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in the session's capabilities:
+
+```ts
+capabilities: [{
+    platformName: 'Android',
+    'appium:automationName': 'UiAutomator2',
+    'appium:app': '/path/to/app.apk',
+    'appium:intercept': true
+}]
+```
+
+The service starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
+## Reference
+
+```ts
+services: [['devtools', options]]
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `port` | `number` | `3000` (a free port is used if it is taken) | Port the DevTools UI server listens on |
+| `hostname` | `string` | `'localhost'` | Hostname the DevTools UI server binds to |
+| `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
+| `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below; for trace mode use `video`) |
+| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` under a `test-results/` directory (base dir resolved from the test file's dir → config dir → cwd) at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
+| `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace mode only. Output layout — `'zip'` writes a single archive; `'ndjson-directory'` unpacks the same files into `trace-<id>/` (one less unzip step for scripted/agentic consumers). The `zip` opens in `show-trace`; a directory opens in other compatible viewers, or zip it first. |
+| `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned — one per worker session / spec file / test. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
+| `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep: `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'`. The retry-aware policies pair best with `traceGranularity: 'test'`. |
+| `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`). WDIO-service-specific. |
+| `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). WDIO-service-specific. |
+| `filmstrip` | `boolean` | `true` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback — dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames — a static wait — collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `emitArtifactsManifest` | `boolean` | `false` | Trace mode only. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when `@wdio/allure-reporter` is in the config**. |
+| `captureAssertions` | `boolean` | `true` | Capture assertions as command/action rows — `node:assert` plus passing *and* failing expect-webdriverio matchers, folded into single `expect.<matcher>` rows (e.g. `toHaveText`, `toExist`). Set `false` to opt out. |
+
+## How It Works
+
+Most of this service's capture + reporting logic now lives in `@wdio/devtools-core` and is consumed by all three adapters: `SessionCapturerBase`, `ScreencastRecorderBase`, `TestReporterBase`, `loadInjectableScript`/`pollUntilReady`, `processTracePayload`, `captureSource`, `sendCommand`/`sendReplaceCommand`, `errorMessage`/`toError`/`serializeError`, `RetryTracker`, `mapChromeBrowserLogs`, `attachBidiHandlers`, `finalizeScreencast`, `encodeToVideo`, `suite-helpers`, `test-discovery`. This service contains only WDIO-specific glue (BiDi event listeners via WDIO's native `browser.on`, the WDIO reporter integration, `beforeCommand`/`afterCommand` hook wiring, Cucumber UID branching).
+
+## :page_facing_up: License
+
+[MIT](/LICENSE)

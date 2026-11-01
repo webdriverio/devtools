@@ -1,0 +1,157 @@
+import path from 'node:path'
+import http from 'node:http'
+import { remote } from 'webdriverio'
+import { start } from '@wdio/devtools-backend'
+import logger from '@wdio/logger'
+import { REUSE_ENV, RUNNER_ENV } from '@wdio/devtools-shared'
+import { resolveRunId } from '@wdio/devtools-core'
+import { DEFAULT_LAUNCH_CAPS } from './constants.js'
+import { configPathFromArgv, detectInvocationSpecs } from './invocation-args.js'
+import type { ServiceOptions, ExtendedCapabilities } from './types.js'
+
+const log = logger('@wdio/devtools-service:Launcher')
+
+// On rerun the original CLI process still owns its port-binding services;
+// swallow EADDRINUSE so other services' onPrepare don't fail loudly.
+if (process.env[REUSE_ENV.REUSE] === '1') {
+  const originalListen = http.Server.prototype.listen
+  http.Server.prototype.listen = function patchedListen(
+    this: http.Server,
+    ...args: unknown[]
+  ): http.Server {
+    const originalEmit = this.emit.bind(this)
+    this.emit = (event: string, ...emitArgs: unknown[]) => {
+      if (
+        event === 'error' &&
+        (emitArgs[0] as { code?: string })?.code === 'EADDRINUSE'
+      ) {
+        log.warn(
+          `Suppressed EADDRINUSE on rerun (port ${String(args[0])}); reusing existing server from the originating CLI process`
+        )
+        this.emit = originalEmit
+        process.nextTick(() => originalEmit('listening'))
+        return true
+      }
+      return originalEmit(event, ...emitArgs)
+    }
+    return originalListen.apply(this, args as never) as http.Server
+  }
+}
+
+export class DevToolsAppLauncher {
+  #options: ServiceOptions
+  #browser?: WebdriverIO.Browser
+
+  constructor(options: ServiceOptions) {
+    this.#options = options
+  }
+
+  #captureRerunEnv(): void {
+    const detectedConfig = configPathFromArgv()
+    if (detectedConfig && !process.env[RUNNER_ENV.WDIO_CONFIG]) {
+      process.env[RUNNER_ENV.WDIO_CONFIG] = detectedConfig
+      log.info(`Detected config for reruns: ${detectedConfig}`)
+    }
+    if (!process.env[RUNNER_ENV.WDIO_INITIAL_SPECS]) {
+      const detectedSpecs = detectInvocationSpecs()
+      if (detectedSpecs.length) {
+        process.env[RUNNER_ENV.WDIO_INITIAL_SPECS] = detectedSpecs.join(
+          path.delimiter
+        )
+        log.info(
+          `Detected initial specs for Run All: ${detectedSpecs.join(', ')}`
+        )
+      }
+    }
+  }
+
+  async onPrepare(_: never, caps: ExtendedCapabilities[]) {
+    // Stamped here, in the launcher, because workers inherit its environment:
+    // every worker this run forks then reports the same run id, which is what
+    // stops the backend reading the next spec's worker as a new run.
+    resolveRunId()
+    if (this.#options.mode === 'trace') {
+      log.info('Trace mode — skipping backend and Chrome window')
+      return
+    }
+    try {
+      this.#captureRerunEnv()
+      const reusePort = process.env[REUSE_ENV.PORT]
+      const reuseHost =
+        process.env[REUSE_ENV.HOST] || this.#options.hostname || 'localhost'
+      if (process.env[REUSE_ENV.REUSE] === '1' && reusePort) {
+        log.info(
+          `Reusing existing DevTools app at http://${reuseHost}:${reusePort}`
+        )
+        this.#updateCapabilities(caps, {
+          port: Number(reusePort),
+          hostname: reuseHost
+        })
+        return
+      }
+      const { port } = await start({
+        port: this.#options.port,
+        hostname: this.#options.hostname
+      })
+      if (!port) {
+        return console.log(`Failed to start server on port ${port}`)
+      }
+      this.#updateCapabilities(caps, {
+        port,
+        hostname: this.#options.hostname || 'localhost'
+      })
+      this.#browser = await remote({
+        capabilities: {
+          ...DEFAULT_LAUNCH_CAPS,
+          ...this.#options.devtoolsCapabilities
+        }
+      })
+      await this.#browser.url(`http://localhost:${port}`)
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  async onComplete() {
+    if (this.#browser) {
+      logger.setLevel('webdriver', 'warn')
+      log.info('Please close the browser window to finish...')
+      while (true) {
+        try {
+          await this.#browser.getTitle()
+          await new Promise((res) => setTimeout(res, 1000))
+        } catch {
+          log.info('Browser window closed, stopping DevTools app')
+          break
+        }
+      }
+      try {
+        await this.#browser.deleteSession()
+      } catch (err) {
+        log.warn(
+          'Session already closed or could not be deleted:',
+          (err as Error).message
+        )
+      }
+    }
+  }
+
+  #updateCapabilities(
+    caps: ExtendedCapabilities[],
+    devtoolsApp: { port: number; hostname?: string }
+  ) {
+    /**
+     * we don't support multiremote yet
+     */
+    if (!Array.isArray(caps)) {
+      return
+    }
+
+    for (const cap of caps) {
+      cap['wdio:devtoolsOptions'] = {
+        port: devtoolsApp.port,
+        hostname: devtoolsApp.hostname || 'localhost'
+      }
+    }
+  }
+}

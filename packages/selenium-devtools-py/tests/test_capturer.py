@@ -1,0 +1,75 @@
+import unittest
+
+from selenium_devtools import frames
+from selenium_devtools.capturer import SessionCapturer
+
+from wire_contract import RecordingTransport
+
+
+class TestSessionCapturer(unittest.TestCase):
+    def setUp(self):
+        self.tx = RecordingTransport()
+        self.cap = SessionCapturer(self.tx)
+
+    def test_metadata_sent_once(self):
+        self.cap.ensure_metadata("sess-1", {"browserName": "chrome"}, None)
+        self.cap.ensure_metadata("sess-1", {"browserName": "chrome"}, None)
+        meta_frames = [d for s, d in self.tx.sent if s == "metadata"]
+        self.assertEqual(len(meta_frames), 1)
+        self.assertEqual(meta_frames[0]["sessionId"], "sess-1")
+
+    def test_capture_command_numbers_ids_consecutively_and_wraps_in_array(self):
+        self.cap.capture_command(command="get", args={"url": "x"},
+                                 result={"v": 1}, start_time=1, call_source=None)
+        self.cap.capture_command(command="click", args=None,
+                                 result=None, start_time=2, call_source=None)
+        cmds = [d for s, d in self.tx.sent if s == "commands"]
+        self.assertEqual(len(cmds), 2)
+        self.assertEqual(cmds[1][0]["id"], cmds[0][0]["id"] + 1)
+        # non-list args are normalized to a list
+        self.assertEqual(cmds[0][0]["args"], [{"url": "x"}])
+        self.assertEqual(cmds[1][0]["args"], [])
+
+    def test_two_capturers_number_their_rows_apart(self):
+        # Two xdist workers share a dashboard that replaces a row by id first.
+        other = SessionCapturer(RecordingTransport())
+        mine = self.cap.capture_command(command="get", args=None, start_time=1, call_source=None)
+        theirs = other.capture_command(command="get", args=None, start_time=1, call_source=None)
+        self.assertNotEqual(mine["id"], theirs["id"])
+        self.assertLess(max(mine["id"], theirs["id"]), 2**53)
+
+    def test_capture_command_records_error(self):
+        self.cap.capture_command(command="boom", args=[],
+                                 error=RuntimeError("x"), start_time=1,
+                                 call_source=None)
+        cmd = [d for s, d in self.tx.sent if s == "commands"][0][0]
+        self.assertEqual(cmd["error"]["name"], "RuntimeError")
+
+    def test_page_network_entries_are_forwarded_as_built(self):
+        # The collector's rows already have the wire shape; the transport's
+        # contract check is what proves that, so this goes through it.
+        row = {
+            "id": "rt-1-0", "url": "https://x/", "method": "", "type": "document",
+            "timestamp": 1, "startTime": 0, "source": "resource-timing",
+            "timings": {"dns": 1, "connect": 2, "send": 0, "wait": 3, "receive": 4},
+        }
+        self.cap.send_network_requests([row])
+        self.assertIn(("networkRequests", [row]), self.tx.sent)
+
+    def test_an_empty_page_network_batch_sends_nothing(self):
+        self.cap.send_network_requests([])
+        self.assertEqual([s for s, _ in self.tx.sent if s == "networkRequests"], [])
+
+    def test_suites_sent_as_uid_keyed_records(self):
+        # UI expects Record<uid, SuiteStats>[], not a plain array of suites.
+        suite = frames.suite_stats(uid="suite-1", title="S", file="s.py", start_ms=0, tests=[])
+        self.cap.send_suites([suite])
+        self.assertIn(("suites", [{"suite-1": suite}]), self.tx.sent)
+
+    def test_suites_empty_payload_not_sent(self):
+        self.cap.send_suites([{"title": "no uid"}])
+        self.assertEqual([s for s, _ in self.tx.sent if s == "suites"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

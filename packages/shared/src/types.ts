@@ -1,0 +1,763 @@
+// Canonical type definitions shared across @wdio/devtools-* packages.
+//
+// Adapters (service, nightwatch-devtools, selenium-devtools) produce events of
+// these shapes. The backend stores and forwards them. The app consumes them.
+// See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
+
+import type { DeviceInfo } from './device.js'
+
+export const LOG_LEVELS = [
+  'trace',
+  'debug',
+  'log',
+  'info',
+  'warn',
+  'error'
+] as const
+export type LogLevel = (typeof LOG_LEVELS)[number]
+
+/** Where a captured ConsoleLog entry originated. */
+export type LogSource = 'browser' | 'test' | 'terminal'
+
+export enum TraceType {
+  Standalone = 'standalone',
+  Testrunner = 'testrunner'
+}
+
+export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
+
+/** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
+export type DevToolsMode = 'live' | 'trace'
+
+/** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
+ *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
+ *  into `trace-<id>/`. Both open in any standard trace viewer — the unpacked
+ *  form skips the unzip step for agentic / scripted consumers. */
+export type TraceFormat = 'zip' | 'ndjson-directory'
+
+/** `session` (default) writes one trace per worker session; `spec` writes one
+ *  trace per spec file, keyed on the spec's filename; `test` writes one trace
+ *  per test. Only applies in trace mode. */
+export type TraceGranularity = 'session' | 'spec' | 'test'
+
+/** Retention policy for written traces. Only applies in trace mode; `on` is
+ *  the current always-write behavior (there is no `off` — that's simply not
+ *  using trace mode). */
+export type TraceRetentionPolicy =
+  | 'on'
+  | 'retain-on-failure'
+  | 'retain-on-first-failure'
+  | 'on-first-retry'
+  | 'on-all-retries'
+  | 'retain-on-failure-and-retries'
+
+/** Per-test screenshot capture policy, mirroring Playwright's `screenshot`
+ *  option. `only-on-failure` shoots after a failing test; `on` after every
+ *  test; `off` (default) never. Only applies in trace mode. */
+export type TraceScreenshotPolicy = 'off' | 'on' | 'only-on-failure'
+
+/** Per-test video capture policy. `off` (default) records nothing; any other
+ *  value records the screencast and keeps each test's video slice per the same
+ *  retention semantics as `tracePolicy`. Only applies in trace mode at
+ *  `traceGranularity: 'test'` (the per-test scope videos attach to). */
+export type TraceVideoPolicy = 'off' | TraceRetentionPolicy
+
+/** One node in a test's ancestor chain, outermost first. */
+export interface TestAncestor {
+  uid: string
+  title: string
+  kind: 'feature' | 'scenario' | 'suite' | 'test' | 'step' | 'hook'
+}
+
+/** Per-test metadata for Tracing.tracingGroup events in trace output. */
+export interface TestMetadataEntry {
+  title: string
+  specFile: string
+  state?: TestStatus
+  attempt?: number
+  ancestry?: TestAncestor[]
+}
+
+/** Test metadata keyed by testUid — maps stable test IDs to human-readable
+ *  title + specFile for Tracing.tracingGroup events in trace output. */
+export type TestMetadataMap = Map<string, TestMetadataEntry>
+
+/**
+ * Normalized assertion result an adapter may attach to `CommandLog.result` for
+ * an assertion command. The trace exporter's assert-param builder prefers this
+ * over the positional `[actual, expected]` arg convention — correct for
+ * frameworks whose asserts pass only an expected value (a matcher like
+ * `titleContains('x')`), where args[0] is the expected, not the actual.
+ * Cross-package contract: adapters produce it, core's exporter consumes it.
+ */
+export interface CollapsedAssertResult {
+  passed: boolean
+  actual?: unknown
+  expected?: unknown
+  message?: string
+}
+
+/**
+ * Enum-style accessor for the canonical TestStatus values. Adapter code uses
+ * this for readable comparisons (`state === TEST_STATE.PASSED`). The app's
+ * sidebar has a parallel `TestState` accessor with the same values; that's a
+ * naming holdover (PascalCase enum-style) — both can coexist.
+ */
+export const TEST_STATE = {
+  PENDING: 'pending',
+  RUNNING: 'running',
+  PASSED: 'passed',
+  FAILED: 'failed',
+  SKIPPED: 'skipped'
+} as const satisfies Record<string, TestStatus>
+
+/**
+ * Identifier sent by each adapter on RunnerRequestBody.framework. Used by the
+ * backend's runner to pick rerun CLI args. This is technically the *test
+ * runner* identifier rather than the higher-level framework (wdio/nightwatch/
+ * selenium) — wdio's runner can be mocha/jasmine/cucumber, nightwatch can be
+ * vanilla or cucumber, selenium adapters report 'selenium-webdriver'.
+ */
+export const TEST_RUNNER_IDS = [
+  'mocha',
+  'jasmine',
+  'cucumber',
+  'nightwatch',
+  'nightwatch-cucumber',
+  'selenium-webdriver'
+] as const
+export type TestRunnerId = (typeof TEST_RUNNER_IDS)[number]
+
+/**
+ * Narrow an untrusted value onto {@link TestRunnerId}. Needed wherever the id
+ * arrives from outside this build — a framework's own config value, or a trace
+ * zip recorded by another version — since the static type can't vouch for it.
+ */
+export function isTestRunnerId(value: unknown): value is TestRunnerId {
+  return (
+    typeof value === 'string' &&
+    (TEST_RUNNER_IDS as readonly string[]).includes(value)
+  )
+}
+
+// ─── Inner event payloads ───────────────────────────────────────────────────
+
+export interface PerformanceData {
+  navigation?: {
+    url: string
+    timing: {
+      loadTime?: number
+      domReady?: number
+      responseTime?: number
+      dnsLookup?: number
+      tcpConnection?: number
+      serverResponse?: number
+    }
+  }
+  resources?: Array<{
+    url: string
+    duration: number
+    size: number
+    type: string
+    startTime: number
+    responseEnd: number
+  }>
+}
+
+export interface DocumentInfo {
+  url: string
+  title: string
+  headers: { userAgent: string; language: string; platform: string }
+  documentInfo: { readyState: string; referrer: string; characterSet: string }
+}
+
+export interface CommandLog {
+  command: string
+  args: unknown[]
+  /** Optional display label (e.g. trace-player's `Element.fill("x")`). Falls
+   *  back to `command` when absent. */
+  title?: string
+  result?: unknown
+  error?: Error | SerializedError
+  timestamp: number
+  /** Wall-clock ms when the command was invoked (before execution). */
+  startTime?: number
+  /** Monotonic issue order, stamped when the test issued the command. Breaks
+   *  ties the millisecond clock can't: a deferred row (a Nightwatch native
+   *  assert, finalized in a batch at test-end) is appended long after the driver
+   *  row it was issued before, so an equal `startTime` otherwise resolved in
+   *  insertion order and put the assert after the command that followed it. */
+  sequence?: number
+  callSource?: string
+  screenshot?: string
+  testUid?: string
+  performance?: PerformanceData
+  cookies?: string
+  documentInfo?: DocumentInfo
+  /** Stable row identity: a `replaceCommand` locates its row by it, and a child names its parent by it. */
+  id?: number
+  /** The `id` of the row whose execution issued this one (a wait's condition reads, an element wait's polls). The
+   *  parent is sent first, while it is still running, so a live list can nest the child on arrival; a row whose
+   *  parent is absent from the list renders at the top level (`nestCommands`). */
+  parentId?: number
+  /** Cucumber step this command ran under — nests below testUid in the trace's
+   *  group tree (Feature → Scenario → Step). Set by the adapter step hooks. */
+  stepUid?: string
+  /** Depth-indented accessibility-tree text for the page state at this command
+   *  (from the per-action `-snapshot.txt` resource). Reconstructed by the trace
+   *  reader; drives the player's A11y tab. */
+  snapshotText?: string
+  /** Page-coordinate hit point for pointer actions — the centre of the matched
+   *  element at capture time. Synthesized in the exporter; drives the snapshot
+   *  click marker and the timeline pointer glyph. */
+  point?: { x: number; y: number }
+  /** Locator of the element this command acted on. Survives assertion folding
+   *  (where `args` becomes the expected value), so the player's element overlay
+   *  can box an assertion target like `#flash`. Carried through the trace as the
+   *  `locator` action param — kept distinct from the `selector` param so it
+   *  never feeds `paramsToArgs`. */
+  selector?: string
+}
+
+/**
+ * Payload broadcast under the WS scope `'replaceCommand'`. Tells the UI to
+ * swap an existing CommandLog in-place — used when an adapter reconciles a
+ * preliminary entry with the actual final result (e.g. selenium's
+ * driverPatcher emits a placeholder, then replaces it once the command
+ * resolves).
+ */
+export interface ReplaceCommandWsPayload {
+  oldTimestamp: number
+  command: CommandLog
+}
+
+export interface ConsoleLog {
+  type: LogLevel
+  args: unknown[]
+  timestamp: number
+  source?: LogSource
+}
+
+/**
+ * Every word a captured `NetworkRequest.type` can carry. The capture side
+ * classifies once (shared's `getRequestType` for driver-observed traffic and
+ * Resource Timing entries, the page collector for its patched
+ * `fetch`/`XMLHttpRequest`) and the app only
+ * translates these words into display buckets. Adding a category here is the
+ * compile-time trigger that forces every consumer's mapping to handle it.
+ * `other` is the residual for traffic no producer could classify (a failed
+ * request that never got a content-type, a foreign trace's unknown mime).
+ */
+export const REQUEST_TYPES = [
+  'document',
+  'stylesheet',
+  'script',
+  'image',
+  'font',
+  'fetch',
+  'xhr',
+  'other'
+] as const
+export type RequestType = (typeof REQUEST_TYPES)[number]
+
+/**
+ * Narrow an untrusted value onto {@link RequestType}. Needed wherever a type
+ * arrives from outside this build — a trace file written by an older version,
+ * or an adapter payload off the wire — since the static type can't vouch for it.
+ */
+export function isRequestType(value: unknown): value is RequestType {
+  return (
+    typeof value === 'string' &&
+    (REQUEST_TYPES as readonly string[]).includes(value)
+  )
+}
+
+/**
+ * Stated only by the one network source that carries no headers, no body and
+ * (outside Chromium) no status: the document's Resource Timing buffer, which
+ * is all a browser without BiDi exposes. Every other source carries them and
+ * states nothing; a consumer reads the mark to name the gap rather than render
+ * the request as still in flight or failed.
+ */
+export const NETWORK_CAPTURE_SOURCE = {
+  RESOURCE_TIMING: 'resource-timing'
+} as const
+export type NetworkCaptureSource =
+  (typeof NETWORK_CAPTURE_SOURCE)[keyof typeof NETWORK_CAPTURE_SOURCE]
+
+/** Phase durations in ms, HAR's phases. A phase the browser withheld is
+ *  absent. An interface rather than a mapped type because the wire-schema
+ *  generator reads property declarations. */
+export interface NetworkTimings {
+  blocked?: number
+  dns?: number
+  connect?: number
+  ssl?: number
+  send?: number
+  wait?: number
+  receive?: number
+}
+
+/** The phases, in HAR's order, for a consumer that iterates them. */
+export const NETWORK_TIMING_PHASES = [
+  'blocked',
+  'dns',
+  'connect',
+  'ssl',
+  'send',
+  'wait',
+  'receive'
+] as const satisfies readonly (keyof NetworkTimings)[]
+export type NetworkTimingPhase = (typeof NETWORK_TIMING_PHASES)[number]
+
+export interface NetworkRequest {
+  id: string
+  url: string
+  /** Empty when the source does not expose it: Resource Timing names no
+   *  method, so only a parser-initiated load (an image, a script) is known to
+   *  be a GET. */
+  method: string
+  headers?: Record<string, string>
+  cookies?: unknown[]
+  status?: number
+  statusText?: string
+  timestamp: number
+  startTime: number
+  endTime?: number
+  time?: number
+  type: RequestType
+  initiator?: string
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  navigation?: string
+  redirectChain?: unknown[]
+  children?: NetworkRequest[]
+  response?: {
+    fromCache: boolean
+    headers: Record<string, string>
+    mimeType: string
+    status: number
+  }
+  error?: string
+  requestBody?: string
+  responseBody?: string
+  size?: number
+  timings?: NetworkTimings
+  source?: NetworkCaptureSource
+}
+
+// ─── Trace and metadata ─────────────────────────────────────────────────────
+
+export interface Viewport {
+  width: number
+  height: number
+  offsetLeft: number
+  offsetTop: number
+  scale: number
+}
+
+export interface ScreencastInfo {
+  sessionId?: string
+  videoPath?: string
+  videoFile?: string
+  frameCount?: number
+  duration?: number
+  startTime?: number
+}
+
+/** Single captured screencast frame — base64 image + capture timestamp (ms). */
+export interface ScreencastFrame {
+  /** Base64-encoded image data — JPEG/PNG from CDP push mode or PNG from browser.takeScreenshot() in polling mode. */
+  data: string
+  /** Unix timestamp in milliseconds. */
+  timestamp: number
+}
+
+/**
+ * Screencast recorder configuration. Used by every adapter — the base recorder
+ * in `@wdio/devtools-core` consumes this shape; per-adapter wrappers extend it
+ * (e.g. WDIO's CDP fast-path opts).
+ */
+export interface ScreencastOptions {
+  /** Enable screencast recording for this session (default: false). */
+  enabled?: boolean
+  /**
+   * Image format for individual frames (default: 'jpeg').
+   * - Chrome/Chromium (CDP mode): controls the format Chrome sends over CDP.
+   * - Other browsers (polling mode): screenshots are always PNG; ignored.
+   * Does NOT affect the output video container, which is always WebM.
+   */
+  captureFormat?: 'jpeg' | 'png'
+  /** JPEG quality 0–100 (default: 70). CDP mode + 'jpeg' only. */
+  quality?: number
+  /** Max frame width in pixels Chrome sends over CDP (default: 1280). */
+  maxWidth?: number
+  /** Max frame height in pixels Chrome sends over CDP (default: 720). */
+  maxHeight?: number
+  /**
+   * Screenshot polling interval in milliseconds for non-Chrome browsers
+   * (default: 200 ms ≈ 5 fps). Lower = smoother, more WebDriver round-trips.
+   */
+  pollIntervalMs?: number
+  /** Cap on frames held in memory (default: 2000 ≈ several minutes at ~5 fps); the buffer is decimated in place past this. */
+  maxBufferFrames?: number
+}
+
+/** Defaults applied to ScreencastOptions when not specified by the user. */
+export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
+  enabled: false,
+  captureFormat: 'jpeg',
+  quality: 70,
+  maxWidth: 1280,
+  maxHeight: 720,
+  pollIntervalMs: 200,
+  maxBufferFrames: 2000
+}
+
+/**
+ * Options every framework adapter accepts. Each adapter's own options interface
+ * extends this and adds only its framework-specific fields (e.g. WDIO's
+ * devtoolsCapabilities, Selenium's openUi, Nightwatch's bidi).
+ */
+export interface BaseDevToolsOptions {
+  /** Port to launch the application on (default: random). */
+  port?: number
+  /** Hostname to launch the application on. @default localhost */
+  hostname?: string
+  /** Screencast recording options. When enabled, a continuous video of the
+   *  browser session is recorded and saved as a .webm file. */
+  screencast?: ScreencastOptions
+  /** Capture node:assert assertions (and framework `expect` matchers where
+   *  supported) as first-class commands. Default true. */
+  captureAssertions?: boolean
+  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  mode?: DevToolsMode
+  /** Trace output layout — `zip` (default) writes a single archive,
+   *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
+  traceFormat?: TraceFormat
+  /** Trace output granularity — `session` (default) writes one trace per
+   *  worker session; `spec` writes one per spec file. Only applies in trace mode. */
+  traceGranularity?: TraceGranularity
+  /** Trace retention policy — gates which traces are kept (e.g.
+   *  `retain-on-failure`). Default `on` (keep all). Only applies in trace mode. */
+  tracePolicy?: TraceRetentionPolicy
+  /** Record a dense, continuous screencast filmstrip into the trace for
+   *  scrubbable playback in the trace player — not just one frame per action.
+   *  The dense frames are added alongside the per-action frames (which carry the
+   *  DOM snapshots). Runs the screencast recorder (CDP push on Chrome, polling
+   *  elsewhere). Default true. Set `false` to record only one frame per action
+   *  (smaller trace, no continuous recorder). Only applies in trace mode. */
+  filmstrip?: boolean
+  /** Write the `devtools-artifacts-<sessionId>.json` manifest next to the trace
+   *  — the generic index reporters/CI consume to discover produced artifacts.
+   *  Off by default; auto-enabled when an Allure reporter is detected (WDIO:
+   *  `@wdio/allure-reporter` in config; Selenium: an active `allure-js-commons`
+   *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
+   *  Only applies in trace mode. */
+  emitArtifactsManifest?: boolean
+}
+
+/** Minimal Cucumber pickle-step shape — only the fields the adapters read.
+ *  Cucumber's own types vary across versions, so we pin just these. */
+export interface CucumberPickleStep {
+  text?: string
+  astNodeIds?: string[]
+  location?: { line?: number }
+}
+
+/** Minimal Cucumber pickle shape — only the fields the adapters read. `steps`
+ *  is present only where the adapter walks step boundaries (Nightwatch). */
+export interface CucumberPickle {
+  name?: string
+  uri?: string
+  location?: { line?: number }
+  astNodeIds?: string[]
+  steps?: CucumberPickleStep[]
+}
+
+/** Which run controls the dashboard offers for a session. */
+export interface RunCapabilities {
+  canRunSuites: boolean
+  canRunTests: boolean
+  canRunAll: boolean
+}
+
+/** What an adapter puts in `Metadata.options` for the run controls; the backend spawns these commands. */
+export interface RunnerOptions {
+  framework?: string
+  configFile?: string
+  configFilePath?: string
+  runCapabilities?: Partial<RunCapabilities>
+  rerunCommand?: string
+  launchCommand?: string
+}
+
+export interface Metadata {
+  type: TraceType
+  url?: string
+  options?: unknown
+  capabilities?: unknown
+  viewport?: Viewport
+  sessionId?: string
+  testEnv?: string
+  host?: string
+  modulePath?: string
+  desiredCapabilities?: Record<string, unknown>
+  /** Runner that recorded this stream. Drives the locator dialect the page
+   *  capture emits and the player's locator hint; undefined for a trace zip
+   *  recorded before the field existed, or by a foreign tool. */
+  runner?: TestRunnerId
+  /** The device this was recorded on, when the session was a native mobile one.
+   *  Read from the session's capabilities through `deviceFromCapabilities`;
+   *  undefined for a desktop capture, and for a zip recorded before the field
+   *  existed or by a foreign tool. */
+  device?: DeviceInfo
+}
+
+/** Captured metadata keyed by browser `sessionId` — lets the UI keep each
+ *  session's metadata instead of overwriting on a new session. Record (not Map)
+ *  so it stays JSON-serializable across the WS boundary and in contexts. */
+export type MetadataBySession = Record<string, Metadata>
+
+/**
+ * Node-safe shape of a captured DOM mutation. The browser-side script
+ * (packages/script) extends this with the real `MutationRecordType` union
+ * via the global `TraceMutation` declaration there; this Node version uses
+ * a plain string literal type so the shape can flow through shared without
+ * dragging the DOM lib into shared's compilation.
+ *
+ * `addedNodes` / `removedNodes` are opaque payloads here — the browser side
+ * stringifies / serializes them via SimplifiedVNode.
+ */
+export interface TraceMutation {
+  type: 'attributes' | 'characterData' | 'childList'
+  attributeName?: string
+  attributeNamespace?: string
+  attributeValue?: string
+  newTextContent?: string
+  oldValue?: string
+  addedNodes: unknown[]
+  target?: string
+  removedNodes: string[]
+  previousSibling?: string
+  nextSibling?: string
+  timestamp: number
+  url?: string
+}
+
+/**
+ * Trailing sentinel line in a `trace.mutations` NDJSON stream, marking that
+ * `dropped` late mutations were discarded under the size cap. A distinct shape
+ * (not a `TraceMutation.type`) so it never collides with a real mutation. This
+ * is the writer↔reader contract shared by core's exporter and the backend
+ * reader, so both agree on the key.
+ */
+export interface MutationsTruncationMarker {
+  __truncated__: true
+  dropped: number
+}
+
+/** True when an NDJSON entry is the truncation sentinel, not a mutation. */
+export function isMutationsTruncationMarker(
+  entry: unknown
+): entry is MutationsTruncationMarker {
+  return (
+    typeof entry === 'object' &&
+    entry !== null &&
+    (entry as { __truncated__?: unknown }).__truncated__ === true
+  )
+}
+
+/**
+ * Captured at each user-facing action boundary in `trace` mode. Feeds the
+ * downstream trace.zip exporter (Phase 4). `screenshot` is base64-encoded JPEG.
+ */
+export interface ActionSnapshot {
+  /** The key every reader joins on. A capture is stamped, once the exporter
+   *  has run, with the action whose RESULT it is — which is why `command`
+   *  below is not that action's name. */
+  timestamp: number
+  /** A label, not a key: the action the capture was taken for, which mid-run is
+   *  the one it PRECEDES (the capture is its state before it ran), while the
+   *  timestamp names the action it follows. No reader may select on it — the
+   *  one value with meaning is core's `FINAL_SNAPSHOT_COMMAND`, which marks a
+   *  frame carrying no result to show. */
+  command: string
+  url?: string
+  title?: string
+  screenshot?: string
+  elements?: unknown[]
+  snapshotText?: string
+  /** Raw accessibility nodes, for an adapter that captured the tree but cannot
+   *  serialize it — the serializer is TypeScript. The exporter turns this into
+   *  `snapshotText`, which is what the A11y tab parses; a sender that already
+   *  has `snapshotText` never sets it. */
+  accessibilityTree?: AccessibilityNode[]
+}
+
+/** One node of what `accessibilityTreeScript` evaluates to in the page. */
+export interface AccessibilityNode {
+  role: string
+  name: string
+  selector: string
+  depth: number
+  level: number | string
+  disabled: string
+  checked: string
+  expanded: string
+  selected: string
+  pressed: string
+  required: string
+  readonly: string
+  /** Whether the element's bounding rect intersects the viewport. */
+  isInViewport?: boolean
+}
+
+/** One element of what `elementsScript` evaluates to in the page. */
+export interface BrowserElementInfo {
+  tagName: string
+  name: string // computed accessible name (ARIA spec)
+  type: string
+  value: string
+  href: string
+  selector: string
+  isInViewport: boolean
+  boundingBox?: { x: number; y: number; width: number; height: number }
+}
+
+export interface GetBrowserElementsOptions {
+  includeBounds?: boolean
+  /** Only return elements whose bounding rect intersects the viewport (default true). */
+  inViewportOnly?: boolean
+}
+
+export interface TraceLog {
+  mutations: TraceMutation[]
+  logs: string[]
+  consoleLogs: ConsoleLog[]
+  networkRequests: NetworkRequest[]
+  metadata: Metadata
+  commands: CommandLog[]
+  sources: Record<string, string>
+  suites?: Record<string, SuiteStats>[]
+  screencast?: ScreencastInfo
+  config?: { configFile?: string }
+  /** Per-action snapshots captured in `mode: 'trace'` for the trace.zip exporter. */
+  actionSnapshots?: ActionSnapshot[]
+  /** Dense screencast frames (continuous recorder buffer) for the trace-mode
+   *  filmstrip. Present only when `filmstrip` is enabled; thinned + content-
+   *  addressed at export time. */
+  screencastFrames?: ScreencastFrame[]
+}
+
+// ─── Preserve-and-rerun ─────────────────────────────────────────────────────
+
+export interface TestError {
+  message?: string
+  name?: string
+  stack?: string
+  /** expect-webdriverio surfaces these directly on the error. */
+  expected?: unknown
+  actual?: unknown
+  /** expect-webdriverio also bundles them under matcherResult. */
+  matcherResult?: {
+    expected?: unknown
+    actual?: unknown
+    message?: string
+  }
+}
+
+export interface PreservedStep {
+  uid: string
+  title?: string
+  fullTitle?: string
+  start?: number
+  end?: number
+  state?: TestStatus
+  error?: TestError
+}
+
+export interface PreservedAttempt {
+  testUid: string
+  scope: 'test' | 'suite'
+  capturedAt: number
+  window: { start: number; end: number }
+  test: {
+    title?: string
+    fullTitle?: string
+    file?: string
+    callSource?: string
+    start?: number
+    end?: number
+    duration?: number
+    state?: TestStatus
+    error?: TestError
+  }
+  steps?: PreservedStep[]
+  commands: CommandLog[]
+  consoleLogs: ConsoleLog[]
+  networkRequests: NetworkRequest[]
+  /** See note on TraceLog.mutations. */
+  mutations: unknown[]
+  sources: Record<string, string>
+}
+
+// ─── Test reporter stats (nightwatch + selenium adapters) ───────────────────
+
+/**
+ * Serialized form of an `Error` — a plain object that survives
+ * `JSON.stringify` over the WS bridge.
+ */
+export interface SerializedError {
+  name: string
+  message: string
+  stack?: string
+}
+
+/**
+ * An error payload as it flows through capture: the raw `Error` instance at
+ * capture time, or its serialized form once it has crossed the WS bridge.
+ */
+export type ReporterError = Error | SerializedError
+
+export interface TestStats {
+  uid: string
+  cid: string
+  title: string
+  fullTitle: string
+  parent: string
+  state: TestStatus
+  start: Date
+  end: Date | null
+  type: 'test'
+  file: string
+  retries: number
+  _duration: number
+  error?: ReporterError
+  hooks?: unknown[]
+  callSource?: string
+  order?: number
+}
+
+export interface SuiteStats {
+  uid: string
+  cid: string
+  title: string
+  fullTitle: string
+  type: 'suite'
+  file: string
+  start: Date
+  state?: TestStatus
+  end?: Date | null
+  tests: (string | TestStats)[]
+  suites: SuiteStats[]
+  hooks: unknown[]
+  _duration: number
+  parent?: string
+  callSource?: string
+  order?: number
+  /** Cucumber-only: the .feature file path. Distinct from `file` because the
+   *  root suite's `file` stays at cwd to keep its stable UID; rerun payloads
+   *  use this to drive feature-level filtering. */
+  featureFile?: string
+}

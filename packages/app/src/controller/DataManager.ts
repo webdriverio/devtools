@@ -1,0 +1,576 @@
+import { ContextProvider, type Context, type ContextType } from '@lit/context'
+import type { ReactiveController, ReactiveControllerHost } from 'lit'
+import type {
+  ConsoleLog,
+  Metadata,
+  CommandLog,
+  NetworkRequest,
+  TraceLog,
+  PreservedAttempt,
+  TracePlayerData,
+  WsPayloadFor
+} from '@wdio/devtools-shared'
+
+import {
+  mutationContext,
+  logContext,
+  consoleLogContext,
+  networkRequestContext,
+  metadataContext,
+  metadataBySessionContext,
+  commandContext,
+  sourceContext,
+  suiteContext,
+  hasConnectionContext,
+  baselineContext,
+  selectedTestUidContext,
+  framesContext,
+  actionGroupsContext,
+  transcriptContext
+} from './context.js'
+import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
+import { HOSTED_PLAYER } from './constants.js'
+import { cacheTrace, readCachedTrace } from './trace-cache.js'
+import { readTraceArchive } from './trace-archive.js'
+import { probeServedTrace } from './trace-serve.js'
+import type { TraceSource } from '../utils/trace-sources.js'
+import { RUN_ALL_UID } from '../components/sidebar/constants.js'
+import { rerunState } from './rerunState.js'
+import type { SuiteStatsFragment, SocketMessage } from './types.js'
+import { canonicalizeUids, mergeSuite } from './suite-merge.js'
+import {
+  markAllRunning,
+  markSpecificRunning,
+  markRunningAsStopped
+} from './mark-running.js'
+import { shouldResetForNewRun } from './run-detection.js'
+import {
+  mergeNetworkRequests,
+  replaceCommand,
+  mergeSessionMetadata
+} from './contextUpdates.js'
+
+export class DataManagerController implements ReactiveController {
+  #ws?: WebSocket
+  #host: ReactiveControllerHost & HTMLElement
+  #lastSeenRunTimestamp = 0
+  #activeRerunTestUid?: string
+  /** Most-recently-seen browser sessionId — target for metadata messages
+   *  that arrive without their own sessionId (e.g. url updates). */
+  #currentSessionId?: string
+
+  mutationsContextProvider: ContextProvider<typeof mutationContext>
+  logsContextProvider: ContextProvider<typeof logContext>
+  consoleLogsContextProvider: ContextProvider<typeof consoleLogContext>
+  networkRequestsContextProvider: ContextProvider<typeof networkRequestContext>
+  metadataContextProvider: ContextProvider<typeof metadataContext>
+  metadataBySessionContextProvider: ContextProvider<
+    typeof metadataBySessionContext
+  >
+  commandsContextProvider: ContextProvider<typeof commandContext>
+  sourcesContextProvider: ContextProvider<typeof sourceContext>
+  suitesContextProvider: ContextProvider<typeof suiteContext>
+  hasConnectionProvider: ContextProvider<typeof hasConnectionContext>
+  baselineContextProvider: ContextProvider<typeof baselineContext>
+  selectedTestUidContextProvider: ContextProvider<typeof selectedTestUidContext>
+  framesContextProvider: ContextProvider<typeof framesContext>
+  actionGroupsContextProvider: ContextProvider<typeof actionGroupsContext>
+  transcriptContextProvider: ContextProvider<typeof transcriptContext>
+
+  #playerMode = false
+  /** Opens the zips `show-trace` lists; without it, a served run is never probed. */
+  onServedRun?: (sources: TraceSource[]) => void
+
+  constructor(host: ReactiveControllerHost & HTMLElement) {
+    ;(this.#host = host).addController(this)
+    this.mutationsContextProvider = this.#provide(mutationContext, [])
+    this.logsContextProvider = this.#provide(logContext, [])
+    this.consoleLogsContextProvider = this.#provide(consoleLogContext, [])
+    this.networkRequestsContextProvider = this.#provide(
+      networkRequestContext,
+      []
+    )
+    this.metadataContextProvider = this.#provide(metadataContext)
+    this.metadataBySessionContextProvider = this.#provide(
+      metadataBySessionContext,
+      {}
+    )
+    this.commandsContextProvider = this.#provide(commandContext, [])
+    this.sourcesContextProvider = this.#provide(sourceContext)
+    this.suitesContextProvider = this.#provide(suiteContext)
+    this.hasConnectionProvider = this.#provide(hasConnectionContext, false)
+    this.baselineContextProvider = this.#provide(
+      baselineContext,
+      new Map<string, PreservedAttempt>()
+    )
+    this.selectedTestUidContextProvider = this.#provide(
+      selectedTestUidContext,
+      undefined
+    )
+    this.framesContextProvider = this.#provide(framesContext, [])
+    this.actionGroupsContextProvider = this.#provide(
+      actionGroupsContext,
+      undefined
+    )
+    this.transcriptContextProvider = this.#provide(transcriptContext, undefined)
+  }
+
+  #provide<T extends Context<unknown, unknown>>(
+    context: T,
+    initialValue?: ContextType<T>
+  ): ContextProvider<T> {
+    return new ContextProvider(this.#host, { context, initialValue })
+  }
+
+  get playerMode() {
+    return this.#playerMode
+  }
+
+  setSelectedTestUid(uid: string | undefined) {
+    this.selectedTestUidContextProvider.setValue(uid)
+  }
+
+  #handleBaselineSaved(testUid: string, attempt: PreservedAttempt) {
+    const next = new Map(this.baselineContextProvider.value || new Map())
+    next.set(testUid, attempt)
+    this.baselineContextProvider.setValue(next)
+    // Auto-select the preserved test so the Compare tab can find the pair.
+    this.selectedTestUidContextProvider.setValue(testUid)
+  }
+
+  #handleBaselineCleared(testUid: string) {
+    const next = new Map(this.baselineContextProvider.value || new Map())
+    next.delete(testUid)
+    this.baselineContextProvider.setValue(next)
+  }
+
+  get hasConnection() {
+    return this.hasConnectionProvider.value
+  }
+
+  get traceType() {
+    return this.metadataContextProvider.value?.type
+  }
+
+  clearExecutionData(uid?: string, entryType?: 'suite' | 'test') {
+    // If we are already tracking a feature-level rerun and this clear is for
+    // a child scenario (not the top-level rerun trigger itself), skip resetting
+    // execution data so previously-completed scenarios' data is preserved.
+    const isChildOfActiveRerun = !!(
+      uid &&
+      rerunState.activeRerunSuiteUid &&
+      uid !== rerunState.activeRerunSuiteUid
+    )
+
+    if (!isChildOfActiveRerun) {
+      this.#resetExecutionData()
+    }
+
+    // When the backend sends clearExecutionData with no uid (e.g. a full Nightwatch
+    // rerun), immediately mark all suites as running so the spinner shows instead
+    // of the previous run's terminal state (passed/failed).
+    if (!uid) {
+      rerunState.activeRerunSuiteUid = undefined
+      this.#markTestAsRunning(RUN_ALL_UID, 'suite')
+      return
+    }
+
+    // Track the top-level rerun suite uid so we can identify child-scenario
+    // clears (from the Nightwatch backend) and skip their data wipes.
+    if (!isChildOfActiveRerun && entryType === 'suite' && uid !== RUN_ALL_UID) {
+      rerunState.activeRerunSuiteUid = uid
+    }
+
+    // Track explicit single-test reruns so merge logic can keep sibling tests
+    // stable while the backend emits suite-level "pending" snapshots.
+    if (entryType === 'test' && uid !== RUN_ALL_UID) {
+      this.#activeRerunTestUid = uid
+    } else if (entryType === 'suite' || uid === RUN_ALL_UID) {
+      this.#activeRerunTestUid = undefined
+    }
+
+    if (uid) {
+      this.#markTestAsRunning(uid, entryType)
+    }
+  }
+
+  #markTestAsRunning(uid: string, entryType?: 'suite' | 'test') {
+    const suites = this.suitesContextProvider.value || []
+    const updated =
+      uid === RUN_ALL_UID
+        ? markAllRunning(suites)
+        : markSpecificRunning(suites, uid, entryType)
+    this.suitesContextProvider.setValue(updated)
+    this.#host.requestUpdate()
+  }
+
+  hostConnected() {
+    void this.#bootstrap()
+  }
+
+  // `show-trace` serves a trace, or several to list; either skips the live WS.
+  async #bootstrap() {
+    // Hosted, there is no backend: the trace arrives as a file the viewer picks.
+    if (HOSTED_PLAYER) {
+      return
+    }
+    const served = await probeServedTrace(Boolean(this.onServedRun))
+    if (!served) {
+      return this.#connectWebSocket()
+    }
+    if ('trace' in served) {
+      return this.loadPlayerData(served.trace)
+    }
+    this.#playerMode = true
+    this.onServedRun?.(served.run)
+    this.#host.requestUpdate()
+  }
+
+  loadPlayerData(data: TracePlayerData) {
+    this.#playerMode = true
+    this.framesContextProvider.setValue(data.frames)
+    this.actionGroupsContextProvider.setValue(data.groups)
+    this.transcriptContextProvider.setValue(data.transcript)
+    // Hosted, a cached trace would outlive the tab; the cache only backs a live socket.
+    this.loadTraceFile(data.trace, !HOSTED_PLAYER)
+    this.hasConnectionProvider.setValue(true)
+    this.#host.requestUpdate()
+  }
+
+  async openTraceArchive(...args: Parameters<typeof readTraceArchive>) {
+    this.loadPlayerData(await readTraceArchive(...args))
+  }
+
+  #connectWebSocket() {
+    const wsUrl = `ws://${window.location.host}/client`
+    const ws = (this.#ws = new WebSocket(wsUrl))
+
+    ws.addEventListener('open', () => {
+      this.hasConnectionProvider.setValue(true)
+      ws.addEventListener('message', this.#handleSocketMessage.bind(this))
+      return this.#host.requestUpdate()
+    })
+
+    ws.addEventListener('error', () => {
+      const cached = readCachedTrace()
+      if (cached) {
+        this.loadTraceFile(cached)
+      }
+    })
+  }
+
+  hostDisconnected() {
+    if (this.#ws) {
+      this.#ws.close()
+      this.#ws = undefined
+    }
+  }
+
+  #handleClearExecutionScope(data: unknown): void {
+    const { uid, entryType, clearSuiteTree, runStart } =
+      data as SocketMessage<'clearExecutionData'>['data']
+    // A run is starting, so nothing is in flight for the child-clear rules
+    // below to apply to. Those latches track ONE rerun; left standing they
+    // made the next rerun at a different scope look like a child clear of the
+    // last one, and its wipe was skipped — so pressing Rerun on a suite and
+    // then on the file (or on Tests) kept the previous run's actions, console
+    // and network rows and grew them run after run.
+    if (runStart) {
+      rerunState.activeRerunSuiteUid = undefined
+      this.#activeRerunTestUid = undefined
+    }
+    this.clearExecutionData(uid, entryType)
+    if (clearSuiteTree) {
+      this.suitesContextProvider.setValue([])
+      this.#activeRerunTestUid = undefined
+      rerunState.activeRerunSuiteUid = undefined
+      this.#lastSeenRunTimestamp = 0
+    }
+  }
+
+  // Returns true if the control scope was fully handled and the regular
+  // dispatch should be skipped. Caller is responsible for requestUpdate().
+  #handleControlScope(scope: string, data: unknown): boolean {
+    if (scope === WS_SCOPE.testStopped) {
+      this.#handleTestStopped(data as WsPayloadFor<'testStopped'> | undefined)
+      return true
+    }
+    if (scope === 'screencast') {
+      const { sessionId, startTime, duration } = data as {
+        sessionId: string
+        startTime?: number
+        duration?: number
+      }
+      window.dispatchEvent(
+        new CustomEvent('screencast-ready', {
+          detail: { sessionId, startTime, duration }
+        })
+      )
+      return true
+    }
+    if (scope === WS_SCOPE.clearExecutionData) {
+      this.#handleClearExecutionScope(data)
+      return true
+    }
+    if (scope === WS_SCOPE.replaceCommand) {
+      const { oldTimestamp, command } =
+        data as SocketMessage<'replaceCommand'>['data']
+      this.#handleReplaceCommand(oldTimestamp, command)
+      return true
+    }
+    if (scope === BASELINE_WS_SCOPE.saved) {
+      const { testUid, attempt } = data as SocketMessage<
+        typeof BASELINE_WS_SCOPE.saved
+      >['data']
+      this.#handleBaselineSaved(testUid, attempt)
+      return true
+    }
+    if (scope === BASELINE_WS_SCOPE.cleared) {
+      const { testUid } = data as SocketMessage<
+        typeof BASELINE_WS_SCOPE.cleared
+      >['data']
+      this.#handleBaselineCleared(testUid)
+      return true
+    }
+    return false
+  }
+
+  #dispatchDataScope(scope: string, data: unknown): void {
+    if (scope === 'mutations') {
+      this.#handleMutationsUpdate(data as TraceMutation[])
+    } else if (scope === 'logs') {
+      this.#handleLogsUpdate(data as string[])
+    } else if (scope === 'commands') {
+      this.#handleCommandsUpdate(data as CommandLog[])
+    } else if (scope === 'metadata') {
+      this.#handleMetadataUpdate(data as Metadata)
+    } else if (scope === 'consoleLogs') {
+      this.#handleConsoleLogsUpdate(data as ConsoleLog[])
+    } else if (scope === 'networkRequests') {
+      this.#handleNetworkRequestsUpdate(data as NetworkRequest[])
+    } else if (scope === 'sources') {
+      this.#handleSourcesUpdate(data as Record<string, string>)
+    } else if (scope === 'suites') {
+      if (this.#shouldResetForNewRun(data)) {
+        this.#resetExecutionData()
+      }
+      this.#handleSuitesUpdate(data)
+    }
+  }
+
+  #handleSocketMessage(event: MessageEvent) {
+    try {
+      const { scope, data } = JSON.parse(event.data) as SocketMessage
+      if (!data) {
+        return
+      }
+      if (this.#handleControlScope(scope, data)) {
+        this.#host.requestUpdate()
+        return
+      }
+      this.#dispatchDataScope(scope, data)
+      this.#host.requestUpdate()
+    } catch (e: unknown) {
+      console.warn(`Failed to parse socket message: ${(e as Error).message}`)
+    }
+  }
+
+  #shouldResetForNewRun(data: unknown): boolean {
+    const { shouldReset, newLastSeenTimestamp } = shouldResetForNewRun(
+      data,
+      {
+        lastSeenRunTimestamp: this.#lastSeenRunTimestamp,
+        activeRerunSuiteUid: rerunState.activeRerunSuiteUid
+      },
+      this.suitesContextProvider.value || []
+    )
+    this.#lastSeenRunTimestamp = newLastSeenTimestamp
+    return shouldReset
+  }
+
+  #resetExecutionData() {
+    // Clear ONLY execution visualization data
+    this.mutationsContextProvider.setValue([])
+    this.commandsContextProvider.setValue([])
+    this.logsContextProvider.setValue([])
+    this.consoleLogsContextProvider.setValue([])
+    this.networkRequestsContextProvider.setValue([])
+
+    // Keep suitesContextProvider intact - test list stays visible
+    // Keep metadata and sources - they're environment-level
+
+    // Force synchronous re-render
+    this.#host.requestUpdate()
+  }
+
+  #handleTestStopped(data?: WsPayloadFor<'testStopped'>) {
+    this.#activeRerunTestUid = undefined
+    rerunState.activeRerunSuiteUid = undefined
+    const suites = this.suitesContextProvider.value || []
+    this.suitesContextProvider.setValue(
+      markRunningAsStopped(suites, data?.reason)
+    )
+  }
+
+  #handleMutationsUpdate(data: TraceMutation[]) {
+    this.mutationsContextProvider.setValue([
+      ...(this.mutationsContextProvider.value || []),
+      ...data
+    ])
+  }
+
+  #handleCommandsUpdate(data: CommandLog[]) {
+    this.commandsContextProvider.setValue([
+      ...(this.commandsContextProvider.value || []),
+      ...data
+    ])
+  }
+
+  #handleReplaceCommand(oldTimestamp: number, newCommand: CommandLog) {
+    this.commandsContextProvider.setValue(
+      replaceCommand(
+        this.commandsContextProvider.value || [],
+        oldTimestamp,
+        newCommand
+      )
+    )
+  }
+
+  #handleConsoleLogsUpdate(data: ConsoleLog[]) {
+    this.consoleLogsContextProvider.setValue([
+      ...(this.consoleLogsContextProvider.value || []),
+      ...data
+    ])
+  }
+
+  #handleNetworkRequestsUpdate(data: NetworkRequest[]) {
+    this.networkRequestsContextProvider.setValue(
+      mergeNetworkRequests(
+        this.networkRequestsContextProvider.value || [],
+        data
+      )
+    )
+  }
+
+  #handleMetadataUpdate(data: Metadata) {
+    const { bySession, currentSessionId, active } = mergeSessionMetadata(
+      {
+        bySession: this.metadataBySessionContextProvider.value || {},
+        currentSessionId: this.#currentSessionId
+      },
+      data
+    )
+    this.#currentSessionId = currentSessionId
+    this.metadataBySessionContextProvider.setValue(bySession)
+    this.metadataContextProvider.setValue(active)
+  }
+
+  #handleSourcesUpdate(data: Record<string, string>) {
+    const merged = {
+      ...(this.sourcesContextProvider.value || {}),
+      ...data
+    }
+    this.sourcesContextProvider.setValue(merged)
+  }
+
+  #seedSuiteMapFromContext(): Map<string, SuiteStatsFragment> {
+    const suiteMap = new Map<string, SuiteStatsFragment>()
+    ;(this.suitesContextProvider.value || []).forEach((chunk) => {
+      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
+        ([uid, suite]) => {
+          if (suite?.uid) {
+            suiteMap.set(uid, suite)
+          }
+        }
+      )
+    })
+    return suiteMap
+  }
+
+  #collectIncomingRootSuites(
+    payloads: Record<string, SuiteStatsFragment>[]
+  ): SuiteStatsFragment[] {
+    const out: SuiteStatsFragment[] = []
+    payloads.forEach((chunk) => {
+      if (!chunk) {
+        return
+      }
+      for (const suite of Object.values(chunk)) {
+        if (suite?.uid) {
+          out.push(suite)
+        }
+      }
+    })
+    return out
+  }
+
+  #handleSuitesUpdate(data: unknown) {
+    const payloads = Array.isArray(data)
+      ? (data as Record<string, SuiteStatsFragment>[])
+      : ([data] as Record<string, SuiteStatsFragment>[])
+    const suiteMap = this.#seedSuiteMapFromContext()
+    // Canonicalize uids for root suites so a rerun whose reporter assigned a
+    // different uid still merges into the original row.
+    const existingRootSuites = Array.from(suiteMap.values())
+    const incomingRootSuites = this.#collectIncomingRootSuites(payloads)
+    const mergeCtx = {
+      activeRerunTestUid: this.#activeRerunTestUid,
+      activeRerunSuiteUid: rerunState.activeRerunSuiteUid
+    }
+    const canonicalizedRoots = canonicalizeUids(
+      existingRootSuites,
+      incomingRootSuites
+    )
+    canonicalizedRoots.forEach((suite) => {
+      if (!suite?.uid) {
+        return
+      }
+      const existing = suiteMap.get(suite.uid)
+      const merged = existing ? mergeSuite(existing, suite, mergeCtx) : suite
+      suiteMap.set(suite.uid, merged)
+    })
+    this.suitesContextProvider.setValue(
+      Array.from(suiteMap.entries()).map(([uid, suite]) => ({ [uid]: suite }))
+    )
+
+    // Once the active rerun suite reaches a terminal state, clear the tracking
+    // flag so subsequent CLI-triggered runs can be detected normally.
+    if (rerunState.activeRerunSuiteUid) {
+      const activeSuite = suiteMap.get(rerunState.activeRerunSuiteUid)
+      if (activeSuite?.end) {
+        rerunState.activeRerunSuiteUid = undefined
+      }
+    }
+  }
+
+  #handleLogsUpdate(data: string[]) {
+    this.logsContextProvider.setValue(data)
+  }
+
+  loadTraceFile(traceFile: TraceLog, cache = true) {
+    if (cache) {
+      cacheTrace(traceFile)
+    }
+    this.mutationsContextProvider.setValue(
+      traceFile.mutations as TraceMutation[]
+    )
+    this.logsContextProvider.setValue(traceFile.logs)
+    this.consoleLogsContextProvider.setValue(traceFile.consoleLogs)
+    this.networkRequestsContextProvider.setValue(
+      traceFile.networkRequests || []
+    )
+    this.metadataContextProvider.setValue(traceFile.metadata)
+    // Trace files hold a single session; seed the per-session map so the
+    // Metadata tab shows it (keyed by sessionId when present).
+    const traceSessionId = traceFile.metadata?.sessionId
+    this.metadataBySessionContextProvider.setValue(
+      traceSessionId ? { [traceSessionId]: traceFile.metadata } : {}
+    )
+    this.#currentSessionId = traceSessionId
+    this.commandsContextProvider.setValue(traceFile.commands)
+    this.sourcesContextProvider.setValue(traceFile.sources)
+    this.suitesContextProvider.setValue(
+      (traceFile.suites || []) as Record<string, SuiteStatsFragment>[]
+    )
+  }
+}

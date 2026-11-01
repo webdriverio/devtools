@@ -1,0 +1,108 @@
+// Re-exports + small helpers used across the service. The heavy lifting
+// (AST parsing, source mapping, cucumber step-def lookup) lives in
+// utils/source-mapping.ts and utils/step-defs.ts.
+
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+export {
+  setCurrentSpecFile,
+  findTestLocations,
+  getCurrentTestLocation,
+  mapTestToSource,
+  mapSuiteToSource
+} from './utils/source-mapping.js'
+export { findStepDefinitionLocation } from './utils/step-defs.js'
+
+/** The service's own bundle directory. Stack frames from here are the service's
+ *  instrumentation, not user code — a normal install has the service under
+ *  node_modules (already excluded below), but a monorepo/linked setup puts the
+ *  built service outside node_modules, so exclude it explicitly. */
+const SELF_DIR = path
+  .dirname(fileURLToPath(import.meta.url))
+  .replace(/\\/g, '/')
+
+/** A spec file owned by the user — excludes node-builtins, node_modules, and
+ *  the service's own bundle, but keeps WDIO's expect helpers (callers may want
+ *  to step into those). */
+export function isUserSpecFile(file?: string | null): boolean {
+  if (!file) {
+    return false
+  }
+  if (file.startsWith('node:')) {
+    return false
+  }
+  // ESM stack frames report a file:// URL; SELF_DIR is a plain path, so decode
+  // to a plain path first or the self-bundle exclusion below silently no-ops.
+  // Use fileURLToPath (not `new URL().pathname`) so the Windows drive-letter is
+  // normalized the same way SELF_DIR is — otherwise `/C:/…` vs `C:/…` mismatch.
+  let normalized = file
+  if (normalized.startsWith('file://')) {
+    try {
+      normalized = fileURLToPath(normalized)
+    } catch {
+      /* keep the raw value */
+    }
+  }
+  normalized = normalized.replace(/\\/g, '/')
+  if (normalized.includes('/@wdio/expect-webdriverio/')) {
+    return true
+  }
+  if (normalized.startsWith(SELF_DIR)) {
+    return false
+  }
+  return !normalized.includes('/node_modules/')
+}
+
+type BrowserScope =
+  WebdriverIO.Element | WebdriverIO.Browser | WebdriverIO.BrowsingContext
+
+/** Walk up an element or browsing-context chain to its root browser, as @wdio/utils does. */
+export function getBrowserObject(scope: BrowserScope): WebdriverIO.Browser {
+  // A held browsing context carries its browser; the public type leaves the field out.
+  const held = scope as { browser?: WebdriverIO.Browser; parent?: unknown }
+  if (held.browser) {
+    return held.browser
+  }
+  // Multiremote is refused at session start, so a parent is never that browser here.
+  return held.parent
+    ? getBrowserObject(held.parent as BrowserScope)
+    : (scope as WebdriverIO.Browser)
+}
+
+/** Chrome 150's headless mode silently drops trusted input (clicks, keys)
+ *  once automation traffic like the devtools capture runs on a page reached
+ *  via click navigation — clicks then report success without navigating.
+ *  ≤149, ≥151, and headed 150 are unaffected. Returns a warning to log when
+ *  the session is (or may be) affected, else undefined. */
+export function chrome150InputRegressionWarning(
+  capabilities:
+    | {
+        browserName?: string
+        browserVersion?: string
+        'goog:chromeOptions'?: { args?: string[] }
+      }
+    | undefined
+): string | undefined {
+  if (
+    capabilities?.browserName?.toLowerCase() !== 'chrome' ||
+    !capabilities.browserVersion?.startsWith('150.')
+  ) {
+    return undefined
+  }
+  // The regression is headless-only; skip the warning when the args prove the
+  // session is headed. Absent/unknown args → warn (headless is WDIO's common
+  // CI default and the false-positive cost is one log line).
+  const args = capabilities['goog:chromeOptions']?.args
+  const headed =
+    Array.isArray(args) && !args.some((a) => a.includes('headless'))
+  if (headed) {
+    return undefined
+  }
+  return (
+    `Chrome ${capabilities.browserVersion} headless has a known input regression: ` +
+    'element clicks may silently stop navigating while DevTools capture is active. ' +
+    "Pin capabilities browserVersion: '149' (or '151' once stable) or run headed. " +
+    'Fixed in Chrome 151.'
+  )
+}

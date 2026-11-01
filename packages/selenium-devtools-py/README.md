@@ -1,0 +1,704 @@
+# selenium-devtools-py (Python)
+
+Python Selenium adapter for the WebdriverIO DevTools dashboard — the fourth
+adapter alongside the JS WebdriverIO / Nightwatch / Selenium-JS ones. It feeds
+the **same backend and UI**, unchanged, over the language-neutral
+`{scope, data}` WebSocket contract.
+
+**Both modes work.** **Live** streams to a dashboard window that auto-opens and
+tears down with the run; **trace** writes the same portable `trace.zip` the
+JavaScript adapters do and opens no window. Command capture and the test tree,
+browser console & network via BiDi, assertion rows, per-command screenshots and
+selectors, DOM replay, and screencast video are common to both. Verified against
+real headless Chrome. See [Trace mode](#trace-mode) and [Roadmap](#roadmap).
+
+## Install (dev)
+
+```bash
+pip install selenium-devtools-py              # or, from this repo: pip install -e packages/selenium-devtools-py
+```
+
+The transport is **dependency-free** (stdlib WebSocket client). `selenium>=4.44`
+is installed with the package; `pytest` is optional.
+
+Then install the backend, once:
+
+```bash
+selenium-devtools install-backend
+```
+
+pip cannot do this for you — a wheel has no install hook, and the backend is a
+Node package. Skip it and runs still work: they fall back to fetching it with
+`npx` on first use. That fallback costs a registry round trip on *every* run,
+pays the whole download inside the first run, and fails in the middle of a test
+session when a proxy declines the package, so the one-time install is worth the
+one line. `selenium-devtools backend-path` says whether it is there.
+
+**Requires Node.js 22.23.4+, 24.22.1+ or 26.12.1+ on your PATH — in every mode.** The backend is a Node app
+and pip cannot resolve it, so it is obtained separately. It is not
+only the dashboard window: the page collector is served by the backend, the
+whole event stream goes through its WebSocket, and in trace mode it is also what
+builds the archive (see [Trace mode](#trace-mode)) — so **without Node there is
+no capture at all**, and trace mode is no exception. `enable()` checks for it up
+front and names what is missing rather than failing later as a spawn timeout. To
+use a backend you are already running — in CI, or one started by hand — set
+`DEVTOOLS_PORT` and no local Node is needed.
+
+**Requires Python 3.10+ and selenium 4.44+.** Network capture subscribes through
+the public BiDi event API that selenium regenerated in 4.44 — before that the
+only way to observe requests without pausing them was a private connection,
+which the same release removed. 4.44 requires Python 3.10, which sets the
+Python floor too. Where the driver exposes no BiDi at all (Safari, and every
+session Appium serves) the injected page collector fills the Network tab
+instead, from two sources of the page's own. A `fetch` / `XMLHttpRequest` call
+goes through its patch and carries method, headers, status and body. Every
+other load comes from the document's Resource Timing buffer with its timing
+and size, but no headers or body, and on Safari no status.
+
+Both floors are declared in `pyproject.toml` (`requires-python` and
+`dependencies`), so pip enforces them at install time rather than leaving you to
+discover an empty Network tab at runtime. If pip resolves an older selenium
+anyway — a pin elsewhere in your project, or an existing environment — the
+adapter says so on the first command instead of degrading quietly.
+
+## Use
+
+**With pytest (recommended) — no code changes to your tests:**
+
+```bash
+pytest --devtools tests/              # dashboard
+pytest --devtools-trace tests/        # trace archive instead (implies --devtools)
+```
+
+Or commit it, so everyone on the project gets it without remembering a flag:
+
+```toml
+[tool.pytest.ini_options]
+devtools = true
+# devtools_trace = true               # trace archive instead of a dashboard
+```
+
+Capture is always opt-in — the plugin auto-loads when the package is installed,
+so installing it must never change how an existing suite behaves. What you
+choose is only *how* you say yes:
+
+| | |
+|---|---|
+| `--devtools` / `--devtools-trace` | this run |
+| `devtools` / `devtools_trace` in `[tool.pytest.ini_options]` | this project |
+| `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches) | this shell — for CI |
+
+Highest wins: CLI, then ini, then environment. `pytest -o devtools=false` turns
+a project default off for one run, which is why there is no `--no-devtools`.
+
+`DEVTOOLS_TRACE=1` selects trace mode but does **not** switch capture on by
+itself — it is a mode fallback you may have exported for your own scripts, and
+reading it as an opt-in would capture pytest runs you never asked for.
+
+Two kinds of run stay uncaptured even when you opt in: `--collect-only`, where
+nothing executes, and a run that collected no tests — a mistyped path would
+otherwise leave the terminal parked on a dashboard for a run that never
+happened. Only the first is knowable up front; the second closes the window
+again at the end of collection.
+
+In live mode the plugin opens the dashboard in a dedicated window and — after
+the run — **keeps it open so you can inspect it**; close the window (or Ctrl-C)
+to finish. Nothing devtools-specific goes in your test files.
+
+### How many archives, and which ones to keep
+
+Two settings shape the output. `traceGranularity` decides how many archives a
+run writes; `tracePolicy` decides which of them survive.
+
+| `traceGranularity` | |
+|---|---|
+| `session` | one archive for the whole run (the default) |
+| `test` | one per test, holding only that test's own commands, console, network, DOM mutations, a11y trees and frames |
+
+`spec` is not offered: this adapter's spec **is** its test file, so it could only
+silently mean one of the two above.
+
+| `tracePolicy` | |
+|---|---|
+| `on` | keep everything (the default) |
+| `retain-on-failure` | keep only what failed |
+
+Together:
+
+| | |
+|---|---|
+| `test` + `retain-on-failure` | only the tests that failed |
+| `session` + `retain-on-failure` | the whole run, if anything in it failed |
+| either + `on` | everything |
+
+```bash
+pytest --devtools-trace-granularity test --devtools-trace-policy retain-on-failure tests/
+```
+
+```toml
+[tool.pytest.ini_options]
+devtools_trace_granularity = "test"
+devtools_trace_policy = "retain-on-failure"
+```
+
+A plain script passes
+`devtools.enable(trace_granularity="test", trace_policy="retain-on-failure")`.
+A committed example of all of this is in
+[`examples/selenium-py/pytest/`](../../examples/selenium-py/pytest/),
+whose `pytest.ini` documents every setting the adapter has. It runs live
+(`pnpm demo:python:pytest`); `DEVTOOLS_MODE=trace` switches it to one archive
+per failing test through the example's own `conftest.py`, since the adapter
+does not read `DEVTOOLS_MODE`.
+
+Naming a policy or a granularity **explicitly** selects trace mode — the CLI flag, the ini option
+and the `enable()` argument all imply it, since a policy means nothing in live
+mode. `DEVTOOLS_TRACE_POLICY` and `DEVTOOLS_TRACE_GRANULARITY` deliberately do
+**not**: an exported variable is
+ambient, and may have been set for a different script in the same shell, so
+flipping a live run to trace mode on that basis would take away the dashboard
+nobody asked to lose. Pair it with `DEVTOOLS_TRACE=1`. A run that ignores it
+says so rather than leaving you to notice a missing archive.
+
+An explicit `devtools_trace = false` outranks that implication at its own level
+and below, so `pytest -o devtools_trace=false` gets a live run out of a project
+whose ini commits a policy. The command line (flags and `-o`) is one level, the
+ini file the next:
+
+| trace mode is decided by | |
+|---|---|
+| `--devtools-trace` | on, always |
+| `-o devtools_trace=<bool>` | that value |
+| `--devtools-trace-policy` / `--devtools-trace-granularity`, or `-o` for either | on |
+| `devtools_trace` in the ini file | that value |
+| a policy or granularity in the ini file | on |
+| `DEVTOOLS_TRACE` | read by `enable()` when none of the above decided |
+
+The first row that applies wins. A policy or granularity left without trace
+mode does nothing, and the run logs a warning saying so.
+
+`DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run times the screenshot and the
+two page reads taken for each command. When the trace is exported, the run
+prints a per-read table to stderr and appends the raw records to
+`capture-timing-<pid>.ndjson` beside the trace, in the format the JS adapters
+write. It only measures; see "Measuring capture cost" in the repo README.
+
+The values are shared's `TraceRetentionPolicy`: `on` (the default — keep
+everything), `retain-on-failure`, `retain-on-first-failure`, `on-first-retry`,
+`on-all-retries`, `retain-on-failure-and-retries`. A value outside that set
+warns and keeps everything, rather than being discovered as a missing file.
+
+Two limits:
+
+- At `session` granularity the decision covers **the whole run** — one failing
+  test keeps everything, because there is only one archive to keep. Use
+  `test` granularity if you want only the failure.
+- The retry-aware policies — `retain-on-first-failure`, `on-first-retry`,
+  `on-all-retries`, `retain-on-failure-and-retries` — **behave exactly like
+  `retain-on-failure`**. Nothing on the wire carries an attempt number, so a
+  retried test overwrites its own earlier outcome and the retry-aware question
+  cannot be asked; the backend logs the degradation rather than pretending
+  otherwise.
+
+Per-test `screenshot`, `video` and inline Allure attachment are still
+Node.js-only — it is the trace **archive** that is now per-test, not the other
+artifacts.
+
+A declined run is reported as the policy working, not as a failed export.
+
+**Without pytest** (any script / unittest) — add two lines to a normal Selenium
+script (`devtools.enable()` + `devtools.wait_for_dashboard_close()`):
+
+```python
+import selenium_devtools as devtools
+
+devtools.enable()                     # open dashboard + capture every command
+# devtools.enable(trace=True)         # write a trace.zip instead — no window
+# ... your normal selenium code, ending with driver.quit() ...
+devtools.wait_for_dashboard_close()   # keep the UI open to inspect (no-op when no window is open)
+devtools.disable()
+```
+
+Runnable example: [`web_form.py`](../../examples/selenium-py/scripts/web_form.py),
+the three-line version above. From the repo root, after `pip install -e` above and
+a `pnpm build` so the backend exists:
+
+```bash
+pnpm demo:python
+```
+
+Unlike `demo:wdio` and friends, this runs bare `python3` — the same command you
+would run yourself, deliberately, so the example stays a working example rather
+than something only this repo can launch. That means it uses whichever `python3`
+your shell resolves, and it needs the adapter installed into *that* interpreter.
+From an unactivated shell you get `No module named 'selenium_devtools'` (or
+`No module named pytest`), which names neither the venv nor the fix — so set one
+up once and activate it before running the demos:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e packages/selenium-devtools-py
+```
+
+If the backend can't be launched or reached, `enable()` warns and returns
+`None` — capture is skipped, your tests still run.
+
+**ChromeDriver:** you need one matching your Chrome (a mismatch breaks all
+Selenium, not just this). Selenium 4.6+ auto-manages it when no `chromedriver`
+is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
+
+## What it captures
+
+| Data | How | Scope | Mode |
+|---|---|---|---|
+| Commands (driver + element) | wrap `WebDriver.execute()` — the single chokepoint all commands flow through | `commands` | both |
+| Command screenshot + selector | one screenshot per command, and the locator the element handle was found by | `commands` | both |
+| Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | both |
+| Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
+| Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
+| Network requests | Selenium **BiDi** (`Network.add_event_handler`, observe-only, never an intercept, which would pause every request); without BiDi, the page collector's `fetch` / `XMLHttpRequest` patch and Resource Timing buffer, drained beside the mutations | `networkRequests` | both |
+| Native app network | the appium-interceptor plugin's proxy, when the session sets `appium:intercept: True` | `networkRequests` | both |
+| Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
+| DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
+| Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
+| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | live |
+| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm` | `screencastFrames` | trace |
+| A11y tree + element rects | run the backend's page-side element scripts beside each action | `actionSnapshots` | trace |
+
+Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
+delegate to `self._parent.execute`, so the one wrapper sees them as
+`clickElement`, `getElementText`, etc.
+
+**Waits.** `WebDriverWait.until()` / `until_not()` is a client-side loop that
+`execute` sees only as its polls, so it is patched too: a wait is one row named
+after what it waited for, with the commands its condition issued nested under
+it rather than a row per poll. `EC.presence_of_element_located` is
+`waitForElementLocated` (`Element.waitForExist`) on its locator,
+`EC.visibility_of_element_located` is `waitForElementVisible`
+(`Element.waitForDisplayed`), and any other condition, every `until_not`
+included, is `wait` (`Browser.waitForFunction`), labelled with the condition
+(an `expected_conditions` condition by its name and arguments). The row appears
+when the wait starts, and a timed-out wait is a failed row carrying the
+`TimeoutException`. An element wait's `find_element(s)` polls nest in the live
+dashboard but are left out of the trace, like every locator lookup. See
+[Waits](https://webdriver.io/docs/devtools/wdio/trace-mode#waits).
+
+**Navigation timings.** After every navigation command, load / DOM-ready /
+response timings, resource counts, cookies and document info are attached to
+that command row. The row's summary shows the load time in milliseconds to two
+decimals, such as `246.40 ms`; the full-precision timings stay in the row's
+performance data.
+
+**BiDi is auto-enabled** — the adapter injects the `webSocketUrl` capability
+into the `newSession` request so console/network work out-of-box (opt out with
+`DEVTOOLS_BIDI=0`). **Screencast** needs `ffmpeg` on PATH to encode the
+`.webm`; without it, recording is skipped (one warning, no error). Trace mode
+encodes no `.webm` at all — the frames are the filmstrip — so it needs no
+`ffmpeg`.
+
+### Assertions
+
+Passing and failing `assert` statements appear as rows carrying **expected** and
+**actual**, and failures reach the Errors tab. Python's `assert` is a statement
+rather than a call, so unlike the JS adapters' `node:assert` patching there is
+nothing to wrap — the outcome comes from the runner, and how much is available
+differs by runner.
+
+**Under pytest**, from its assertion rewriter, so every row carries real values.
+Passing assertions need pytest's `enable_assertion_pass_hook`, which the plugin
+switches on for itself. One caveat: pytest decides per module, while *rewriting*
+it, whether to emit that hook — so a module whose rewritten bytecode was cached
+before the plugin was installed keeps reporting failures only. The adapter says
+so once at collection and names the cache to delete, which is **not** always the
+`__pycache__` beside your tests: with `sys.pycache_prefix` set (macOS's system
+python sets it by default) every rewritten module goes to one central tree
+instead.
+
+**In a plain script** (`python login.py`) there is no rewriter — by the time
+`enable()` runs the module is already compiled — so outcomes come from the
+interpreter's line events, and values are read from the frame that is about to
+run the assert. Only reads that cannot execute your code are resolved: a literal
+or a local resolves, an attribute or a call does not, because evaluating
+`driver.current_url` again would issue another WebDriver command. Those rows
+carry the condition and the error without values.
+
+An assertion row also names the element its value was read from, so selecting
+the row boxes that element: `assert heading.text == "Secure Area"` carries the
+locator `heading` was found by, and so does a value from `get_attribute`,
+`is_displayed` or any other element read. Only a read made earlier in the same
+test counts. A value read from the page itself, such as `driver.title` or
+`driver.current_url`, names no element, even when some element's text reads the
+same. In a plain script, an assertion whose observed value could not be read
+names no element, since guessing from the expected value alone could box an
+element that once read the same text.
+
+### Parallel runs (`pytest -n`)
+
+**pytest-xdist works with no extra configuration.** Every process reporting into
+one run has to agree on a run id, or the backend treats each connect as a new run
+and wipes what the previous one captured. With xdist they do agree: the plugin
+loads in the **controller** as well, and enabling capture there resolves the id
+before xdist spawns any worker — workers are child processes, so they inherit it.
+
+Measured with the real plugin against a real backend: `-n 2` and `-n 4` gave 3
+and 5 processes and **one** run id, with the backend seeing three worker connects
+all carrying it. This is where the JS adapters differ — jest/vitest workers and
+nightwatch `test_workers` load their plugin per worker with no launcher-side
+hook, so each reads as its own run.
+
+What still reads as separate runs genuinely is: two independent `pytest`
+invocations, or a worker started without the environment. Export
+`DEVTOOLS_RUN_ID` yourself to join such processes into one run.
+
+### Run controls (Run, Rerun, Run-all)
+
+**All three work, under pytest and for a plain script alike.** A rerun is not a
+message to the running process — the backend spawns a fresh one from a command
+the adapter publishes at startup, so what the buttons can do is fixed before any
+test runs, and the adapter advertises exactly that (a control it cannot service
+stays disabled with a reason rather than failing on click).
+
+Under pytest each control selects what its row names. For a plain script the
+tree is one synthetic suite holding one synthetic test — both denote the whole
+run, so all three controls relaunch the script, which is what that tree means.
+
+The rerun reports into **the dashboard you pressed the button in**: the backend
+points the process it spawns back at itself (`DEVTOOLS_APP_REUSE` /`_HOST`
+/`_PORT`), so the child attaches to that backend and opens no second window. It
+also hands down the Run-all command (`DEVTOOLS_RERUN_LAUNCH_COMMAND`), because
+a child is spawned with one test on its command line and would otherwise
+republish *that* as the command for running everything — after which Run-all
+would rerun only whatever you last reran.
+
+The command is your own invocation, re-derived — except Run-all in a rerun
+child, which is the one handed down:
+
+```
+you ran:   pytest examples/ -k login -n 4
+run-all:   <this python> -m pytest /abs/examples -k login -n 4
+one test:  <this python> -m pytest <the test's nodeid>
+```
+
+Three things about that are deliberate:
+
+- **The interpreter is the one running your tests**, not whatever `python3`
+  resolves to on the backend's PATH — that need not be the venv holding selenium
+  and this adapter.
+- **A single test is selected by nodeid**, so the same slot serves a test, a
+  class and a file (`file.py::Class::test`, `file.py::Class`, `file.py`). No
+  filter flag is involved, and nothing is matched by name.
+- **Options that narrow the run are dropped from a targeted rerun** — `-k`,
+  `-m`, `--deselect`, `--lf`/`--ff`/`--sw`, and `-n`/`--dist`. A rerun already
+  names its test, so a surviving filter could only narrow that further, usually
+  to nothing — which pytest reports as a clean exit, so it would look like it
+  worked. The xdist flags go for a second reason: a one-test rerun has nothing
+  to parallelise, and each worker would connect as its own run.
+
+The rerun spawns in pytest's **rootdir**, because a nodeid is reported relative
+to rootdir while a path argument resolves against the process's directory. If
+you launch pytest from somewhere other than its rootdir, an option carrying a
+*relative* path (`-c`, `--junitxml`) resolves against rootdir on the rerun; the
+positional paths in the run-all command are made absolute for that reason.
+
+Two limits worth knowing: the directory reaches the backend through the
+environment, so a dashboard that was already running when you connected keeps
+the directory it was started in; and a rerun under `pytest -n` is issued to a
+freshly spawned single process, which is what you want, but the backend has one
+worker slot — so with several parallel workers connected the dashboard's state
+belongs to whichever connected last.
+
+### Preserve & Rerun (compare two runs)
+
+A failed row carries a second button beside Rerun. It snapshots the attempt you
+are looking at, reruns the test, and the **Compare** tab then diffs the two —
+commands, console and network side by side, each attributed to its own attempt's
+time window.
+
+Nothing here is Python-specific: the snapshot is taken by the backend from the
+stream this adapter already sends, so it works for the same rows the run
+controls do. Two behaviours are worth knowing because they are easy to read as
+bugs:
+
+- **The snapshot is taken before the rerun starts**, which is what lets it
+  survive. A rerun is a freshly spawned process and reports under its own run
+  id, so the backend resets what it is *currently* accumulating — the preserved
+  attempt lives outside that and is untouched. Preserving *after* a new run has
+  connected is refused (HTTP 409): the run in flight never held that attempt.
+- **A plain Rerun drops every baseline.** Only Preserve & Rerun keeps one, so
+  the Compare tab disappears after an ordinary rerun rather than diffing
+  against something you did not ask to keep.
+
+## Mobile (Appium)
+
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+
+The demo runs bare `python3`, so from the root of a built checkout of this repo (`pnpm install && pnpm build`) install the adapter into that interpreter, plus the Appium client the desktop examples don't need:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e packages/selenium-devtools-py
+pip install -r examples/selenium-py/requirements-mobile.txt
+pnpm demo:python:mobile                              # Android Clock app
+DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:python:mobile # iOS Settings
+```
+
+`DEVTOOLS_MOBILE=web` drives the device's own browser instead. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+
+### Native app network
+
+A native app has no document and Appium serves no BiDi network events, so by default the Network tab of a native session is empty. The adapter can read the app's traffic from the [appium-interceptor](https://github.com/AppiumTestDistribution/appium-interceptor-plugin) plugin instead, which routes the device through a proxy of its own:
+
+```sh
+appium plugin install --source=npm appium-interceptor
+appium --use-plugins=appium-interceptor
+```
+
+Then ask for the proxy in the session's capabilities:
+
+```python
+from appium.options.android import UiAutomator2Options
+
+options = UiAutomator2Options()
+options.app = "/path/to/app.apk"
+options.set_capability("appium:intercept", True)
+```
+
+The adapter starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always when each pytest test reports its outcome and when the driver quits, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the adapter logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
+
+## Trace mode
+
+Instead of a live dashboard, write the run to a portable archive — the same
+`trace.zip` the JavaScript adapters produce, opened in the same player:
+
+```bash
+pytest --devtools-trace tests/               # pytest
+DEVTOOLS_TRACE=1 python3 login.py            # plain script (or devtools.enable(trace=True))
+```
+
+The archive lands in `test-results/` beside the test file the first captured
+command came from — the same directory screencast videos already write to —
+named `trace-<sessionId>.zip`. When no command carried a user call source, it
+falls back to `test-results/` under the current directory. Open it with the
+`show-trace` player:
+
+```bash
+pnpm show-trace test-results/trace-<sessionId>.zip
+```
+
+**Trace mode opens no dashboard window.** The artifact is the output, and a live
+run blocks on the window until a human closes it — a window would turn writing a
+file into an interactive session. The backend still starts, because it is what
+*builds* the archive: the transforms are TypeScript in `packages/trace` and
+porting them would be a second copy of ~2,000 lines, with a third waiting for
+the next language ([#298](https://github.com/webdriverio/devtools/issues/298)).
+That is the one way this differs from the JS adapters' backend-free trace mode.
+
+What lands in the archive, beyond the command rows, console, network and
+per-command screenshots that both modes capture:
+
+| | Default | Opt out |
+|---|---|---|
+| Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
+| A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
+| DOM time-travel — the mutation stream the preview iframe already replays | on | — |
+
+Two things worth knowing. **How many archives a run writes, and which are kept,**
+is set by `--devtools-trace-granularity` and `--devtools-trace-policy` (see
+[How many archives, and which ones to keep](#how-many-archives-and-which-ones-to-keep)).
+And **the export is requested
+when the run finishes, not when the process exits** — pytest asks at
+`sessionfinish`, before it would park on a dashboard window, and a plain script's
+`disable()` exports before closing the transport. An artifact that depended on
+either would be missing exactly where it is wanted, in CI.
+
+## Dashboard window lifecycle
+
+Like the JS adapters, live mode's `enable()` opens the dashboard in a dedicated,
+closable Chrome window; closing that window (backend `clientDisconnected`) shuts
+the run down, and ending the process (exit / Ctrl-C) closes the window. Auto-open
+is on by default and opt-out only: disable it with `DEVTOOLS_OPEN=0`. It is also
+off for a rerun child — the window that pressed Rerun is already watching the
+backend this run reports to — and for trace mode, which opens none at all.
+
+## Layout
+
+```
+src/selenium_devtools/
+  __init__.py         public API — enable() / disable() / get_capturer()
+  constants.py        defaults, env-var names, skip sets, pinned backend version
+  types.py            re-exports the wire payload TypedDicts, plus JSONValue/Scope
+  _contract.py        GENERATED from packages/shared — scope names + CONTRACT_VERSION
+  _wire_types.py      GENERATED from packages/shared/wire-schema.json — payload TypedDicts
+  utils.py            framework-agnostic helpers (now_ms, iso, to_jsonable, call_source)
+  frames.py           pure builders for each {scope,data} payload
+  transport.py        stdlib WebSocket client (handshake, masked frames, ping/pong, control reader)
+  capturer.py         SessionCapturer: command IDs, normalize→send, metadata-once
+  instrumentation.py  execute() wrap + BiDi auto-enable + session-setup hook
+  element_locators.py the locator an element command acted through
+  performance.py      navigation + resource timing for a navigation command
+  bidi.py             BiDi console/JS-error + network capture (pure mapping + wiring)
+  bidi_preload.py     document-start registration of the collector (BiDi preload)
+  interceptor_network.py native app network from the appium-interceptor plugin's proxy
+  snapshot.py         mutation drain, and the <script> injection used without BiDi
+  collector_source.py where the page-side collector's source comes from
+  element_scripts.py  the backend-served a11y/element scripts the A11y tab needs
+  screencast.py       per-command frame recorder + ffmpeg webm encode
+  cdp_screencast.py   Chrome's push-mode screencast, over its own CDP websocket
+  trace_export.py     ask the backend to build this run's trace archive
+  output_dir.py       where run output lands (mirrors core/output-dir.ts)
+  assertions.py       assertion rows from Python's `assert` statement
+  assert_tracer.py    passing-assert rows for a plain script, via line tracing
+  sources.py          test-file source for the Source tab
+  logcapture.py       forward Python `logging` to the dashboard Console
+  terminal.py         forward the test's stdout to the dashboard Console
+  run_id.py           one run id, shared by every process reporting into it
+  node_runtime.py     check for a usable Node before spawning the backend
+  backend.py          launch-or-attach the Node backend + port discovery
+  lifecycle.py        dashboard window open/close + shutdown-on-disconnect
+  rerun.py            launch/rerun commands the dashboard's run controls spawn
+  pytest_plugin.py    CLI/ini config surface + suite/test tree feeder (opt-in)
+scripts/gen_contract.py   regenerate _contract.py + _wire_types.py from shared (dev-time; also a drift-guard)
+tests/                stdlib-unittest unit tests (no selenium/pytest needed); every
+                      sent frame is validated against shared's wire schema
+e2e_check.py          real-Chrome smoke (plain script)
+e2e/test_smoke.py     real-Chrome smoke (pytest + plugin)
+(example lives at repo root: examples/selenium-py/scripts/web_form.py)
+```
+
+## Backend & publishing
+
+Two artifacts, two registries — pip can't resolve the Node backend, so each
+coupling is handled explicitly rather than via a `workspace:^`-style resolver:
+
+| | Local (monorepo) | Published |
+|---|---|---|
+| **Adapter** (this package) | `pip install -e` | PyPI: `pip install selenium-devtools-py` |
+| **Backend + UI** (Node) | `node packages/backend/dist/server.js` | npm: `npx @wdio/devtools-backend@<pinned>` |
+| **Wire contract** (`shared`) | regenerated into `_contract.py` + `_wire_types.py` | both generated files ship in the wheel |
+
+`enable()` obtains the backend in this order (local vs published falls out of it):
+
+1. `DEVTOOLS_PORT` set → attach to an already-running backend (CI, manual).
+2. `DEVTOOLS_BACKEND_CMD` set → spawn that explicit command.
+3. monorepo `packages/backend/dist/server.js` present → spawn it (**local dev**).
+4. else → `npx @wdio/devtools-backend@<BACKEND_NPM_VERSION>` (**published**).
+
+The pinned `BACKEND_NPM_VERSION` in `backend.py` is the version link — there is
+no auto-resolution, so it's bumped deliberately alongside a contract change.
+
+The backend also serves the page scripts the adapter runs after each command
+(the collector's readiness probe, its injection and drain, and the navigation
+timing read), so they are the same scripts the Node.js adapters run. A backend
+you start yourself or attach to with `DEVTOOLS_PORT` or `DEVTOOLS_BACKEND_CMD`
+must therefore be at least as new as the pinned version: against an older one
+the run logs a warning and continues with DOM replay and navigation timings off.
+
+Regenerate the contract after any change to `packages/shared`:
+
+```bash
+pnpm --filter @wdio/devtools-shared gen:wire-schema   # TS types → wire-schema.json
+python3 packages/selenium-devtools-py/scripts/gen_contract.py
+```
+
+The first step reads shared's payload types with the TypeScript compiler and
+writes one JSON Schema per wire scope; vitest fails when the committed copy is
+stale. The second turns it into TypedDicts and fails loudly if a scope the
+adapter needs disappeared from `shared`. The unit tests then validate every
+frame the adapter sends against that schema, so a field shared does not
+declare, a missing required one, or a null where shared expects absence all
+fail the build.
+
+## Test
+
+```bash
+# unit (no deps):
+PYTHONPATH=src python3 -m unittest discover -s tests -v
+
+# e2e (needs selenium + a running backend; Selenium Manager fetches the driver):
+DEVTOOLS_PORT=3000 PYTHONPATH=src python3 e2e_check.py
+DEVTOOLS_PORT=3000 PYTHONPATH=src pytest e2e/test_smoke.py -p selenium_devtools.pytest_plugin -q
+```
+
+## Release (approach A)
+
+Two workflows, mirroring the JS split (`ci.yml` tests / `release.yml` publish):
+
+- **`python.yml`** — runs on PRs + pushes touching this package or `shared`:
+  unit tests on Python 3.10 + 3.13, a contract-drift check (regenerate
+  `_contract.py` and `_wire_types.py`, fail on any diff), and a build + `twine check --strict` so a
+  packaging mistake surfaces on the PR rather than under the publish button.
+  Zero repo config needed.
+- **`python-release.yml`** — **manual** (`workflow_dispatch`, like the JS
+  "Manual NPM Publish"), target `pypi` or `testpypi`. Runs the same four checks,
+  then publishes via **trusted publishing (OIDC)** — no token/secret.
+
+The wheel does **not** bundle the backend — approach A fetches a pinned
+`@wdio/devtools-backend` via `npx` at runtime (Node 22.23.4+, 24.22.1+ or 26.12.1+ required). Bundling it
+(approach B/C) is a GA-time change.
+
+That pin is the one thing a release here cannot get wrong, because it is the
+backend every published install runs — nobody who typed `pip install` has the
+monorepo's `dist/server.js`. A pin older than the routes and scopes the adapter
+sends is not a stale number but a feature shipped dead, and dead quietly: a
+missing collector settles as "DOM replay disabled" and an unanswered
+`traceExport` times out, both leaving the run green. `scripts/check_backend_pin.py`
+downloads the pinned version from npm and fails the release if its `dist/` does
+not carry every contract literal. **So the npm release comes first**: publish the
+backend, take the pin bump it opens as a PR (`release.yml` raises
+`BACKEND_NPM_VERSION` whenever a `latest` release leaves it behind), then publish
+here.
+
+**One-time setup before the first publish** (this is what claims the PyPI name):
+
+1. On PyPI, add a **pending trusted publisher** for project
+   `selenium-devtools-py` → owner `webdriverio`, repo `devtools`, workflow
+   `python-release.yml`, environment `pypi` (repeat on TestPyPI with env
+   `testpypi` if you want a dry run first).
+2. Create matching GitHub **Environments** `pypi` (and `testpypi`).
+3. Run the workflow — the first successful publish creates and claims the name.
+
+Each release: run the workflow. It consumes the fragments in `changes/`, takes
+the strongest bump level pending, rewrites `__version__` in
+`src/selenium_devtools/__init__.py` (the only place a version is written —
+`pyproject.toml` reads it through `dynamic`), writes the `CHANGELOG.md` section,
+publishes, then commits the result and tags `py-v<version>`. Nothing is
+hand-versioned.
+
+Every change to `src/` needs a fragment; CI refuses a branch without one. See
+[`changes/README.md`](./changes/README.md) for the format, and
+`scripts/changes.py next-version` for what a release would publish. Changesets
+cannot do this job — it reads the pnpm workspace, which this package is not in,
+and a changeset naming it fails the npm release for every other package.
+
+A `testpypi` run bumps in the runner's tree only: the fragments survive, so a
+dry run never spends them.
+
+## Roadmap
+
+Live mode, trace export with action snapshots, the pushed CDP screencast,
+per-command screenshots and selectors, performance timings, run controls
+(Run / Rerun / Run-all) and Preserve & Rerun are all done — see the sections
+above. What the JavaScript adapters have and this one does not:
+
+- **Per-test artifacts.** No `screenshot` / `video` options and no Allure
+  attachment. The policy types and the slicing they key off exist; what is
+  missing is producing the artifacts and handing them to a reporter.
+- **Shared capture code.** The adapter reimplements the wire producers rather
+  than calling `core`, which is what
+  [#278](https://github.com/webdriverio/devtools/issues/278) exists to address.
+  The heavy post-processing already lives server-side in the backend, written
+  once, rather than being re-implemented here.
+
+## Design notes
+
+- **Backend/UI unchanged.** This adapter only produces the wire frames; the
+  server routes and renders them exactly as for the JS adapters.
+- **Capture never breaks tests.** Commands are recorded around the real call;
+  errors are captured *and re-raised* unchanged; a missing dashboard is a no-op.
+- **Contract drift** is the main long-term risk (see the integration artifact).
+  Mitigated three ways: `_contract.py` is generated from `packages/shared` (scope
+  names + `CONTRACT_VERSION`), the generator fails if a required scope
+  vanishes, and the payload types are generated field by field from
+  `wire-schema.json`, which the unit tests validate every sent frame against.

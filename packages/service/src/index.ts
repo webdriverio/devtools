@@ -1,0 +1,998 @@
+/// <reference types="../../script/types.d.ts" />
+import logger from '@wdio/logger'
+import {
+  attachTraceArtifact,
+  beginInputDispatch,
+  captureAndAttachScreenshot,
+  clearReadValues,
+  errorMessage,
+  FINAL_SNAPSHOT_COMMAND,
+  finalizeTraceExport,
+  lastRenderedScreenshot,
+  mapCommandToAction,
+  resolveAdapterOutputDir,
+  stepMetadataUid,
+  TestAttemptTracker,
+  tracePolicyModeWarning,
+  upsertRichestSnapshot,
+  type TraceArtifact,
+  type TraceExportContext,
+  restoreBrowserFocus
+} from '@wdio/devtools-core'
+import { getAllureSink } from './allure.js'
+import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
+import { AssertionTracker } from './assertion-tracker.js'
+import {
+  cucumberScenarioUid,
+  isFailedResult,
+  resolveTestAttempt,
+  stampTestState,
+  testMetadataUid,
+  type TestOutcomeResult
+} from './test-metadata.js'
+import { resolveCallSourceFromFrame, specFrameBelow } from './call-source.js'
+import { TraceSliceTracker } from './trace-slices.js'
+import {
+  captureActionSnapshot,
+  isServiceProbe,
+  settleAfterLastAction
+} from './action-snapshot.js'
+import {
+  isWaitCommand,
+  type ActionSnapshot,
+  type TestMetadataMap
+} from '@wdio/devtools-shared'
+import { SevereServiceError } from 'webdriverio'
+import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
+import type { WebDriverCommands } from '@wdio/protocols'
+
+import { SessionCapturer } from './session.js'
+import { TestReporter } from './reporter.js'
+import { DevToolsAppLauncher } from './launcher.js'
+import {
+  chrome150InputRegressionWarning,
+  getBrowserObject,
+  isUserSpecFile
+} from './utils.js'
+import { ScreencastLifecycle } from './screencast-lifecycle.js'
+import { attachBidiListeners } from './bidi-listeners.js'
+import { type ServiceOptions, TraceType } from './types.js'
+import {
+  CONTEXT_CHANGE_COMMANDS,
+  INTERNAL_COMMANDS,
+  LOCATOR_COMMANDS,
+  PAGE_TRANSITION_COMMANDS
+} from './constants.js'
+import { inPageProbesDeadlock, isAppiumSession } from './mobile.js'
+import { resolveSessionMetadata } from './session-metadata.js'
+import { stampRunnerMetadata } from './wdio-runner-id.js'
+import { publishConfigFile } from './standalone.js'
+import { InterceptedNetwork } from './intercepted-network.js'
+import {
+  CommandStack,
+  isServiceWork,
+  runAsServiceWork,
+  type CommandFrame
+} from './command-stack.js'
+
+export * from './types.js'
+export const launcher = DevToolsAppLauncher
+
+const log = logger('@wdio/devtools-service')
+
+export { setupForDevtools } from './standalone.js'
+
+export default class DevToolsHookService implements Services.ServiceInstance {
+  #testReporters: TestReporter[] = []
+  #sessionCapturer = new SessionCapturer()
+  #browser?: WebdriverIO.Browser
+  #options: ServiceOptions
+  #actionSnapshots: ActionSnapshot[] = []
+  /** The slot `#finalizePerScenario` last captured, so `after()`'s second pass
+   *  does not pay for it again. Tracked rather than scanned from
+   *  #actionSnapshots: the last action's pre-capture holds the same command
+   *  and timestamp whenever the previous action ended in the same
+   *  millisecond, so a scan mistook it for this slot and skipped the only
+   *  capture of the last action's result. */
+  #finalizedSlot?: { command: string; timestamp: number }
+  #nativeNetwork?: InterceptedNetwork
+  #assertionTracker: AssertionTracker
+  #screencast: ScreencastLifecycle
+  #slices: TraceSliceTracker
+
+  constructor(serviceOptions: ServiceOptions = {}) {
+    this.#options = serviceOptions
+    this.#assertionTracker = new AssertionTracker({
+      getCapturer: () => this.#sessionCapturer,
+      getBrowser: () => this.#browser,
+      getTestUid: () => this.#currentTestUid,
+      getStepUid: () => this.#currentStepUid,
+      options: this.#options,
+      actionSnapshots: this.#actionSnapshots
+    })
+    const policyWarning = tracePolicyModeWarning(
+      serviceOptions.tracePolicy,
+      serviceOptions.mode
+    )
+    if (policyWarning) {
+      log.warn(policyWarning)
+    }
+    this.#screencast = new ScreencastLifecycle({
+      options: this.#options,
+      getBrowser: () => this.#browser,
+      getCapturer: () => this.#sessionCapturer,
+      getOutputDir: () => this.#outputDir,
+      getTestUid: () => this.#currentTestUid,
+      getTestStartWallTime: () => this.#currentTestStartWallTime,
+      onArtifact: (artifact) => this.#artifacts.push(artifact),
+      log: (level, message) => log[level](message)
+    })
+    this.#slices = new TraceSliceTracker({
+      options: this.#options,
+      getBrowser: () => this.#browser,
+      getCapturer: () => this.#sessionCapturer,
+      buildExportContext: (browser) => this.#traceContext(browser)
+    })
+  }
+
+  /** Which commands are rows: top-level user commands, and the commands an open wait issued. */
+  #commandStack = new CommandStack()
+
+  /** Closes the running command's screenshot-polling suppression window. Single
+   *  slot because WDIO serialises commands per session; a concurrent pair (e.g.
+   *  multiremote) closes the earlier window early, degrading to unguarded
+   *  polling rather than stalling the recorder. */
+  #closeInputWindow?: () => void
+
+  /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
+  #currentTestUid?: string
+  /** Current Cucumber step UID, set in beforeStep(), used by afterCommand() to
+   *  nest commands under the step in the trace group tree (C2). */
+  #currentStepUid?: string
+  /** Per-scenario step counter for stable, collision-free step uids. */
+  #currentStepIndex = 0
+  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+   *  beforeSession) — auto-enables the artifacts manifest even if the option
+   *  isn't set, since session/spec-scoped Allure attach reads it. */
+  #allureReporterConfigured = false
+
+  /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
+   *  the lower bound of that test's video frame window (per-test slicing). */
+  #currentTestStartWallTime = 0
+
+  /** Map of testUid → metadata for trace group events and per-spec partitioning. */
+  #testMetadata: TestMetadataMap = new Map()
+
+  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
+   *  fresh instance) per retry, so this only reflects same-process retries
+   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  #attemptTracker = new TestAttemptTracker()
+
+  /** Every trace/video artifact seen this run (retained or not), for the
+   *  end-of-run artifacts manifest. Populated via the context's onArtifact. */
+  #artifacts: TraceArtifact[] = []
+
+  /** Assemble the framework-agnostic trace-export context from this service's
+   *  state. Output dir ignores the spec range — WDIO writes next to config. */
+  #traceContext(browser: WebdriverIO.Browser): TraceExportContext {
+    return {
+      mode: this.#options.mode,
+      policy: this.#options.tracePolicy,
+      granularity: this.#options.traceGranularity,
+      format: this.#options.traceFormat,
+      capturer: this.#sessionCapturer,
+      actionSnapshots: this.#actionSnapshots,
+      screencastFrames: this.#screencast.filmstripFramesForExport(),
+      sessionId: browser.sessionId,
+      capabilities: browser.capabilities,
+      testMetadata: this.#testMetadata,
+      attemptInfoAvailable: true,
+      outcomes: this.#attemptTracker,
+      ranges: this.#slices.ranges,
+      flushed: this.#slices.flushed,
+      resolveOutputDir: () => this.#outputDir,
+      log: (level, msg) => log[level](msg),
+      emitManifest:
+        this.#options.emitArtifactsManifest ?? this.#allureReporterConfigured,
+      collectedArtifacts: this.#artifacts,
+      onArtifact: (a) => this.#artifacts.push(a),
+      // Settled under core's timeout cap before anything is written — every
+      // slice as well as the final export, since a slice written before the
+      // viewport read lands carries the fallback and cannot be corrected after
+      // the fact. A `getWindowSize` left hanging by a tearing-down session
+      // degrades to that fallback instead of deadlocking the export.
+      metadataCapture: this.#metadataCapture
+    }
+  }
+
+  /**
+   * allows to define the type of data being captured to hint the
+   * devtools app which data to expect
+   */
+  captureType = TraceType.Testrunner
+
+  // This is used to track if the injection script is currently being injected
+  #injecting = false
+
+  /** In-flight session-metadata resolution. It runs on the driver, so it lands
+   *  after `before()` returns; finalize has to wait for it or a spec that fails
+   *  immediately exports the fallback viewport and no device. Never rejects, so
+   *  holding it unhandled until finalize attaches cannot crash the run. */
+  #metadataCapture?: Promise<void>
+
+  async before(
+    caps: Capabilities.W3CCapabilities,
+    __: string[],
+    browser: WebdriverIO.Browser
+  ) {
+    this.#browser = browser
+
+    const versionWarning = chrome150InputRegressionWarning(browser.capabilities)
+    if (versionWarning) {
+      log.warn(versionWarning)
+    }
+
+    /**
+     * create a new session capturer instance with the devtools options
+     */
+    const wdioCaps = caps as Capabilities.W3CCapabilities & {
+      'wdio:devtoolsOptions'?: ServiceOptions
+    }
+    this.#sessionCapturer = new SessionCapturer(
+      wdioCaps['wdio:devtoolsOptions']
+    )
+    this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
+    // The dashboard window took the front; Safari clicks reach nothing there.
+    if ((this.#options.mode ?? 'live') === 'live') {
+      const caps = browser.capabilities as
+        { browserName?: string; platformName?: string } | undefined
+      restoreBrowserFocus({
+        browserName: caps?.browserName,
+        platformName: caps?.platformName,
+        host: (browser.options as { hostname?: string } | undefined)?.hostname,
+        onError: (message) => log.warn(message)
+      })
+    }
+    stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
+    publishConfigFile(this.#sessionCapturer)
+
+    if (this.#options.captureAssertions !== false) {
+      wireAssertCapture(
+        () => this.#sessionCapturer,
+        () => this.#currentTestUid
+      )
+    }
+
+    /**
+     * Block until injection completes BEFORE any test commands.
+     * Skip on native mobile — Appium sessions don't support WebDriver BiDi
+     * and the injection always fails with SevereServiceError.
+     */
+    if (!isAppiumSession(browser)) {
+      try {
+        await this.#injectScriptSync(browser)
+      } catch (err) {
+        log.error(
+          `Failed to inject script at session start: ${errorMessage(err)}`
+        )
+      }
+    }
+
+    // WDIO has already subscribed the BiDi events by now, so attaching here
+    // issues no mid-run protocol traffic and misses no early events.
+    if (browser.isBidi) {
+      attachBidiListeners(browser, this.#sessionCapturer)
+    }
+
+    await this.#screencast.start(browser)
+    this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
+    await this.#nativeNetwork.start(browser)
+
+    /**
+     * Propagate session metadata at the beginning of the session. Not awaited
+     * here, so session start is never held up by a driver round trip — but
+     * tracked, because finalize must not export before it lands.
+     */
+    this.#metadataCapture = this.#captureSessionMetadata(browser)
+
+    /**
+     * Runtime DOM snapshot for agent auto-healing loops. Calls into
+     * @wdio/elements' getSnapshot() directly — no trace-mode overhead,
+     * no screenshot round-trip, no page-settling.
+     *
+     * Returns { text, elements } — see @wdio/elements SnapshotResult.
+     */
+    browser.addCommand(
+      'getSnapshot',
+      async (options?: { inViewportOnly?: boolean }) => {
+        try {
+          const { getSnapshot } = await import('@wdio/elements')
+          return await getSnapshot(browser, options ?? { inViewportOnly: true })
+        } catch (err) {
+          log.warn(`getSnapshot failed: ${errorMessage(err)}`)
+          return { text: '[Snapshot unavailable]', elements: {} }
+        }
+      }
+    )
+  }
+
+  /** Resolve what the session can state about itself and both store and publish
+   *  it. Stored, because the exporter serializes the capturer's own metadata:
+   *  `sendUpstream` alone reached a live dashboard and was dropped before the
+   *  zip, which is why a native capture claimed a 1280x720 viewport it never
+   *  measured. */
+  async #captureSessionMetadata(browser: WebdriverIO.Browser): Promise<void> {
+    try {
+      this.#sessionCapturer.mergeMetadata(
+        await resolveSessionMetadata(browser, this.captureType)
+      )
+    } catch (err) {
+      log.warn(`Could not capture session metadata: ${errorMessage(err)}`)
+    }
+  }
+
+  // The method signature is corrected to use W3CCapabilities
+  beforeSession(
+    config: Options.Testrunner,
+    capabilities: Capabilities.W3CCapabilities
+  ) {
+    const isMultiRemote =
+      !('browserName' in capabilities) && !('platformName' in capabilities)
+    if (isMultiRemote) {
+      throw new SevereServiceError(
+        'The DevTools hook does not support multiremote yet'
+      )
+    }
+
+    if ('reporters' in config) {
+      // Detect the Allure reporter (before we append our own) so the artifacts
+      // manifest auto-enables for session/spec-scoped Allure attach.
+      this.#allureReporterConfigured = (config.reporters || []).some((r) => {
+        const name = Array.isArray(r) ? r[0] : r
+        return typeof name === 'string' && name.includes('allure')
+      })
+      const self = this
+      config.reporters = [
+        ...(config.reporters || []),
+        /**
+         * class wrapper to make sure we can access the reporter instance
+         */
+        class DevToolsReporter extends TestReporter {
+          constructor(options: Reporters.Options) {
+            super(
+              options,
+              (upstreamData) =>
+                self.#sessionCapturer.sendUpstream('suites', upstreamData),
+              (location: string) => {
+                self.#sessionCapturer.ensureSourceLoaded(location)
+              }
+            )
+            self.#testReporters.push(this)
+          }
+        }
+      ]
+    }
+  }
+
+  /** Cucumber hook: records feature-file boundaries and tags commands with a stable testUid. */
+  beforeScenario(world?: {
+    pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+  }) {
+    this.resetStack()
+    this.#currentTestStartWallTime = Date.now()
+    this.#currentStepIndex = 0
+    this.#currentStepUid = undefined
+
+    const featureFile = world?.pickle?.uri
+    const scenarioName = world?.pickle?.name
+    // Derived before recording the boundary so `test` granularity keys the
+    // slice on the same uid the metadata map uses.
+    const uid =
+      featureFile && scenarioName
+        ? cucumberScenarioUid(
+            featureFile,
+            scenarioName,
+            world?.pickle?.astNodeIds
+          )
+        : undefined
+
+    this.#slices.recordBoundary(featureFile, uid)
+
+    // ── Test identity for command tagging ──
+    if (uid && scenarioName && featureFile) {
+      this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid, featureFile)
+      this.#testMetadata.set(uid, {
+        title: scenarioName,
+        specFile: featureFile
+      })
+    }
+  }
+
+  /** Mocha/Jasmine hook: the beforeScenario equivalent for file-based specs. */
+  beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
+    this.resetStack()
+    this.#currentTestStartWallTime = Date.now()
+
+    // Track test identity for command tagging. Generate a stable UID
+    // from file + title so commands can be partitioned across reruns.
+    // WDIO's Test type always provides `fullTitle`; `title` is a
+    // fallback for non-WDIO frameworks. Derived before the boundary so
+    // `test` granularity keys the slice on the metadata-map uid.
+    const testTitle = test?.fullTitle || test?.title
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+
+    this.#slices.recordBoundary(test?.file, uid)
+
+    if (uid && testTitle) {
+      this.#currentTestUid = uid
+      this.#attemptTracker.recordStart(uid, test?.file)
+      this.#testMetadata.set(uid, {
+        title: testTitle,
+        specFile: test?.file ?? ''
+      })
+    }
+  }
+
+  // Tag the scenario's commands with a stable per-step uid so the trace nests
+  // them under the step (Scenario→Step; no feature ancestry is recorded). The uid combines the scenario
+  // uid with a per-scenario counter, so repeated step text can't collide.
+  beforeStep(step?: { text?: string; keyword?: string }) {
+    if (!this.#currentTestUid) {
+      return
+    }
+    this.#currentStepIndex += 1
+    const uid = stepMetadataUid(this.#currentTestUid, this.#currentStepIndex)
+    const title =
+      [step?.keyword, step?.text].filter(Boolean).join('').trim() ||
+      `Step ${this.#currentStepIndex}`
+    this.#currentStepUid = uid
+    this.#testMetadata.set(uid, {
+      title,
+      specFile: this.#testMetadata.get(this.#currentTestUid)?.specFile ?? ''
+    })
+  }
+
+  // afterStep fires right after each step, so the failing assertion lands next
+  // to the step's actions rather than after reloadSession at scenario end.
+  afterStep(
+    _step?: unknown,
+    _scenario?: unknown,
+    result?: { error?: unknown }
+  ) {
+    this.#currentStepUid = undefined
+    this.#assertionTracker.handleOutcome(result?.error)
+  }
+
+  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
+   *  entry, taking the max of the tracker count and WDIO's retry field. */
+  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
+    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
+    const attempt = resolveTestAttempt(result, fallback)
+    stampTestState(this.#testMetadata, uid, result, attempt)
+    // Feed the per-attempt ledger so session/spec retention sees this attempt's
+    // real outcome, not just the final state that overwrites #testMetadata.
+    this.#attemptTracker.recordOutcome(
+      uid,
+      this.#testMetadata.get(uid)?.state,
+      attempt
+    )
+  }
+
+  async afterScenario(
+    world?: {
+      pickle?: { uri?: string; name?: string; astNodeIds?: readonly string[] }
+    },
+    result?: TestOutcomeResult
+  ) {
+    const { uri, name, astNodeIds } = world?.pickle ?? {}
+    const uid =
+      uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
+    }
+    await this.#finalizePerScenario()
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
+  }
+
+  async afterTest(
+    test?: { file?: string; title?: string; fullTitle?: string },
+    _context?: unknown,
+    result?: TestOutcomeResult
+  ) {
+    this.#assertionTracker.handleOutcome(result?.error)
+    const testTitle = test?.fullTitle || test?.title
+    const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
+    if (uid) {
+      this.#stampOutcome(uid, result)
+    }
+    await this.#finalizePerScenario()
+    await this.#emitTestArtifacts(uid, isFailedResult(result))
+  }
+
+  /** At test end, while the per-test hook is still open: eager-flush this test's
+   *  slice (so it captures the final snapshot + stamped outcome) and attach the
+   *  retained trace to Allure, then capture the per-test screenshot per policy
+   *  and attach it too. Each part no-ops when its feature is off. */
+  async #emitTestArtifacts(
+    uid: string | undefined,
+    failed: boolean
+  ): Promise<void> {
+    // Requests the app made after the test's last command are only in the proxy until drained.
+    await this.#nativeNetwork?.forward()
+    const attach = await getAllureSink()
+    const onLog = (level: 'info' | 'warn', msg: string) => log[level](msg)
+    if (uid) {
+      const artifact = await this.#slices.flushTest(uid)
+      if (artifact) {
+        await attachTraceArtifact(artifact, attach, onLog)
+      }
+    }
+    await captureAndAttachScreenshot({
+      mode: this.#options.mode,
+      granularity: this.#options.traceGranularity,
+      policy: this.#options.screenshot,
+      failed,
+      screenshotBase64: lastRenderedScreenshot(
+        this.#actionSnapshots,
+        this.#currentTestStartWallTime
+      ),
+      sessionId: this.#browser?.sessionId,
+      outputDir: this.#outputDir,
+      testUid: uid,
+      attach,
+      onArtifact: (a) => this.#artifacts.push(a)
+    })
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
+    await this.#screencast.attachTestVideo({
+      testUid: uid,
+      attempt,
+      outcomes: uid ? this.#attemptTracker.forTest(uid, attempt) : [],
+      attach
+    })
+  }
+
+  /** expect-webdriverio matcher hooks — delegated to the assertion tracker. */
+  beforeAssertion(params: {
+    matcherName: string
+    expectedValue?: unknown
+  }): void {
+    this.#assertionTracker.beforeAssertion(params)
+  }
+
+  afterAssertion(params: ExpectAssertion): Promise<void> {
+    return this.#assertionTracker.afterAssertion(params)
+  }
+
+  async #finalizePerScenario() {
+    if (this.#options.mode !== 'trace' || !this.#browser) {
+      return
+    }
+    // Drain the collector one final time while the session is still alive, so the
+    // DOM the LAST command produced is recorded — a closing navigation (e.g. a
+    // logout landing back on the login page) fires no subsequent beforeCommand,
+    // which is where every other drain happens, so its destination DOM would
+    // otherwise never be captured before teardown. forceAnchor: the destination's
+    // async initial anchor may not have run yet, so anchor it synchronously here.
+    await this.#sessionCapturer.captureTrace(this.#browser, true)
+    // Named after the action it captures, because that is what it is: every
+    // other row's result comes from the NEXT action's pre-capture, so the last
+    // action's has no successor and this is the only capture of it. A session
+    // that ran no action names it FINAL_SNAPSHOT_COMMAND, which the per-test
+    // screenshot reads as "post-teardown frame, do not use".
+    const lastAction = this.#lastAction()
+    // A session with no action has no timestamp of its own to key on, so its
+    // frame is recognised by the marker instead — otherwise `Date.now()` differs
+    // between the per-test finalize and `after()` and both capture.
+    const command = lastAction?.command ?? FINAL_SNAPSHOT_COMMAND
+    const timestamp = lastAction?.timestamp ?? Date.now()
+    // `after()` finalizes once more at session end, for the standalone path that
+    // has no per-test hook. On a framework run the test that just ended has
+    // already recorded this slot, and the driver would return the same page a
+    // second time — capture only when it is still empty. Compared against the
+    // tracked slot rather than a scan of #actionSnapshots (see #finalizedSlot):
+    // a scan also matched an assertion row sharing the last action's timestamp,
+    // whose capture shows the post-action state and is kept by the
+    // richest-screenshot merge below anyway.
+    const slot = this.#finalizedSlot
+    const alreadyCaptured = lastAction
+      ? slot?.command === lastAction.command &&
+        slot?.timestamp === lastAction.timestamp
+      : slot?.command === FINAL_SNAPSHOT_COMMAND
+    if (!alreadyCaptured) {
+      await settleAfterLastAction(
+        this.#browser,
+        this.#sessionCapturer.replacedDocumentInLastDrain,
+        this.#sessionCapturer.currentContext
+      )
+      const snap = await captureActionSnapshot(
+        this.#browser,
+        command,
+        timestamp,
+        this.#sessionCapturer.currentContext,
+        'final'
+      )
+      if (snap) {
+        // Stamped at the last action's own timestamp, where an assertion row can
+        // have captured too, and resources are named by timestamp — keep only the
+        // richer screenshot so a blank end-of-scenario frame cannot clobber it.
+        upsertRichestSnapshot(this.#actionSnapshots, snap)
+        this.#finalizedSlot = { command, timestamp }
+      }
+    }
+  }
+
+  /** A command a snapshot can be attributed to: mapped (so it has a row to
+   *  render on) and not internal (several of those ARE mapped — getTitle,
+   *  getUrl, execute — and a snapshot stamped at one would sit at a timestamp
+   *  no row owns). Both the capture gate and `#lastAction` ask this. */
+  #isActionCommand(command: string): boolean {
+    return (
+      Boolean(mapCommandToAction(command)) &&
+      !INTERNAL_COMMANDS.includes(command)
+    )
+  }
+
+  /** The last action a capture can be attributed to. Scans rather than tracks a
+   *  pointer: the log is run-long and never reset per test, so the scan
+   *  self-scopes, and a slot already filled at its own boundary converges on
+   *  `alreadyCaptured`. */
+  #lastAction(): { command: string; timestamp: number } | undefined {
+    const commands = this.#sessionCapturer.commandsLog
+    for (let i = commands.length - 1; i >= 0; i--) {
+      const cmd = commands[i]!
+      if (this.#isActionCommand(cmd.command)) {
+        return cmd
+      }
+    }
+    return undefined
+  }
+
+  #lastActionTimestamp(): number {
+    return this.#lastAction()?.timestamp ?? Date.now()
+  }
+
+  private resetStack() {
+    this.#commandStack.reset()
+    // No command is in flight after a reset; without this a window stranded by a
+    // spec boundary would keep dropping frames until its bound expired.
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = undefined
+    this.#assertionTracker.reset()
+    this.#sessionCapturer.resetLastSelector()
+    this.#sessionCapturer.resetRetryTracker()
+    clearReadValues()
+  }
+
+  /** Sends a wait whose frame was just pushed onto `frames` as its running row, so the commands it issues nest under it. */
+  #openIfWait(frame: CommandFrame, args: unknown[], frames: CommandFrame[]) {
+    const { command } = frame
+    if (!isWaitCommand(command)) {
+      return
+    }
+    const id = this.#sessionCapturer.openWait({
+      command,
+      args,
+      timestamp: frame.startTimestamp,
+      startTime: frame.startTimestamp,
+      callSource: frame.callSource,
+      testUid: this.#currentTestUid,
+      stepUid: this.#currentStepUid,
+      ...(this.#commandStack.parentId === undefined
+        ? {}
+        : { parentId: this.#commandStack.parentId })
+    })
+    this.#commandStack.open(frame, id, frames, args)
+  }
+
+  /** Pushes the frame of a command that will be a row, opening it when it is a wait; true for a top-level user command. */
+  #enterCommand(
+    command: string,
+    args: string[],
+    issuedByService: boolean
+  ): boolean {
+    // Process-wide, and the capturer's own stack reads still depend on it.
+    Error.stackTraceLimit = 20
+    const source = specFrameBelow(
+      DevToolsHookService.prototype.beforeCommand,
+      isUserSpecFile
+    )
+    // A matcher's value-read (getText/isExisting) is captured normally like any
+    // command; afterAssertion later folds it into the expect.<matcher> row (see
+    // coalesceAssertionIntoLastRead), so no suppression window is needed here.
+    const parentId = this.#commandStack.parentId
+    const entered = this.#commandStack.enter(
+      command,
+      args,
+      source ? resolveCallSourceFromFrame(source) : undefined,
+      Boolean(source),
+      issuedByService
+    )
+    if (entered) {
+      this.#openIfWait(entered.frame, args, entered.frames)
+    }
+    return Boolean(entered) && parentId === undefined
+  }
+
+  // Not `async`: WDIO skips every command's hooks while any hook is running, so a hook that settles even a tick later
+  // than before widens the window in which a concurrent command's hooks are dropped.
+  beforeCommand(command: string, args: string[]): Promise<void> {
+    const issuedByService = isServiceWork()
+    return runAsServiceWork(() =>
+      this.#beforeCommand(command, args, issuedByService)
+    )
+  }
+
+  async #beforeCommand(
+    command: string,
+    args: string[],
+    issuedByService: boolean
+  ) {
+    if (!this.#browser || isServiceProbe(command)) {
+      return
+    }
+    // Suppress screenshot polling for the duration of an input-dispatching
+    // command: a poll landing inside chromedriver's click, between computing the
+    // element's coordinates and dispatching at them, makes the click report
+    // success while activating nothing. Opened before the pre-action probes below
+    // so it spans the whole command.
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = beginInputDispatch(command)
+    // `url` is the one start-of-recording signal every runner reaches (Mocha,
+    // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
+    if (command === 'url') {
+      this.#screencast.markStart()
+      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
+    }
+    // Synchronous, and settled BEFORE any await below: afterCommand pops exactly
+    // what this pushed, so a push stranded behind an await would let a same-tick
+    // afterCommand miss the frame.
+    const topLevelUserCommand = this.#enterCommand(
+      command,
+      args,
+      issuedByService
+    )
+    // Flush the outgoing page's buffered mutations (e.g. field edits from prior
+    // fills — value/checked changes fire no page transition) BEFORE a navigating
+    // command discards its collector, else the replay shows empty inputs. Runs
+    // in live mode too: navigation drops the old document's collector, so the
+    // post-navigation afterCommand drain would hit the fresh page and lose them.
+    if (PAGE_TRANSITION_COMMANDS.includes(command)) {
+      await this.#sessionCapturer.captureTrace(this.#browser)
+    }
+    // Pre-action capture: the state this action runs against, which is the state
+    // the previous action left behind. Taken HERE, before the command is issued,
+    // because that is the one moment the driver is guaranteed idle and the app
+    // at rest — a capture taken the instant a command returns catches whatever
+    // transition it started. Stamped at the previous action's end (or now, for
+    // the first, which makes it the initial frame). Trace mode only.
+    //
+    // Not while a mobile-web Appium session has a document to probe — the
+    // re-entrant probes can deadlock a serialising driver (#374). A native
+    // session is captured normally.
+    if (
+      topLevelUserCommand &&
+      this.#options.mode === 'trace' &&
+      this.#browser &&
+      !inPageProbesDeadlock(
+        this.#browser,
+        this.#sessionCapturer.currentContext
+      ) &&
+      this.#isActionCommand(command)
+    ) {
+      // Stamped at the previous action's end so this capture IS that action's
+      // result — except across a test boundary, where that slot already holds
+      // its own finalize capture and a second frame at the same timestamp lets
+      // the richer-screenshot merge replace it (with a reloadSession between
+      // the tests, the row then replays the post-reload page). The first
+      // capture of a test stamps now instead, the same rule the session's first
+      // capture uses to become the initial frame.
+      const previousEnd = this.#lastActionTimestamp()
+      const snap = await captureActionSnapshot(
+        this.#browser,
+        command,
+        previousEnd >= this.#currentTestStartWallTime
+          ? previousEnd
+          : Date.now(),
+        this.#sessionCapturer.currentContext,
+        this.#assertionTracker.matcherPolling ? 'matcher-poll' : 'action'
+      )
+      if (snap) {
+        upsertRichestSnapshot(this.#actionSnapshots, snap)
+      }
+    }
+  }
+
+  afterCommand(
+    command: keyof WebDriverCommands,
+    args: unknown[],
+    result: unknown,
+    error?: Error
+  ) {
+    const issuedByService = isServiceWork()
+    return runAsServiceWork(() =>
+      this.#afterCommand(command, args, result, error, issuedByService)
+    )
+  }
+
+  async #afterCommand(
+    command: keyof WebDriverCommands,
+    args: unknown[],
+    result: unknown,
+    error: Error | undefined,
+    issuedByService: boolean
+  ) {
+    // Skip bookkeeping for internal injection calls and the snapshot's own probes
+    if (this.#injecting || isServiceProbe(command)) {
+      return
+    }
+    this.#closeInputWindow?.()
+    this.#closeInputWindow = undefined
+
+    // Record every element resolution, even those below the top-level command
+    // boundary — an `expect($('#flash'))` resolves its element inside the
+    // matcher, so this is the only place the assertion's target selector is
+    // observable (see SessionCapturer.noteResolvedSelector).
+    if (
+      LOCATOR_COMMANDS.includes(command as string) &&
+      typeof args[0] === 'string' &&
+      args[0]
+    ) {
+      this.#sessionCapturer.noteResolvedSelector(args[0])
+    }
+
+    const settled = this.#commandStack.settle(command, issuedByService)
+    if (settled) {
+      const { frame, nesting } = settled
+      if (this.#browser) {
+        const captured = await this.#sessionCapturer.afterCommand(
+          this.#browser,
+          command,
+          args,
+          result,
+          error,
+          frame.callSource,
+          frame.startTimestamp,
+          this.#currentTestUid,
+          this.#currentStepUid,
+          nesting
+        )
+        // Trace mode captures nothing here: the state this action produced is
+        // taken by the NEXT action's pre-capture, when the app has settled.
+        if (this.#options.mode !== 'trace') {
+          await this.#drainAfterLiveCommand(command)
+        }
+        await this.#nativeNetwork?.forward({ throttle: true })
+        return captured
+      }
+    }
+
+    // Re-inject AFTER context-changing commands complete so new documents/frames are instrumented
+    if (CONTEXT_CHANGE_COMMANDS.includes(command)) {
+      void this.#ensureInjected(`context-change:${command}`)
+    }
+  }
+
+  /** Live mode has no per-action DOM snapshot (that's trace mode), so the
+   *  dashboard's replay is only as fresh as the last drain. Field edits fire no
+   *  page transition, so without this every action between two navigations
+   *  replays the page as it looked at load — an un-filled form after setValue.
+   *  Page-transition commands already drain inside the capturer, and resolving
+   *  a locator can't change the DOM — skipping both keeps the added round trips
+   *  to the commands that can actually move the page (which matters: capture
+   *  traffic is what triggers the Chrome 150 headless input regression). */
+  async #drainAfterLiveCommand(command: keyof WebDriverCommands) {
+    // No native check: `captureTrace` owns that now, so this only decides
+    // which COMMANDS warrant a drain.
+    if (
+      !this.#browser ||
+      PAGE_TRANSITION_COMMANDS.includes(command) ||
+      LOCATOR_COMMANDS.includes(command)
+    ) {
+      return
+    }
+    await this.#sessionCapturer.captureTrace(this.#browser)
+  }
+
+  /**
+   * after hook is triggered at the end of every worker session, therefore
+   * we can use it to write all trace information to a file. `trace` mode
+   * writes the shareable trace.zip (opened via `pnpm show-trace`); `live`
+   * mode streams to the dashboard over WS and persists nothing to disk.
+   */
+  async after() {
+    if (!this.#browser) {
+      return
+    }
+
+    // The last action's result is captured by the NEXT action's pre-capture, so
+    // a session that ends without one — a standalone run has no per-test hook to
+    // finalize on — would lose it. A framework run has already finalized per
+    // test; there this only re-captures the same timestamp and merges.
+    await this.#finalizePerScenario()
+    await this.#nativeNetwork?.forward()
+
+    // Stop and encode the screencast for the current session.
+    await this.#screencast.finalize(this.#browser.sessionId)
+
+    await finalizeTraceExport(this.#traceContext(this.#browser))
+
+    // Clean up console patching
+    this.#sessionCapturer.cleanup()
+  }
+
+  /**
+   * Called by WebdriverIO after browser.reloadSession() completes. The old
+   * session (and its CDP connection) is destroyed at this point, so both the
+   * page instrumentation and the screencast have to be re-armed for the new one.
+   */
+  async onReload(oldSessionId: string, _newSessionId: string) {
+    // reloadSession starts a fresh session with no preload script (BiDi preload
+    // scripts are per-session), so DOM-mutation capture would silently stop
+    // after the first session — every post-reload scenario would replay the
+    // prior session's last DOM. Re-arm capture for the new session here,
+    // independent of screencast, so it runs before that early-returns.
+    this.#sessionCapturer.resetScriptInjection()
+    await this.#ensureInjected('reloadSession')
+    await this.#nativeNetwork?.start(this.#browser)
+
+    await this.#screencast.handleReload(oldSessionId)
+  }
+
+  /**
+   * Resolves the directory where devtools output files (trace JSON, video WebM)
+   * should be written.
+   *
+   * WDIO-specific quirk: `wdio.conf.ts`'s `outputDir` (or the auto-set
+   * `rootDir`) is the authoritative location — both are honored as-is via
+   * `userConfiguredDir`, bypassing the test-file fallback. This preserves
+   * the long-standing WDIO behavior of writing files next to the config.
+   * Falls back to `process.cwd()`.
+   *
+   * NOTE: Avoid setting `outputDir` in wdio.conf just to fix the output path
+   * — doing so redirects WDIO worker logs to files and silences the terminal.
+   * Rely on `rootDir` instead (it is set automatically by WDIO).
+   */
+  get #outputDir(): string {
+    const opts = this.#browser?.options as
+      { outputDir?: string; rootDir?: string } | undefined
+    return resolveAdapterOutputDir({
+      userConfiguredDir: opts?.outputDir || opts?.rootDir
+    })
+  }
+
+  /**
+   * Synchronous injection that blocks until complete
+   */
+  async #injectScriptSync(browser: WebdriverIO.Browser) {
+    if (!browser.isBidi) {
+      throw new SevereServiceError(
+        `Can not set up devtools for session with id "${browser.sessionId}" because it doesn't support WebDriver Bidi`
+      )
+    }
+
+    await this.#sessionCapturer.injectScript(getBrowserObject(browser))
+    log.info('✓ Devtools preload script active')
+  }
+
+  async #ensureInjected(reason: string) {
+    // Keep this for re-injection after context changes
+    if (!this.#browser || this.#injecting) {
+      return
+    }
+    try {
+      this.#injecting = true
+      await this.#sessionCapturer.injectScript(getBrowserObject(this.#browser))
+    } catch (err) {
+      // Not recoverable here, and silence would mean losing DOM capture for the
+      // rest of the session with no symptom other than a stale replay. The
+      // per-drain recovery in core is the safety net for the current document.
+      log.error(`[inject] failed (reason=${reason}): ${errorMessage(err)}`)
+    } finally {
+      this.#injecting = false
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@wdio/devtools-shared",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Vishnu Vardhan",
+  "description": "Shared types, constants, and HTTP/WS contracts for @wdio/devtools-* packages. Workspace-internal, never published — code is inlined into each consuming package at build time.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/shared"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "types": "./src/*.ts",
+      "default": "./src/*.ts"
+    }
+  },
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint .",
+    "gen:wire-schema": "tsx scripts/wire-schema.ts"
+  },
+  "license": "MIT"
+}

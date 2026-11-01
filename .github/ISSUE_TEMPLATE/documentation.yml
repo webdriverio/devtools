@@ -1,0 +1,41 @@
+name: 📖 Documentation
+description: Report docs that are missing, wrong, or hard to follow.
+title: "[📖 Docs]: <title>"
+labels: [Docs 📖, Needs Triaging ⏳]
+body:
+
+  - type: markdown
+    attributes:
+      value: |
+        Our docs live alongside the code — the root README and a README per package under `packages/`. Small fixes are very welcome as a direct pull request; use this form when you'd rather flag it for us.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: What's the issue with the docs?
+      multiple: true
+      options:
+        - Missing — something isn't documented at all
+        - Wrong / outdated — doesn't match how DevTools behaves
+        - Unclear — technically correct but hard to follow
+        - Typo or formatting
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: Which doc?
+      description: Link or path to the page, README, or section this is about.
+      placeholder: e.g. packages/selenium-devtools/README.md — "Setup" section
+    validations:
+      required: false
+
+  - type: textarea
+    id: report
+    attributes:
+      label: What should change?
+      description: Describe what's confusing or missing, and what you expected the docs to tell you.
+    validations:
+      required: true
