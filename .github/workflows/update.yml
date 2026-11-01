@@ -24,7 +24,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Wait for PR CI
-        # npm minor and patch only; update-type is the highest update of a group, and empty when unknown
+        # npm minor and patch only (GitHub Actions updates stay manual); update-type is the highest update of a group, and empty when unknown
         if: >-
           contains(steps.metadata.outputs.package-ecosystem, 'npm') &&
           contains(fromJSON('["version-update:semver-minor","version-update:semver-patch"]'), steps.metadata.outputs.update-type)
@@ -39,7 +39,7 @@ jobs:
           allowed-conclusions: success,neutral
 
       - name: Auto-merge dependabot PRs
-        # npm minor and patch only; update-type is the highest update of a group, and empty when unknown
+        # npm minor and patch only (GitHub Actions updates stay manual); update-type is the highest update of a group, and empty when unknown
         if: >-
           contains(steps.metadata.outputs.package-ecosystem, 'npm') &&
           contains(fromJSON('["version-update:semver-minor","version-update:semver-patch"]'), steps.metadata.outputs.update-type)
