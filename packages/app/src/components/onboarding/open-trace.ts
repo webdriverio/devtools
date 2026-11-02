@@ -29,12 +29,6 @@ export class DevtoolsOpenTrace extends Element {
         height: calc(100% - 40px);
       }
 
-      /* No Tailwind token generates bg-sideBarBackground (#504). */
-      .landing {
-        background: var(--vscode-sideBar-background);
-        color: var(--vscode-foreground);
-      }
-
       .drop {
         border: 2px dashed var(--vscode-panel-border);
         border-radius: 12px;
@@ -156,7 +150,7 @@ export class DevtoolsOpenTrace extends Element {
   render() {
     return html`
       <div
-        class="landing h-full flex-1 flex flex-col justify-center items-center gap-6 p-4"
+        class="h-full flex-1 bg-sideBarBackground flex flex-col justify-center items-center gap-6 p-4"
         @dragover="${this.#onDragOver}"
         @dragleave="${this.#onDragLeave}"
         @drop="${this.#onDrop}"
