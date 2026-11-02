@@ -30,6 +30,8 @@ export const TRACE_EVENT_TYPES = {
   before: 'before',
   after: 'after',
   frameSnapshot: 'frame-snapshot',
+  /** Here only the response a frame-snapshot's screenshot override patches; captured traffic is in `.network`. */
+  resourceSnapshot: 'resource-snapshot',
   screencastFrame: 'screencast-frame',
   contextOptions: 'context-options',
   console: 'console',
