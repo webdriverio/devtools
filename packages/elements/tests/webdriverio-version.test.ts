@@ -1,0 +1,36 @@
+import { describe, expect, it } from 'vitest'
+import {
+  installedWebdriverioVersion,
+  rendersWithWdioSnapshot
+} from '../src/webdriverio-version.js'
+
+describe('rendersWithWdioSnapshot', () => {
+  it.each(['9.32.0', '10.1.0', '10.1.9'])(
+    'keeps the legacy renderer on %s',
+    (version) => {
+      expect(rendersWithWdioSnapshot(version)).toBe(false)
+    }
+  )
+
+  it.each([
+    '10.2.0-alpha.1',
+    '10.2.0-alpha.100.sha-b38abd894',
+    '10.2.0',
+    '11.0.0'
+  ])('renders with @wdio/snapshot on %s', (version) => {
+    expect(rendersWithWdioSnapshot(version)).toBe(true)
+  })
+
+  it.each(['garbage', '', undefined])(
+    'falls back to legacy for an unreadable version %j',
+    (version) => {
+      expect(rendersWithWdioSnapshot(version)).toBe(false)
+    }
+  )
+})
+
+describe('installedWebdriverioVersion', () => {
+  it('reads the webdriverio version the package resolves', () => {
+    expect(installedWebdriverioVersion()).toMatch(/^\d+\.\d+\.\d+/)
+  })
+})

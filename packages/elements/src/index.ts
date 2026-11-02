@@ -22,9 +22,27 @@ export type { VisibleElementsResult } from './get-elements.js'
 
 export type { JSONElement } from './locators/index.js'
 
-export { getSnapshot } from './get-snapshot.js'
-export type { GetSnapshotOptions, GetSnapshotResult } from './get-snapshot.js'
-export { SnapshotError } from '@wdio/snapshot'
+export {
+  serializeWebSnapshot,
+  serializeMobileSnapshot,
+  buildSnapshot,
+  accessibilityNodesToSnapshotNodes,
+  jsonElementToSnapshotNodes
+} from './snapshot.js'
+export type {
+  WebSnapshotOptions,
+  MobileSnapshotOptions,
+  SnapshotResult,
+  SnapshotElement
+} from './snapshot.js'
+
+export { getSnapshot, snapshotRenderer } from './get-snapshot.js'
+export type {
+  GetSnapshotOptions,
+  GetSnapshotResult,
+  SnapshotFormat
+} from './get-snapshot.js'
+export { SnapshotError } from './snapshot-error.js'
 export type {
   CandidateKind,
   SnapshotCandidate,

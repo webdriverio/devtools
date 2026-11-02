@@ -12,6 +12,10 @@ vi.mock('@wdio/snapshot', async (importActual) => {
   }
 })
 
+vi.mock('../src/webdriverio-version.js', () => ({
+  usesWdioSnapshot: vi.fn(() => true)
+}))
+
 import * as snap from '@wdio/snapshot'
 import { getSnapshot } from '../src/get-snapshot.js'
 
@@ -58,7 +62,9 @@ describe('getSnapshot (web)', () => {
     expect(
       vi.mocked(snap.formatSnapshot).mock.calls[0][1]?.frameHint?.('e3')
     ).toBe('wdio session frame e3')
-    expect(result).toEqual({ text: 'TEXT', refs: REFS })
+    expect(result).toEqual(
+      expect.objectContaining({ format: 'snapshot', text: 'TEXT', refs: REFS })
+    )
   })
 
   it('passes viewport through, and uses the bidi transport on a classic session', async () => {
@@ -199,7 +205,7 @@ describe('getSnapshot (native)', () => {
     vi.mocked(snap.attachSelectors).mockImplementation(actual.attachSelectors)
     vi.mocked(snap.formatSnapshot).mockImplementation(actual.formatSnapshot)
 
-    const { text, refs } = await getSnapshot(nativeBrowser())
+    const { text, refs = [] } = await getSnapshot(nativeBrowser())
 
     expect(refs.length).toBeGreaterThan(0)
     expect(text).toMatch(/\be1\b/)
@@ -235,7 +241,7 @@ describe('getSnapshot (native)', () => {
       children: [{ role: 'button', ref: 'e2' }]
     })
 
-    const { refs } = await getSnapshot(nativeBrowser(), { viewport: true })
+    const { refs = [] } = await getSnapshot(nativeBrowser(), { viewport: true })
 
     expect(refs.map((ref) => ref.id)).toEqual(['e2'])
   })
@@ -257,7 +263,7 @@ describe('getSnapshot (native)', () => {
       getWindowSize: vi.fn().mockResolvedValue({ width: 0, height: 0 })
     })
 
-    const { refs } = await getSnapshot(b, { viewport: true })
+    const { refs = [] } = await getSnapshot(b, { viewport: true })
 
     expect(snap.inViewport).not.toHaveBeenCalled()
     expect(refs.map((ref) => ref.id)).toEqual(['e1', 'e2'])

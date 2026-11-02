@@ -1,104 +1,51 @@
-import {
-  attachSelectors,
-  collectWeb,
-  formatSnapshot,
-  inViewport,
-  nativePlatform,
-  parseNativeSource
-} from '@wdio/snapshot'
-import { deepCapString } from '@wdio/devtools-shared/device'
-import type { NativePlatform, SnapshotNode, SnapshotRef } from '@wdio/snapshot'
+import type { SnapshotElement } from '@wdio/devtools-core/element-types'
+import type { SnapshotRef } from '@wdio/snapshot'
+import { getSnapshot as getLegacySnapshot } from './legacy-snapshot.js'
+import { usesWdioSnapshot } from './webdriverio-version.js'
+import { getWdioSnapshot, loadWdioSnapshot } from './wdio-snapshot.js'
+
+export type SnapshotFormat = 'legacy' | 'snapshot'
 
 export interface GetSnapshotOptions {
-  /** Only include what intersects the viewport (default false: the full page). */
+  /** Only include what intersects the viewport (legacy default true, snapshot default false). */
+  inViewportOnly?: boolean
+  /** Same as `inViewportOnly`; wins when both are set. */
   viewport?: boolean
 }
 
 export interface GetSnapshotResult {
-  /** Accessibility tree as text, one `eN` ref per actionable element, ending in `→ <selector>` only when one resolves under BiDi. */
+  format: SnapshotFormat
+  /** Accessibility tree as text, one `eN` ref per actionable element. */
   text: string
-  refs: SnapshotRef[]
+  elements: Record<string, SnapshotElement>
+  /** Set on the `snapshot` format: the candidate selectors of each ref. */
+  refs?: SnapshotRef[]
 }
 
-const frameHint = (ref: string) => `wdio session frame ${ref}`
-
-const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
-
-// @wdio/session's `classify`: a browserName makes a mobile session web. Desktop
-// browsers also report mac/windows here, which their browserName excludes too.
-function nativePlatformName(caps: Record<string, unknown>): string | undefined {
-  const platformName = (
-    deepCapString(caps, 'platformName') ??
-    deepCapString(caps, 'appium:platformName') ??
-    ''
-  ).toLowerCase()
-  return NATIVE_PLATFORMS.has(platformName) &&
-    !deepCapString(caps, 'browserName')
-    ? platformName
-    : undefined
+/** The renderer `getSnapshot` picks for the installed WebdriverIO. */
+export function snapshotRenderer(): SnapshotFormat {
+  return usesWdioSnapshot() ? 'snapshot' : 'legacy'
 }
 
 /**
- * Same text as `wdio session snapshot --selectors [--viewport]`, for web and
- * native sessions alike. Throws SnapshotError rather than returning a partial tree.
+ * Same text as `wdio session snapshot --selectors [--viewport]` on WebdriverIO
+ * 10.2 and later, where `@wdio/snapshot` renders; the legacy renderer below it.
  */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
   options: GetSnapshotOptions = {}
 ): Promise<GetSnapshotResult> {
-  const { viewport = false } = options
-  const caps = browser.capabilities as Record<string, unknown>
-  const platformName = nativePlatformName(caps)
-  const { tree, refs } = platformName
-    ? await collectNative(browser, nativePlatform(caps, platformName), viewport)
-    : await collectWebTree(browser, viewport)
-
-  attachSelectors(tree, refs)
-  return {
-    text: formatSnapshot(tree, { selectors: true, frameHint }),
-    refs
+  const wdioSnapshot =
+    snapshotRenderer() === 'snapshot' ? await loadWdioSnapshot() : undefined
+  if (wdioSnapshot) {
+    return getWdioSnapshot(
+      wdioSnapshot,
+      browser,
+      options.viewport ?? options.inViewportOnly ?? false
+    )
   }
-}
-
-const classicUnavailable = new WeakSet<WebdriverIO.Browser>()
-
-async function collectWebTree(browser: WebdriverIO.Browser, viewport: boolean) {
-  const classic = browser.isBidi && !classicUnavailable.has(browser)
-  const result = await collectWeb(
-    browser,
-    { counter: 0, all: false, boxes: false, viewport, assignRefs: 'ephemeral' },
-    // BiDi tries classic `executeScript` until it fails once, then `execute`; same rule as collectTop in @wdio/session.
-    { transport: classic ? 'classic-first' : 'bidi' }
-  )
-  if (result.classicUnavailable) {
-    classicUnavailable.add(browser)
-  }
-  return result
-}
-
-async function collectNative(
-  browser: WebdriverIO.Browser,
-  platform: NativePlatform,
-  viewport: boolean
-): Promise<{ tree: SnapshotNode; refs: SnapshotRef[] }> {
-  const [xml, size] = await Promise.all([
-    browser.getPageSource(),
-    viewport ? browser.getWindowSize() : undefined
-  ])
-  const parsed = parseNativeSource(xml, platform, { all: false, counter: 0 })
-  // A zero-size window (minimized, broken ADB) would clip every element out of the tree.
-  if (!size?.width || !size?.height) {
-    return parsed
-  }
-  const tree = inViewport(parsed.tree, size.width, size.height) ?? parsed.tree
-  const shown = refIds(tree)
-  return { tree, refs: parsed.refs.filter((ref) => shown.has(ref.id)) }
-}
-
-function refIds(node: SnapshotNode, ids = new Set<string>()): Set<string> {
-  if (node.ref) {
-    ids.add(node.ref)
-  }
-  node.children?.forEach((child) => refIds(child, ids))
-  return ids
+  const legacy = await getLegacySnapshot(browser, {
+    inViewportOnly: options.viewport ?? options.inViewportOnly ?? true
+  })
+  return { format: 'legacy', ...legacy }
 }
