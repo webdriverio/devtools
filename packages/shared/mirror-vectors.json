@@ -603,6 +603,109 @@
           "expect": { "command": "wait", "selector": null }
         }
       ]
+    },
+    "captureTimingSummary": {
+      "mirrors": { "ts": "core/capture-timing.ts summarizeCaptureTiming + formatCaptureTimingSummary", "py": "capture_timing.py summarize + format_summary" },
+      "notes": "wall and file are null when not given. Halves round up in both languages, which Python's round() does not do on its own; the second case is the one that tells them apart.",
+      "cases": [
+        {
+          "name": "a serial capture splits queueing from service",
+          "wall": 10000,
+          "file": "/out/capture-timing-1.ndjson",
+          "records": [
+            {"command": "click", "trigger": "action", "native": false, "start": 0, "total": 110, "probes": [{"probe": "url", "issued": 0, "settled": 4, "service": 4, "empty": false}, {"probe": "screenshot", "issued": 0, "settled": 104, "service": 100, "empty": false}, {"probe": "process", "issued": 104, "settled": 110, "service": 6, "empty": false}]},
+            {"command": "click", "trigger": "action", "native": false, "start": 50, "total": 210, "probes": [{"probe": "url", "issued": 0, "settled": 4, "service": 4, "empty": false}, {"probe": "screenshot", "issued": 0, "settled": 204, "service": 200, "empty": false}, {"probe": "process", "issued": 204, "settled": 210, "service": 6, "empty": false}]},
+            {"command": "getText", "trigger": "wait-poll", "native": false, "start": 1000, "total": 310, "probes": [{"probe": "url", "issued": 0, "settled": 4, "service": 4, "empty": false}, {"probe": "screenshot", "issued": 0, "settled": 304, "service": 300, "empty": false}, {"probe": "process", "issued": 304, "settled": 310, "service": 6, "empty": false}]},
+            {"command": "getText", "trigger": "matcher-poll", "native": false, "start": 2000, "total": 1010, "probes": [{"probe": "url", "issued": 0, "settled": 4, "service": 4, "empty": false}, {"probe": "screenshot", "issued": 0, "settled": 1004, "service": 1000, "empty": false}, {"probe": "process", "issued": 1004, "settled": 1010, "service": 6, "empty": false}]}
+          ],
+          "expect": {
+            "summary": {
+              "captures": 4,
+              "native": 0,
+              "triggers": [
+                {"trigger": "action", "count": 2, "total": 320},
+                {"trigger": "wait-poll", "count": 1, "total": 310},
+                {"trigger": "matcher-poll", "count": 1, "total": 1010}
+              ],
+              "rows": [
+                {"probe": "url", "count": 4, "total": 16, "median": 4, "p95": 4, "max": 4, "serviceTotal": 16, "serviceMedian": 4},
+                {"probe": "screenshot", "count": 4, "total": 1616, "median": 254, "p95": 1004, "max": 1004, "serviceTotal": 1600, "serviceMedian": 250},
+                {"probe": "process", "count": 4, "total": 24, "median": 6, "p95": 6, "max": 6, "serviceTotal": 24, "serviceMedian": 6},
+                {"probe": "capture", "count": 4, "total": 1640, "median": 260, "p95": 1010, "max": 1010, "serviceTotal": 1640, "serviceMedian": 260}
+              ],
+              "busy": 1580,
+              "wall": 10000
+            },
+            "formatted": "[devtools] capture timing: 4 captures (0 native; action 2, wait-poll 1, matcher-poll 1), busy 1.6 s of 10.0 s wall (15.8%)\nms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing\nprobe (ms)  n  total  median   p95   max  svc total  svc median\nurl         4     16       4     4     4         16           4\nscreenshot  4   1616     254  1004  1004       1600         250\nprocess     4     24       6     6     6         24           6\ncapture     4   1640     260  1010  1010       1640         260\nraw records: /out/capture-timing-1.ndjson"
+          }
+        },
+        {
+          "name": "halves round up in both languages",
+          "wall": 250,
+          "file": null,
+          "records": [
+            {"command": "click", "trigger": "action", "native": false, "start": 0, "total": 1.5, "probes": [{"probe": "screenshot", "issued": 0, "settled": 1.5, "service": 1.5, "empty": false}]},
+            {"command": "click", "trigger": "action", "native": false, "start": 100, "total": 2.5, "probes": [{"probe": "screenshot", "issued": 0, "settled": 2.5, "service": 2.5, "empty": false}]}
+          ],
+          "expect": {
+            "summary": {
+              "captures": 2,
+              "native": 0,
+              "triggers": [
+                {"trigger": "action", "count": 2, "total": 4}
+              ],
+              "rows": [
+                {"probe": "screenshot", "count": 2, "total": 4, "median": 2, "p95": 2.5, "max": 2.5, "serviceTotal": 4, "serviceMedian": 2},
+                {"probe": "capture", "count": 2, "total": 4, "median": 2, "p95": 2.5, "max": 2.5, "serviceTotal": 4, "serviceMedian": 2}
+              ],
+              "busy": 4,
+              "wall": 250
+            },
+            "formatted": "[devtools] capture timing: 2 captures (0 native; action 2), busy 0.0 s of 0.3 s wall (1.6%)\nms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing\nprobe (ms)  n  total  median  p95  max  svc total  svc median\nscreenshot  2      4       2    3    3          4           2\ncapture     2      4       2    3    3          4           2"
+          }
+        },
+        {
+          "name": "a native capture with an empty read and a final trigger",
+          "wall": null,
+          "file": null,
+          "records": [
+            {"command": "tap", "trigger": "final", "native": true, "start": 5, "total": 1300.25, "probes": [{"probe": "pageSource", "issued": 0.1, "settled": 800.3, "service": 800.2, "empty": false}, {"probe": "screenshot", "issued": 0.2, "settled": 1250.4, "service": 450.1, "empty": true}, {"probe": "process", "issued": 1250.4, "settled": 1300.25, "service": 49.9, "empty": false}]}
+          ],
+          "expect": {
+            "summary": {
+              "captures": 1,
+              "native": 1,
+              "triggers": [
+                {"trigger": "final", "count": 1, "total": 1300.3}
+              ],
+              "rows": [
+                {"probe": "pageSource", "count": 1, "total": 800.2, "median": 800.2, "p95": 800.2, "max": 800.2, "serviceTotal": 800.2, "serviceMedian": 800.2},
+                {"probe": "screenshot", "count": 1, "total": 1250.2, "median": 1250.2, "p95": 1250.2, "max": 1250.2, "serviceTotal": 450.1, "serviceMedian": 450.1},
+                {"probe": "process", "count": 1, "total": 49.8, "median": 49.8, "p95": 49.8, "max": 49.8, "serviceTotal": 49.9, "serviceMedian": 49.9},
+                {"probe": "capture", "count": 1, "total": 1300.3, "median": 1300.3, "p95": 1300.3, "max": 1300.3, "serviceTotal": 1300.3, "serviceMedian": 1300.3}
+              ],
+              "busy": 1300.3
+            },
+            "formatted": "[devtools] capture timing: 1 captures (1 native; final 1), busy 1.3 s\nms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing\nprobe (ms)  n  total  median   p95   max  svc total  svc median\npageSource  1    800     800   800   800        800         800\nscreenshot  1   1250    1250  1250  1250        450         450\nprocess     1     50      50    50    50         50          50\ncapture     1   1300    1300  1300  1300       1300        1300"
+          }
+        },
+        {
+          "name": "no captures",
+          "wall": null,
+          "file": null,
+          "records": [],
+          "expect": {
+            "summary": {
+              "captures": 0,
+              "native": 0,
+              "triggers": [],
+              "rows": [],
+              "busy": 0
+            },
+            "formatted": "[devtools] capture timing: 0 captures (0 native), busy 0.0 s\nms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing\nprobe (ms)  n  total  median  p95  max  svc total  svc median"
+          }
+        }
+      ]
     }
   }
 }

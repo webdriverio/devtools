@@ -6,7 +6,7 @@
 // trace (observed: thousands of getUrl/getTitle actions in one run).
 
 import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
 import { SELENIUM_RUNNER_ID } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import type { SeleniumDriverLike } from './types.js'
@@ -15,7 +15,8 @@ export function captureActionSnapshot(
   driver: SeleniumDriverLike,
   command: string,
   timestamp?: number,
-  native = false
+  native = false,
+  trigger?: CaptureTrigger
 ): Promise<ActionSnapshot | null> {
   const orig = getDriverOriginals()
   // The screenshot is the only one of these a native app can serve. The other
@@ -25,6 +26,7 @@ export function captureActionSnapshot(
   return coreCapture({
     command,
     timestamp,
+    trigger,
     runner: SELENIUM_RUNNER_ID,
     takeScreenshot: () =>
       orig.takeScreenshot

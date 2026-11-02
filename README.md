@@ -298,6 +298,54 @@ services: [[DevToolsHookService, {
 
 > **Requires BiDi.** Trace mode uses a WebDriver BiDi preload script. Both Chrome (≥114) and Firefox (≥130) enable BiDi automatically — no capability flags needed.
 
+#### Measuring capture cost
+
+A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot, plus the page source on a native app. Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
+
+When the trace is written, the run prints a table to stderr and appends the raw records, one line per capture, to `capture-timing-<pid>.ndjson` beside the trace (one file per worker process):
+
+```text
+[devtools] capture timing: 4 captures (0 native; action 2, wait-poll 1, matcher-poll 1), busy 1.6 s of 10.0 s wall (15.8%)
+ms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing
+probe (ms)  n  total  median   p95   max  svc total  svc median
+url         4     16       4     4     4         16           4
+screenshot  4   1616     254  1004  1004       1600         250
+process     4     24       6     6     6         24           6
+capture     4   1640     260  1010  1010       1640         260
+raw records: /out/capture-timing-1.ndjson
+```
+
+(Illustrative numbers from a unit-test fixture, not a real run.)
+
+- **Columns.** The JS adapters issue every read of a capture at once and the driver serves them in order, so a read's time from issue to settle includes waiting behind the reads before it. `svc` subtracts that wait: it is the read's own cost. `process` is the in-process step that turns the reads into a snapshot (page-source parsing and locator generation on native). `capture` is the whole capture.
+- **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
+- **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows.
+
+To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
+
+```sh
+# Desktop Chrome, one per adapter
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:wdio
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:selenium
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:nightwatch
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:python:pytest
+
+# Desktop Firefox and Safari, through selenium-webdriver's SELENIUM_BROWSER (Safari needs `safaridriver --enable` once)
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 SELENIUM_BROWSER=firefox pnpm --filter @wdio/selenium-devtools example:mocha
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 SELENIUM_BROWSER=safari pnpm --filter @wdio/selenium-devtools example:mocha
+
+# Android native (Clock app) and Android Chrome (prerequisites in examples/MOBILE.md)
+DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:wdio:mobile
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE=web pnpm demo:wdio:mobile
+
+# iOS native (Settings) and iOS Safari
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:wdio:mobile
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE_PLATFORM=ios DEVTOOLS_MOBILE=web pnpm demo:wdio:mobile
+```
+
+The mobile lines work the same with `demo:selenium:mobile`, `demo:nightwatch:mobile` and `demo:python:mobile`, which also run in trace mode by default.
+
 #### 📱 Mobile testing
 
 Appium sessions are captured in both live and trace mode. What gets captured depends on one question — **does this session have a web document right now?** — because every DOM drain, page script and viewport read is a round trip that can only fail without one.

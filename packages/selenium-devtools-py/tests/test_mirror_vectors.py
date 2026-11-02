@@ -19,6 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from selenium_devtools import (
     _contract,
+    capture_timing,
     capturer,
     device,
     output_dir,
@@ -50,6 +51,7 @@ RUNNERS = {
     "nestedWaitIdentity",
     "performancePayload",
     "waitRowNaming",
+    "captureTimingSummary",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -346,6 +348,20 @@ class TestWaitRowNaming(unittest.TestCase):
                     self._condition(given), given.get("negated", False)
                 )
                 self.assertEqual({"command": command, "selector": selector}, case["expect"])
+
+
+class TestCaptureTimingSummary(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("captureTimingSummary"):
+            with self.subTest(case["name"]):
+                summary = capture_timing.summarize(case["records"], case["wall"])
+                self.assertEqual(
+                    {
+                        "summary": summary,
+                        "formatted": capture_timing.format_summary(summary, case["file"]),
+                    },
+                    case["expect"],
+                )
 
 
 if __name__ == "__main__":
