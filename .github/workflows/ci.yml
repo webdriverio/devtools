@@ -96,6 +96,45 @@ jobs:
       - name: 🧩 Component Tests
         run: pnpm test:ui --maxInstances 2
 
+  # Builds the hosted trace player, serves it under the headers vercel.json
+  # sends, and opens the committed older-format zips, a zip from this
+  # checkout's writer and a non-zip through it in headless Chrome, failing on
+  # any console error or CSP violation. Its own job: it needs only the app's
+  # hosted build, not the bundle the other jobs build, so it runs beside
+  # them. Chrome comes preinstalled on the runner image; WebdriverIO fetches
+  # the matching driver itself. scheduled-hosted-player.yml runs the same
+  # check against the deployed page.
+  hosted-player:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          # the runner cache can hold a 24.x below the engines floor
+          check-latest: true
+      - name: Cache pnpm modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          cache-name: cache-pnpm-modules
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.26.1
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Chrome version
+        run: google-chrome --version
+      - name: 🎞️ Hosted trace player end-to-end
+        run: pnpm player:e2e
+
   # Runs one desktop example per adapter in trace mode against a local fixture
   # site and checks each trace zip against
   # packages/conformance/smoke/expectations/. The conformance suite covers the

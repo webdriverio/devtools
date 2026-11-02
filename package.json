@@ -7,6 +7,7 @@
     "build": "pnpm -r build",
     "show-trace": "node packages/backend/dist/show-trace.js",
     "player:hosted": "pnpm --filter @wdio/devtools-app build:hosted && pnpm --filter @wdio/devtools-app preview:hosted",
+    "player:e2e": "pnpm --filter @wdio/devtools-app build:hosted && tsx packages/conformance/hosted-player/run.ts",
     "backend": "node packages/backend/dist/server.js",
     "demo:wdio": "wdio run ./examples/wdio/cucumber/wdio.conf.ts",
     "demo:wdio:mobile": "wdio run ./examples/wdio/mobile/wdio.conf.ts",
