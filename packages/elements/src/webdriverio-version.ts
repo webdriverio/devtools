@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module'
-import { packageVersionOf } from './package-version.js'
+import { isModuleNotFound, packageVersionOf } from './package-version.js'
 import { rendersWithWdioSnapshot } from './snapshot-version.js'
 
 export function installedWebdriverioVersion(): string | undefined {
@@ -8,7 +8,12 @@ export function installedWebdriverioVersion(): string | undefined {
       createRequire(import.meta.url).resolve('webdriverio'),
       'webdriverio'
     )
-  } catch {
+  } catch (err) {
+    if (!isModuleNotFound(err)) {
+      console.warn(
+        `@wdio/elements: could not resolve webdriverio: ${(err as Error).message}`
+      )
+    }
     return undefined
   }
 }

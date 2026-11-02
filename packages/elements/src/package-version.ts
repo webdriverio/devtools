@@ -1,6 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+export function isModuleNotFound(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    'code' in err &&
+    (err.code === 'ERR_MODULE_NOT_FOUND' || err.code === 'MODULE_NOT_FOUND')
+  )
+}
+
 export function packageVersionOf(
   resolvedFile: string,
   name: string
@@ -24,7 +32,10 @@ export function packageVersionOf(
       }
       dir = parent
     }
-  } catch {
+  } catch (err) {
+    console.warn(
+      `@wdio/elements: could not read the version of ${name}: ${(err as Error).message}`
+    )
     return undefined
   }
 }

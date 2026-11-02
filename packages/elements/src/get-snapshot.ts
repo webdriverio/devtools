@@ -26,10 +26,7 @@ export interface GetSnapshotResult {
   refs?: SnapshotRef[]
 }
 
-/**
- * The renderer `getSnapshot` picks: `snapshot` when the installed WebdriverIO is
- * 10.2 or later and the resolved `@wdio/snapshot` is 10.2 or later, else `legacy`.
- */
+/** `snapshot` when WebdriverIO and @wdio/snapshot are both 10.2 or later, else `legacy`. */
 export function snapshotRenderer(): SnapshotFormat {
   return usesWdioSnapshot() &&
     resolvesWdioSnapshot() &&
@@ -38,11 +35,7 @@ export function snapshotRenderer(): SnapshotFormat {
     : 'legacy'
 }
 
-/**
- * Renders with `@wdio/snapshot` when `snapshotRenderer()` picks it, else the legacy
- * renderer. Viewport-only by default on both. `format` on the result is what
- * rendered, which can differ from `snapshotRenderer()` if `@wdio/snapshot` fails to load.
- */
+/** `format` is what rendered, which can differ from `snapshotRenderer()` if @wdio/snapshot fails to load. */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
   options: GetSnapshotOptions = {}

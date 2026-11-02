@@ -78,7 +78,7 @@ describe('getSnapshot (web)', () => {
     )
   })
 
-  it('stops trying classic execute on a BiDi browser once it failed', async () => {
+  it('stops trying classic execute on a BiDi browser after two failures in a row', async () => {
     const actual = await vi.importActual<typeof snap>('@wdio/snapshot')
     vi.mocked(snap.collectWeb).mockImplementation(actual.collectWeb)
     const executeScript = vi.fn().mockRejectedValue(new Error('unsupported'))
@@ -89,12 +89,71 @@ describe('getSnapshot (web)', () => {
 
     await getSnapshot(b)
     await getSnapshot(b)
+    await getSnapshot(b)
 
-    expect(executeScript).toHaveBeenCalledTimes(1)
-    expect(execute).toHaveBeenCalledTimes(2)
+    expect(executeScript).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenCalledTimes(3)
     expect(
       vi.mocked(snap.collectWeb).mock.calls.map((call) => call[2])
-    ).toEqual([{ transport: 'classic-first' }, { transport: 'bidi' }])
+    ).toEqual([
+      { transport: 'classic-first' },
+      { transport: 'classic-first' },
+      { transport: 'bidi' }
+    ])
+  })
+
+  it('resets the classic failure count when classic execute succeeds', async () => {
+    const actual = await vi.importActual<typeof snap>('@wdio/snapshot')
+    vi.mocked(snap.collectWeb).mockImplementation(actual.collectWeb)
+    const failure = new Error('unsupported')
+    const executeScript = vi
+      .fn()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce({ tree: TREE, refs: REFS, counter: 1 })
+      .mockRejectedValueOnce(failure)
+      .mockRejectedValueOnce(failure)
+    const b = browser({
+      isBidi: true,
+      executeScript,
+      execute: vi.fn().mockResolvedValue({ tree: TREE, refs: REFS, counter: 1 })
+    })
+
+    for (let call = 0; call < 5; call++) {
+      await getSnapshot(b)
+    }
+
+    expect(
+      vi.mocked(snap.collectWeb).mock.calls.map((call) => call[2])
+    ).toEqual([
+      { transport: 'classic-first' },
+      { transport: 'classic-first' },
+      { transport: 'classic-first' },
+      { transport: 'classic-first' },
+      { transport: 'bidi' }
+    ])
+  })
+
+  it('omits a ref whose selector is not printed from elements but keeps it in refs', async () => {
+    const tree = {
+      role: 'document',
+      children: [{ role: 'button', ref: 'e1', selector: '#go' }]
+    } as unknown as snap.SnapshotNode
+    const refs = [
+      { id: 'e1', role: 'button', name: 'go', candidates: [] },
+      { id: 'e2', role: 'button', name: 'stale', candidates: [] }
+    ] as unknown as snap.SnapshotRef[]
+    vi.mocked(snap.collectWeb).mockResolvedValueOnce({
+      tree,
+      refs,
+      counter: 2
+    } as never)
+
+    const result = await getSnapshot(browser({ isBidi: false }))
+
+    expect(result.elements).toEqual({
+      e1: { selector: '#go', tagName: '', role: 'button', text: 'go' }
+    })
+    expect(result.refs).toEqual(refs)
   })
 })
 
@@ -128,6 +187,30 @@ it('renders the full native tree when the window size cannot be read', async () 
     expect.objectContaining({ role: expect.any(String) }),
     expect.anything()
   )
+})
+
+it('returns an empty snapshot and warns when the page source cannot be read', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const result = await getSnapshot(
+      browser({
+        capabilities: { platformName: 'Android' },
+        getPageSource: vi.fn().mockRejectedValue(new Error('no session'))
+      })
+    )
+
+    expect(result).toEqual({
+      format: 'snapshot',
+      text: '[No elements found]',
+      elements: {},
+      refs: []
+    })
+    expect(warn).toHaveBeenCalledWith(
+      '@wdio/elements: could not read the page source: no session'
+    )
+  } finally {
+    warn.mockRestore()
+  }
 })
 
 it('parses a vendor-bag-only native session with the resolved platform', async () => {

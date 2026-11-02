@@ -1,8 +1,8 @@
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { packageVersionOf } from '../src/package-version.js'
 
 function fixturePackage(name: string, version: string): string {
@@ -25,6 +25,18 @@ describe('packageVersionOf', () => {
     const entry = fixturePackage('@wdio/other', '10.2.0')
 
     expect(packageVersionOf(entry, '@wdio/snapshot')).toBeUndefined()
+  })
+
+  it('warns and returns undefined when the manifest cannot be parsed', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const entry = fixturePackage('@wdio/snapshot', '10.1.0')
+    writeFileSync(join(dirname(dirname(entry)), 'package.json'), '{')
+
+    expect(packageVersionOf(entry, '@wdio/snapshot')).toBeUndefined()
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('could not read the version of @wdio/snapshot')
+    )
+    warn.mockRestore()
   })
 
   it('reads the installed @wdio/snapshot through its resolved entry', () => {

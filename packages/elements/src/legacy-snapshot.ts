@@ -1,11 +1,4 @@
-/**
- * Unified getSnapshot() — single call for web and mobile.
- *
- * Auto-detects platform, fetches the accessibility tree (web) or page source
- * (mobile), converts to a flat SnapshotNode[], and renders a text tree with
- * e1, e2, … virtual IDs baked in plus an elements map for direct selector
- * resolution.
- */
+/** Legacy renderer: used when @wdio/snapshot is absent or below 10.2. */
 
 import type { SnapshotResult } from '@wdio/devtools-core/element-types'
 import {
@@ -17,13 +10,7 @@ import { getBrowserAccessibilityTree } from './accessibility-tree.js'
 import { xmlToJSON } from './locators/index.js'
 import { safeCall } from './safe-call.js'
 
-/**
- * Take a snapshot of the current page/app state.
- *
- * Returns a text tree with eN virtual IDs for every interactive element
- * and an elements map so consumers can resolve e1, e2, … to real selectors
- * without any post-processing.
- */
+/** Text tree with eN refs and an elements map of their selectors. */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
   options?: { inViewportOnly?: boolean }

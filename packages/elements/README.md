@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.0.0`, used when it is 10.2 or later (see below).
+Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.2.0-0`, the snapshot renderer (see below).
 
 ## Usage
 
@@ -27,7 +27,7 @@ Returns the accessibility tree as text: each actionable element gets an `eN` ref
 
 - **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
 - **10.2 and later, prereleases included** (`10.2.0-alpha.*`), with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below. Install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
-- **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer, silently.
+- **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer. It warns when an `@wdio/snapshot` below 10.2 is resolvable or resolution fails, and is silent only when `@wdio/snapshot` is not installed.
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
@@ -47,13 +47,13 @@ The result fields:
 - `elements`: each ref's selector, role and name. On the snapshot path `tagName` is empty.
 - `refs`: the `SnapshotRef[]` behind the text, on the snapshot path only.
 
-On the snapshot path a ref can carry no selector: when none of its candidates resolves to its element under BiDi, its `elements` entry has `selector: ''` and its line in `text` has no `→` part.
+On the snapshot path a ref can carry no selector: when the page yields no unique candidate selector for it, under any transport, it has no `elements` entry and its line in `text` has no `→` part (its candidates stay in `refs`).
 
 Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default is viewport-only on both renderers. Pass `{ viewport: false }` for the full page, which is much larger on long pages.
 
 `snapshotRenderer()` returns `'snapshot'` when the installed `webdriverio` is 10.2 or later and the resolved `@wdio/snapshot` is 10.2 or later, else `'legacy'`. If `@wdio/snapshot` is installed but fails to load, `getSnapshot` falls back to legacy with a warning, `snapshotRenderer()` returns `'legacy'` from then on, and the result's `format` is the authoritative answer.
 
-Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Only collection failures `@wdio/snapshot` raises are `SnapshotError`s; they and driver errors propagate, driver errors unchanged. The one exception is the window size a native viewport snapshot reads: if the driver cannot report it, the whole tree is rendered, as on the legacy path.
+Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Only collection failures `@wdio/snapshot` raises are `SnapshotError`s; they and driver errors propagate, driver errors unchanged. Two exceptions: a failed page-source read logs a warning and returns `text: '[No elements found]'` with empty `elements` and `refs`; and if the driver cannot report the window size a native viewport snapshot reads, the whole tree is rendered, as on the legacy path.
 
 The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders.
 
