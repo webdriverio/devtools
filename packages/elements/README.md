@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Requires `webdriverio` as a peer dependency (`^10.0.0`).
+Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`.
 
 ## Usage
 
@@ -23,28 +23,46 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 
 ### Accessibility snapshot (`getSnapshot`)
 
-A single call for web and native sessions that returns the same text as the WebdriverIO CLI's `wdio session snapshot --selectors` (add `--viewport` for `{ viewport: true }`). It is built on `@wdio/snapshot`: each actionable element gets an `eN` ref, and its line ends in `→ <selector>`. The default walks the whole document, so on long pages `{ viewport: true }` is much smaller and faster.
+Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The installed `webdriverio` picks the renderer:
+
+- **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output.
+- **10.2 and later, prereleases included** (`10.2.0-alpha.*`): `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below.
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
 
-const { text, refs } = await getSnapshot(browser) // full page
-const visible = await getSnapshot(browser, { viewport: true })
+const { format, text, elements, refs } = await getSnapshot(browser, {
+  viewport: true
+})
 // text: '- button "start" [ref=e1]  → ~start' (one line per node)
-// refs: SnapshotRef[] — { id, candidates, … } for every ref in the text
+// elements: { e1: { selector, tagName, role, text } }
+// refs: SnapshotRef[], on format 'snapshot' only
 ```
 
-Web sessions walk the DOM in the page; native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source. Errors (`SnapshotError`) propagate instead of returning a placeholder.
+The result fields:
 
-The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders. `getSnapshot` renders `@wdio/snapshot`'s output, the same as the CLI.
+- `format`: `'snapshot'` or `'legacy'`, the renderer that produced the result.
+- `text`: the tree with `eN` refs.
+- `elements`: each ref's selector, role and name. On the snapshot path `tagName` is empty.
+- `refs`: the `SnapshotRef[]` behind the text, on the snapshot path only.
 
-Differences from the CLI, which keeps session state this function does not have:
+On the snapshot path a ref can carry no selector: when none of its candidates resolves to its element under BiDi, its `elements` entry has `selector: ''` and its line in `text` has no `→` part.
 
-- No wait for a freshly loaded page to settle before collecting.
-- Iframes are not inlined over BiDi. A cut or cross-origin frame renders as the frame-hint note (`wdio session frame <ref>`).
-- Refs are numbered from `e1` on every call.
+Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default differs by renderer: viewport-only on the legacy path, the full page on the snapshot path. Pass `{ viewport: true }` on long pages, where it is much smaller and faster.
 
-`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function and returns its `{ text, refs }`. Unlike the default here, it uses `viewport: true` when `viewport` is not set, so it reads the visible viewport; pass `{ viewport: false }` for the full page. It also returns the placeholder `{ text: '[Snapshot unavailable]', refs: [] }` (and logs a warning) instead of throwing, whereas the `getSnapshot` exported here throws `SnapshotError`.
+`snapshotRenderer()` returns `'snapshot'` or `'legacy'` for the installed `webdriverio`. It reports the version gate only: if `@wdio/snapshot` fails to load, `getSnapshot` falls back to legacy with a warning, and the result's `format` is the authoritative answer.
+
+Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Errors on the snapshot path are `SnapshotError`s and propagate.
+
+The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders.
+
+Differences from the CLI, whose session holds state this function does not have. The renderer and selector logic are shared:
+
+- The CLI session installs a page recorder that marks elements with JS click listeners as clickable. A plain `getSnapshot` has none, so a control with only a click listener gets no ref.
+- The CLI appends a `Requests failed:` note.
+- The CLI numbers refs across the actions of its session. Here they start at `e1` on every call.
+
+`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function with `viewport` defaulting to `true` on both renderers, so it reads the visible viewport unless you pass `{ viewport: false }`. If the call fails it logs a warning and returns `{ format, text: '[Snapshot unavailable]', elements: {} }` (plus `refs: []` on the snapshot format) instead of throwing; the `getSnapshot` exported here throws.
 
 ### Browser
 
@@ -101,11 +119,11 @@ Auto-detects platform and returns a unified result.
 
 ### `getSnapshot(browser, options)`
 
-Returns `GetSnapshotResult` — `{ text, refs }` — where `text` is the rendered tree with `eN` refs and selectors, and `refs` is the `SnapshotRef[]` behind them.
+Returns `GetSnapshotResult` — `{ format, text, elements, refs? }`; see [Accessibility snapshot](#accessibility-snapshot-getsnapshot) for the fields.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `viewport` | `boolean` | `false` | Only include what intersects the viewport; `false` snapshots the full page |
+| `viewport` | `boolean` | `true` on the legacy renderer, `false` on the snapshot renderer | Only include what intersects the viewport; `inViewportOnly` is accepted as an alias and `viewport` wins when both are set |
 
 ### `getInteractableBrowserElements(browser, options)`
 

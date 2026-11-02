@@ -28,8 +28,9 @@ export function snapshotRenderer(): SnapshotFormat {
 }
 
 /**
- * Same text as `wdio session snapshot --selectors [--viewport]` on WebdriverIO
- * 10.2 and later, where `@wdio/snapshot` renders; the legacy renderer below it.
+ * Renders with `@wdio/snapshot` when the installed WebdriverIO is 10.2 or later,
+ * else the legacy renderer. `format` on the result is what rendered, which can
+ * differ from `snapshotRenderer()` if `@wdio/snapshot` fails to load.
  */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
