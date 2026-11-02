@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-hosted
 .tsup
 *.local
 
@@ -35,6 +36,7 @@ __pycache__/
 /*.json
 !/vitest.config.ts
 !/tsconfig.dts.json
+!/vercel.json
 *.tgz
 examples/wdio/wdio-*.json
 examples/wdio/wdio-*.webm

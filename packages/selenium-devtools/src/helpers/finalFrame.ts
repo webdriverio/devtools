@@ -29,7 +29,8 @@ export async function captureFinalFrame(
             ctx.driver,
             stamp.command,
             stamp.timestamp,
-            capturer.isNativeAppSession
+            capturer.isNativeAppSession,
+            'final'
           )
         : Promise.resolve(null),
     (err) => log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)

@@ -23,6 +23,7 @@ from typing import Optional
 
 from . import (
     backend,
+    capture_timing,
     element_scripts,
     instrumentation,
     lifecycle,
@@ -326,13 +327,17 @@ def _export_trace(
         )
         if sent:
             _active["filmstrip_mark"] = pending[sent - 1].get("timestamp", mark)
-        return trace_export.export(
+        target = output_dir or resolve_adapter_output_dir()
+        path = trace_export.export(
             _active["transport"],
-            output_dir=output_dir or resolve_adapter_output_dir(),
+            output_dir=target,
             session_id=session_id,
             trace_policy=_active["trace_policy"],
             trace_granularity=_active["trace_granularity"],
         )
+        # After the export, so the summary cannot land in the trace's stdout.
+        capture_timing.report(target)
+        return path
     except Exception as exc:  # noqa: BLE001
         _log.warning("trace export skipped (%s)", exc)
     return None

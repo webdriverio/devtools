@@ -626,7 +626,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#browser,
         command,
         timestamp,
-        this.#sessionCapturer.currentContext
+        this.#sessionCapturer.currentContext,
+        'final'
       )
       if (snap) {
         // Stamped at the last action's own timestamp, where an assertion row can
@@ -818,7 +819,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         previousEnd >= this.#currentTestStartWallTime
           ? previousEnd
           : Date.now(),
-        this.#sessionCapturer.currentContext
+        this.#sessionCapturer.currentContext,
+        this.#assertionTracker.matcherPolling ? 'matcher-poll' : 'action'
       )
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)

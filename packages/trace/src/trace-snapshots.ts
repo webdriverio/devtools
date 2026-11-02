@@ -2,7 +2,7 @@
 // from them. Split from trace-exporter.ts; the exporter composes these into
 // the trace event stream.
 
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import { imageExtension, type ActionSnapshot } from '@wdio/devtools-shared'
 import type { TraceZipResource } from './trace-zip-writer.js'
 
 export interface ScreencastFrameEvent {
@@ -91,6 +91,15 @@ export function supersedeSnapshotAt(
   snapshots.push(merged)
 }
 
+/** Name under `resources/` of a snapshot's screenshot, extension sniffed from its bytes. */
+export function screenshotResourceName(
+  pageId: string,
+  timestamp: number,
+  screenshot: string
+): string {
+  return `${pageId}-${timestamp}.${imageExtension(screenshot)}`
+}
+
 export function buildSnapshotResources(
   rawSnapshots: ActionSnapshot[],
   pageId: string
@@ -101,7 +110,11 @@ export function buildSnapshotResources(
     const base = `${pageId}-${snap.timestamp}`
     if (snap.screenshot) {
       out.push({
-        resourceName: `${base}.jpeg`,
+        resourceName: screenshotResourceName(
+          pageId,
+          snap.timestamp,
+          snap.screenshot
+        ),
         data: Buffer.from(snap.screenshot, 'base64')
       })
     }
@@ -131,7 +144,7 @@ function frameForSnapshot(
   const frame: ScreencastFrameEvent = {
     type: 'screencast-frame',
     pageId,
-    sha1: `${base}.jpeg`,
+    sha1: screenshotResourceName(pageId, snap.timestamp, snap.screenshot ?? ''),
     width: viewport.width,
     height: viewport.height,
     timestamp

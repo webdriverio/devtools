@@ -15,6 +15,7 @@ import type {
   TraceGranularity,
   TraceRetentionPolicy
 } from '@wdio/devtools-shared'
+import { reportCaptureTiming } from './capture-timing.js'
 import { errorMessage } from './error.js'
 import {
   buildArtifactsManifest,
@@ -461,6 +462,8 @@ export async function finalizeTraceExport(
   await awaitPendingCaptures(ctx)
   const artifacts = await fanOutTraceWrites(ctx)
   await maybeWriteManifest(ctx, artifacts)
+  // After the writes, so the report's own output cannot land in the trace's console.
+  await reportCaptureTiming(ctx.resolveOutputDir())
   return artifacts
 }
 

@@ -166,7 +166,12 @@ export class SessionCapturer extends SessionCapturerBase {
     }
 
     if (!error) {
-      this.#queueActionSnapshot(command, args, commandLogEntry.timestamp)
+      this.#queueActionSnapshot(
+        command,
+        args,
+        commandLogEntry.timestamp,
+        meta.parentId
+      )
     }
 
     return true
@@ -179,7 +184,8 @@ export class SessionCapturer extends SessionCapturerBase {
   #queueActionSnapshot(
     command: string,
     args: unknown[],
-    timestamp: number
+    timestamp: number,
+    parentId: number | undefined
   ): void {
     if (this.traceMode !== 'trace' || !this.#browser) {
       return
@@ -201,7 +207,8 @@ export class SessionCapturer extends SessionCapturerBase {
           command,
           timestamp,
           this.runner,
-          this.isNativeAppSession
+          this.isNativeAppSession,
+          parentId === undefined ? 'action' : 'wait-poll'
         )
     )
     if (settled && pageChanging) {
@@ -372,7 +379,12 @@ export class SessionCapturer extends SessionCapturerBase {
     entry.error = serializeError(error)
     entry.timestamp = timestamp
     if (!error) {
-      this.#queueActionSnapshot(entry.command, entry.args, timestamp)
+      this.#queueActionSnapshot(
+        entry.command,
+        entry.args,
+        timestamp,
+        entry.parentId
+      )
     }
     this.sendReplaceCommand(oldTimestamp, entry)
   }
@@ -661,7 +673,8 @@ export class SessionCapturer extends SessionCapturerBase {
           stamp.command,
           stamp.timestamp,
           this.runner,
-          this.isNativeAppSession
+          this.isNativeAppSession,
+          'final'
         )
       },
       (err) =>

@@ -98,7 +98,11 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   DEVTOOLS_FILMSTRIP: { feature: 'filmstrip' },
   DEVTOOLS_A11Y: { feature: 'a11y-overlay' },
   DEVTOOLS_TRACE_POLICY: { feature: 'retry-retention' },
-  DEVTOOLS_TRACE_GRANULARITY: { feature: 'per-test-granularity' }
+  DEVTOOLS_TRACE_GRANULARITY: { feature: 'per-test-granularity' },
+  DEVTOOLS_CAPTURE_TIMING: {
+    notFeature:
+      'A diagnostic that times trace capture; it changes nothing the run captures.'
+  }
 }
 
 export const OPTION_MAPS: Record<

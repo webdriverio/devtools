@@ -5,8 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-import { checkExample, readSmokeTrace } from './trace-expectations.js'
-import type { ExampleExpectations, SmokeTrace } from './types.js'
+import {
+  checkExample,
+  readSmokeTrace,
+  totalBytes
+} from './trace-expectations.js'
+import type { ExampleExpectations, SmokeTrace, TraceZip } from './types.js'
 
 const EXPECTATIONS_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -39,6 +43,40 @@ function escapeAnnotation(text: string): string {
   return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
 }
 
+function readZips(paths: string[]): {
+  zips: TraceZip[]
+  traces: SmokeTrace[]
+} {
+  const zips: TraceZip[] = []
+  const traces = paths.flatMap((zip) => {
+    const bytes = fs.readFileSync(zip)
+    zips.push({ path: zip, bytes: bytes.length })
+    return readSmokeTrace(zip, bytes)
+  })
+  return { zips, traces }
+}
+
+function printSummary(
+  label: string,
+  expectations: ExampleExpectations,
+  zips: TraceZip[],
+  traces: SmokeTrace[]
+): void {
+  const listed = zips.map((zip) => `${zip.path} (${zip.bytes} bytes)`)
+  console.log(
+    `${label} ${zips.length} trace zip(s): ${listed.join(', ') || '(none)'}`
+  )
+  for (const trace of traces) {
+    console.log(
+      `${label} ${trace.source}: ${trace.rows.length} rows, ${trace.groups.size} groups`
+    )
+  }
+  // Printed on a pass too: the job uploads its zips only when it fails, so this line is the size record.
+  console.log(
+    `${label} trace zips total ${totalBytes(zips)} of a ${expectations.traceBudget.maxBytes}-byte budget`
+  )
+}
+
 function main(): number {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
@@ -55,26 +93,19 @@ function main(): number {
     return 2
   }
   const expectations = loadExpectations(values.expect)
-  const zips = positionals.filter((p) => fs.existsSync(p)).flatMap(findZips)
-  const traces: SmokeTrace[] = zips.flatMap((zip) =>
-    readSmokeTrace(zip, fs.readFileSync(zip))
+  const { zips, traces } = readZips(
+    positionals.filter((p) => fs.existsSync(p)).flatMap(findZips)
   )
   const failures = checkExample(expectations, traces, {
     exitCode:
       values['exit-code'] === undefined
         ? undefined
         : Number(values['exit-code']),
-    log: values.log ? fs.readFileSync(values.log, 'utf8') : undefined
+    log: values.log ? fs.readFileSync(values.log, 'utf8') : undefined,
+    zips
   })
   const label = `[${expectations.example}]`
-  console.log(
-    `${label} ${zips.length} trace zip(s): ${zips.join(', ') || '(none)'}`
-  )
-  for (const trace of traces) {
-    console.log(
-      `${label} ${trace.source}: ${trace.rows.length} rows, ${trace.groups.size} groups`
-    )
-  }
+  printSummary(label, expectations, zips, traces)
   if (failures.length === 0) {
     console.log(`${label} PASS (${expectations.tests.length} expectation(s))`)
     return 0

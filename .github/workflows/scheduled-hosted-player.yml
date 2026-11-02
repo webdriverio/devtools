@@ -1,0 +1,97 @@
+name: Hosted player check
+
+# Opens trace zips through the deployed trace player (vars.HOSTED_PLAYER_URL)
+# with the same check ci.yml's hosted-player job runs against a local build,
+# so a deploy that builds but fails in the browser is caught before a user
+# reports it. Skipped while the variable is unset. A failure opens one issue
+# and comments on it while it stays open; a pass closes it. The page itself
+# gains nothing: no analytics, no tracking.
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+  # Vercel's Git integration reports each deploy as a GitHub deployment.
+  deployment_status:
+
+permissions:
+  contents: read
+
+# One run at a time, so two failures cannot each open an issue.
+concurrency:
+  group: scheduled-hosted-player
+  cancel-in-progress: false
+
+env:
+  ISSUE_TITLE: Hosted trace player check is failing
+
+jobs:
+  check:
+    if: >-
+      vars.HOSTED_PLAYER_URL != '' &&
+      (github.event_name != 'deployment_status' ||
+      (github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Production'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Use Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          # the runner cache can hold a 24.x below the engines floor
+          check-latest: true
+      - name: Cache pnpm modules
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        env:
+          cache-name: cache-pnpm-modules
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.26.1
+          run_install: false
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Chrome version
+        run: google-chrome --version
+      - name: 🎞️ Open traces in ${{ vars.HOSTED_PLAYER_URL }}
+        env:
+          HOSTED_PLAYER_URL: ${{ vars.HOSTED_PLAYER_URL }}
+        run: pnpm exec tsx packages/conformance/hosted-player/run.ts --url "$HOSTED_PLAYER_URL"
+
+  report:
+    needs: check
+    if: ${{ always() && (needs.check.result == 'failure' || needs.check.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      OUTCOME: ${{ needs.check.result }}
+      HOSTED_PLAYER_URL: ${{ vars.HOSTED_PLAYER_URL }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TRIGGER: ${{ github.event_name }}
+    steps:
+      # Listed rather than searched: the search index lags, and a just-opened issue would be missed.
+      - name: Open, update or close the tracking issue
+        run: |
+          set -o pipefail
+          OPEN=$(gh issue list --state open --limit 500 --json number,title |
+            jq -r --arg title "$ISSUE_TITLE" 'map(select(.title == $title)) | .[0].number // empty')
+          if [ "$OUTCOME" = failure ]; then
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --body "Still failing ($TRIGGER): $RUN_URL"
+            else
+              gh issue create --title "$ISSUE_TITLE" --body "The hosted player check against $HOSTED_PLAYER_URL failed ($TRIGGER): $RUN_URL
+
+          It opens the committed trace fixtures through the deployed page in headless Chrome. The run log names the step and the error; \`pnpm exec tsx packages/conformance/hosted-player/run.ts --url $HOSTED_PLAYER_URL\` reproduces it locally. This issue is commented on while the check keeps failing and closed when it passes."
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --comment "Passing again: $RUN_URL"
+          fi

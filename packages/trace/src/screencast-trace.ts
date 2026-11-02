@@ -13,7 +13,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import type { ScreencastFrame } from '@wdio/devtools-shared'
+import { imageExtension, type ScreencastFrame } from '@wdio/devtools-shared'
 import type { TraceZipResource } from './trace-zip-writer.js'
 import type { ScreencastFrameEvent } from './trace-snapshots.js'
 
@@ -112,7 +112,7 @@ export function buildDenseScreencast(
     }
     const data = Buffer.from(frame.data, 'base64')
     const sha1 = createHash('sha1').update(data).digest('hex')
-    const resourceName = `${sha1}.jpeg`
+    const resourceName = `${sha1}.${imageExtension(frame.data)}`
     if (!seen.has(sha1)) {
       seen.add(sha1)
       resources.push({ resourceName, data })

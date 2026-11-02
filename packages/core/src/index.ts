@@ -14,6 +14,7 @@ export {
 } from '@wdio/devtools-shared'
 export * from './action-snapshot.js'
 export * from './artifact-naming.js'
+export * from './capture-timing.js'
 export * from './artifacts-manifest.js'
 export * from './allure-artifacts.js'
 export * from './attempt-tracker.js'

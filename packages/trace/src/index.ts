@@ -1,4 +1,5 @@
-// Trace-format transforms: captured events in, trace zip out. See
+// Trace-format transforms: captured events in, trace zip out. The reader
+// (`trace-reader.ts`) is left out of this index so `core` never inlines it. See
 // ARCHITECTURE.md §2 and CLAUDE.md §2.2.
 //
 // Split out of `core` because two layers need it and `core` is reachable from

@@ -223,9 +223,9 @@ In trace mode no DevTools UI window opens. At session end the adapter writes tra
 | **Python** | `pytest --devtools-trace`, or `devtools.enable(trace=True)` in a plain script |
 
 The trace artifact contains:
-- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a `Tracing.tracingGroup` span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands.
+- `trace.trace` — NDJSON `context-options` + `before`/`after` action events. When test hooks are available (Mocha's `it()` / Cucumber's `Scenario()`), each test becomes a `Tracing.tracingGroup` span — an open/close `before`/`after` pair with `method: "tracingGroup"` and `params.name` set to the test title. Child actions inside the group carry `parentId` pointing back to the group's `callId`, so timeline viewers render tests as labelled spans wrapping their commands. For viewers that render a DOM snapshot per action, it also carries one `frame-snapshot` event per action: a page holding just that action's screenshot. The image is not stored a second time: its `src` is a placeholder `https://screenshot.wdio-devtools.invalid/` address, which the event's `resourceOverrides` maps to the screenshot's file under `resources/`.
 - `trace.network` — HAR-style network entries derived from the existing capture
-- `resources/page@<id>-<ts>.jpeg` — screenshot per user-facing action
+- `resources/page@<id>-<ts>.png` or `.jpeg`: screenshot per user-facing action, named by its actual image format
 - `resources/page@<id>-<ts>-elements.json` — flat interactable element list extracted by the page-injected scripts in `@wdio/devtools-core/element-scripts`
 - `resources/page@<id>-<ts>-snapshot.txt` — depth-indented accessibility-tree snapshot (AI-friendly)
 - `transcript.md` — human/LLM-readable Markdown transcript of the captured actions, with timing, selectors, and value annotations
@@ -262,6 +262,12 @@ The player exposes everything captured in the archive:
 
 The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
 
+**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: drop a `.zip` on the page or pick one. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A replayed page still loads its own stylesheets and images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks the `http` ones, so a trace of an `http` site can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+
+```sh
+pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
+```
+
 **Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
 #### Options
@@ -291,6 +297,54 @@ services: [[DevToolsHookService, {
 ```
 
 > **Requires BiDi.** Trace mode uses a WebDriver BiDi preload script. Both Chrome (≥114) and Firefox (≥130) enable BiDi automatically — no capability flags needed.
+
+#### Measuring capture cost
+
+A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot, plus the page source on a native app. Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
+
+When the trace is written, the run prints a table to stderr and appends the raw records, one line per capture, to `capture-timing-<pid>.ndjson` beside the trace (one file per worker process):
+
+```text
+[devtools] capture timing: 4 captures (0 native; action 2, wait-poll 1, matcher-poll 1), busy 1.6 s of 10.0 s wall (15.8%)
+ms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing
+probe (ms)  n  total  median   p95   max  svc total  svc median
+url         4     16       4     4     4         16           4
+screenshot  4   1616     254  1004  1004       1600         250
+process     4     24       6     6     6         24           6
+capture     4   1640     260  1010  1010       1640         260
+raw records: /out/capture-timing-1.ndjson
+```
+
+(Illustrative numbers from a unit-test fixture, not a real run.)
+
+- **Columns.** The JS adapters issue every read of a capture at once and the driver serves them in order, so a read's time from issue to settle includes waiting behind the reads before it. `svc` subtracts that wait: it is the read's own cost. `process` is the in-process step that turns the reads into a snapshot (page-source parsing and locator generation on native). `capture` is the whole capture.
+- **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
+- **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows.
+
+To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
+
+```sh
+# Desktop Chrome, one per adapter
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:wdio
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:selenium
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:nightwatch
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:python:pytest
+
+# Desktop Firefox and Safari, through selenium-webdriver's SELENIUM_BROWSER (Safari needs `safaridriver --enable` once)
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 SELENIUM_BROWSER=firefox pnpm --filter @wdio/selenium-devtools example:mocha
+DEVTOOLS_MODE=trace DEVTOOLS_CAPTURE_TIMING=1 SELENIUM_BROWSER=safari pnpm --filter @wdio/selenium-devtools example:mocha
+
+# Android native (Clock app) and Android Chrome (prerequisites in examples/MOBILE.md)
+DEVTOOLS_CAPTURE_TIMING=1 pnpm demo:wdio:mobile
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE=web pnpm demo:wdio:mobile
+
+# iOS native (Settings) and iOS Safari
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE_PLATFORM=ios pnpm demo:wdio:mobile
+DEVTOOLS_CAPTURE_TIMING=1 DEVTOOLS_MOBILE_PLATFORM=ios DEVTOOLS_MOBILE=web pnpm demo:wdio:mobile
+```
+
+The mobile lines work the same with `demo:selenium:mobile`, `demo:nightwatch:mobile` and `demo:python:mobile`, which also run in trace mode by default.
 
 #### 📱 Mobile testing
 

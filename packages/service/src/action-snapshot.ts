@@ -13,7 +13,11 @@ import {
   captureActionSnapshot as coreCapture,
   upsertRichestSnapshot
 } from '@wdio/devtools-core'
-import { sessionHasDocument, type ActionSnapshot } from '@wdio/devtools-shared'
+import {
+  sessionHasDocument,
+  type ActionSnapshot,
+  type CaptureTrigger
+} from '@wdio/devtools-shared'
 import { mobilePlatform } from './mobile.js'
 import { directProbes } from './direct-probes.js'
 import { wdioRunnerId } from './wdio-runner-id.js'
@@ -124,7 +128,8 @@ export function captureActionSnapshot(
   browser: WebdriverIO.Browser,
   command: string,
   timestamp?: number,
-  context?: string
+  context?: string,
+  trigger?: CaptureTrigger
 ): Promise<ActionSnapshot | null> {
   // A mobile BROWSER session takes the web path below: it has a document, and
   // the native path would read its HTML through the page-source XML parser. So
@@ -137,6 +142,7 @@ export function captureActionSnapshot(
   return coreCapture({
     command,
     timestamp,
+    trigger,
     runner: wdioRunnerId(browser),
     runScript: native
       ? undefined

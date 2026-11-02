@@ -39,7 +39,17 @@ export interface ExampleExpectations {
   allowTimeoutError?: boolean
   /** Files a row's call site may point into (paths ending in one of these); unset skips the check. */
   sourceFiles?: string[]
+  traceBudget: TraceBudget
   tests: TestExpectation[]
+}
+
+/** A ceiling on the bytes of every zip the run wrote, so a change that bloats traces fails its PR. */
+export interface TraceBudget {
+  maxBytes: number
+  /** The total the job wrote when the budget was set; `maxBytes` minus this is the headroom left. */
+  measuredBytes: number
+  /** Where `measuredBytes` was read from, e.g. the CI run id. */
+  measuredIn: string
 }
 
 export interface TraceRow {
@@ -67,7 +77,14 @@ export interface SmokeTrace {
   stdio: string[]
 }
 
+export interface TraceZip {
+  path: string
+  bytes: number
+}
+
 export interface RunOutcome {
   exitCode?: number
   log?: string
+  /** The zips the run wrote; omitted skips the size budget. */
+  zips?: TraceZip[]
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { imageDimensions, imageMime } from '../src/image.js'
+import { imageDimensions, imageExtension, imageMime } from '../src/image.js'
 
 /** 12x26 and 32x20 RGB PNGs — asymmetric so a swapped axis fails the test. */
 const PORTRAIT_PNG =
@@ -43,6 +43,13 @@ describe('imageMime', () => {
   it('names anything else JPEG — the only other capture format', () => {
     expect(imageMime(PORTRAIT_JPEG)).toBe('image/jpeg')
     expect(imageMime('AAAA')).toBe('image/jpeg')
+  })
+})
+
+describe('imageExtension', () => {
+  it('names the extension after the sniffed format', () => {
+    expect(imageExtension(PORTRAIT_PNG)).toBe('png')
+    expect(imageExtension(PORTRAIT_JPEG)).toBe('jpeg')
   })
 })
 

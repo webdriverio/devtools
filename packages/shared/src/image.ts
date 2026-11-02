@@ -21,10 +21,15 @@ export interface ImageSize {
   height: number
 }
 
-/** Detect image mime from a base64 string's magic bytes — trace screenshots may
- *  be PNG (polling capture) or JPEG (CDP), and the zip names both `.jpeg`. */
+/** Detect image mime from a base64 string's magic bytes: trace screenshots may
+ *  be PNG (polling capture) or JPEG (CDP). */
 export function imageMime(base64: string): string {
   return base64.startsWith(PNG_BASE64_MAGIC) ? 'image/png' : 'image/jpeg'
+}
+
+/** File extension, without the dot, naming a base64 image's own format. */
+export function imageExtension(base64: string): string {
+  return imageMime(base64).slice('image/'.length)
 }
 
 /** Intrinsic pixel size read out of a base64 PNG or JPEG header, or null when

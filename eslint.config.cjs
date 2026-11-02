@@ -12,6 +12,7 @@ module.exports = [
     ignores: [
       'node_modules/**',
       '**/dist/**',
+      '**/dist-hosted/**',
       '**/.tsup/**',
       '**/allure-report/**',
       '**/allure-results/**'
@@ -298,6 +299,13 @@ module.exports = [
       'no-restricted-imports': [
         'error',
         {
+          paths: [
+            {
+              name: '@wdio/devtools-trace',
+              message:
+                'App may import only trace-reader from trace (CLAUDE.md §2.2), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
+            }
+          ],
           patterns: [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
@@ -328,9 +336,13 @@ module.exports = [
                 'App must not import from core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; the app receives normalized events over WS.'
             },
             {
-              group: ['@wdio/devtools-trace', '@wdio/devtools-trace/*'],
+              // The bare name is in `paths`: here it would exclude the directory, which `!` cannot undo.
+              group: [
+                '@wdio/devtools-trace/*',
+                '!@wdio/devtools-trace/trace-reader'
+              ],
               message:
-                'App must not import from trace (CLAUDE.md §2.2). trace WRITES the zip; the app reads one the backend has already parsed for it.'
+                'App may import only trace-reader from trace (CLAUDE.md §2.2), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
             }
           ]
         }

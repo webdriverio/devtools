@@ -1,0 +1,49 @@
+{
+  "source": "examples-smoke CI artifact, run 40774299701 at 14977b93, 2026-10-28 (selenium-mocha/1)",
+  "runner": "selenium-webdriver",
+  "browserName": "chrome",
+  "commands": {
+    "count": 15,
+    "failed": 2,
+    "titles": [
+      "Browser.waitForFunction(\"Waiting for element to be located By(css selector, #devtools-never-rendered)\")",
+      "Element.getText()",
+      "Element.getText()",
+      "Page.getTitle()",
+      "Page.getTitle()",
+      "Page.navigate(\"http://127.0.0.1:4567\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "assert.equal(\"Login Page\", \"Login Page\")",
+      "assert.equal(\"Login Page\", \"This Is Not The Heading\")",
+      "assert.match(\"The Internet\", \"/The Internet/\")",
+      "assert.match(\"The Internet\", \"/The Internet/\")"
+    ],
+    "withSnapshotText": 15,
+    "withCallSource": 15
+  },
+  "consoleLogs": 49,
+  "networkRequests": {
+    "count": 6,
+    "urls": [
+      "http://127.0.0.1:4567/",
+      "http://127.0.0.1:4567/login"
+    ]
+  },
+  "mutations": {
+    "count": 6,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "aeda4e7859166e8aebcc020176a5950751feb94b",
+    "57bb47f36e05cbfb56649c94ac40526a9bbfd18c",
+    "aeda4e7859166e8aebcc020176a5950751feb94b"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/selenium-js/mocha/example.js"
+  ],
+  "transcript": true
+}

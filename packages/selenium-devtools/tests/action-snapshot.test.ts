@@ -285,6 +285,9 @@ describe('selenium action-snapshot capture gate', () => {
       await endOfTest(bag)
 
       expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(coreCapture).mock.calls[0]?.[0]).toMatchObject({
+        trigger: 'final'
+      })
       expect(bag.actionSnapshots).toHaveLength(1)
       expect(bag.actionSnapshots[0]!.screenshot).toBe('FINAL')
       expect(bag.actionSnapshots[0]!.elements).toEqual([{ selector: '#final' }])

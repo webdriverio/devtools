@@ -8,6 +8,7 @@ import {
   serializeMobileSnapshot
 } from './element-snapshot.js'
 import type { AccessibilityNode, BrowserElementInfo } from './element-types.js'
+import { performance } from 'node:perf_hooks'
 import { xmlToJSON } from './locators/xml-parsing.js'
 import {
   generateAllElementLocators,
@@ -18,7 +19,13 @@ import {
   SNAPSHOT_PROBE_TIMEOUT_MS,
   withTimeout
 } from './with-timeout.js'
-import type { ActionSnapshot, TestRunnerId } from '@wdio/devtools-shared'
+import { startCaptureTimer, type CaptureTimer } from './capture-timing.js'
+import type {
+  ActionSnapshot,
+  CaptureProbe,
+  CaptureTrigger,
+  TestRunnerId
+} from '@wdio/devtools-shared'
 
 export type ScriptRunner = (scriptSrc: string) => Promise<unknown>
 
@@ -40,6 +47,18 @@ export interface CaptureActionSnapshotInput {
   /** Runner this capture belongs to — decides which text-locator dialect the
    *  injected scripts emit. Omitted → the portable XPath form. */
   runner?: TestRunnerId
+  /** Why this capture ran, for the opt-in capture timing report. Omitted → `action`. */
+  trigger?: CaptureTrigger
+}
+
+/** `pending` unchanged; with a timer and a probe that will really be issued, also timed. */
+function timed<T>(
+  timer: CaptureTimer | undefined,
+  probe: CaptureProbe,
+  issued: unknown,
+  pending: Promise<T>
+): Promise<T> {
+  return timer && issued ? timer.track(probe, pending) : pending
 }
 
 async function runWith<T>(
@@ -123,41 +142,82 @@ function fromPageSource(
   }
 }
 
+/**
+ * Issue every probe of one capture together.
+ *
+ * Probe order is load-bearing, not cosmetic. A driver serialises requests per
+ * session, so `Promise.all` starting them together still has them served in
+ * the order issued, and the screenshot is by far the slowest. Issued first, it
+ * delayed the cheap reads behind it by hundreds of ms, long enough for the next
+ * command to navigate: a fill on the login page reported the page its submit
+ * had already reached. Cheapest-and-most-order-sensitive first, screenshot
+ * last; the screenshot is served no later than before.
+ */
+function readProbes(
+  input: CaptureActionSnapshotInput,
+  isNativeMobile: boolean,
+  timer: CaptureTimer | undefined
+) {
+  // The same pair the backend serves the Python adapter, so the two cannot
+  // capture different things. `elements` carries bounds: the per-action
+  // element rects drive A8 input points.
+  const scripts = buildElementScripts(input.runner)
+  return Promise.all([
+    timed(timer, 'url', input.getUrl, probe(input.getUrl)),
+    timed(timer, 'title', input.getTitle, probe(input.getTitle)),
+    isNativeMobile
+      ? timed(timer, 'pageSource', true, probe(input.getPageSource))
+      : undefined,
+    timed(
+      timer,
+      'accessibilityTree',
+      input.runScript,
+      runWith<AccessibilityNode[]>(
+        input.runScript,
+        scripts.accessibilityTree,
+        []
+      )
+    ),
+    timed(
+      timer,
+      'elements',
+      input.runScript,
+      runWith<BrowserElementInfo[]>(input.runScript, scripts.elements, [])
+    ),
+    timed(
+      timer,
+      'screenshot',
+      input.takeScreenshot,
+      probe(input.takeScreenshot)
+    )
+  ])
+}
+
 export async function captureActionSnapshot(
   input: CaptureActionSnapshotInput
 ): Promise<ActionSnapshot | null> {
   try {
     const timestamp = input.timestamp ?? Date.now()
     const isNativeMobile = !input.runScript && !!input.getPageSource
-    // The same pair the backend serves the Python adapter, so the two cannot
-    // capture different things. `elements` carries bounds — the per-action
-    // element rects drive A8 input points.
-    const scripts = buildElementScripts(input.runner)
+    const timer = startCaptureTimer(
+      input.command,
+      input.trigger ?? 'action',
+      isNativeMobile
+    )
+    const [url, title, pageSource, tree, elements, shot] = await readProbes(
+      input,
+      isNativeMobile,
+      timer
+    )
 
-    // Probe order is load-bearing, not cosmetic. A driver serialises requests
-    // per session, so `Promise.all` starting them together still has them served
-    // in the order issued — and the screenshot is by far the slowest. Issued
-    // first, it delayed the cheap reads behind it by hundreds of ms, long enough
-    // for the next command to navigate: a fill on the login page reported the
-    // page its submit had already reached. Cheapest-and-most-order-sensitive
-    // first, screenshot last; the screenshot is served no later than before.
-    const [url, title, pageSource, tree, elements, shot] = await Promise.all([
-      probe(input.getUrl),
-      probe(input.getTitle),
-      isNativeMobile ? probe(input.getPageSource) : undefined,
-      runWith<AccessibilityNode[]>(
-        input.runScript,
-        scripts.accessibilityTree,
-        []
-      ),
-      runWith<BrowserElementInfo[]>(input.runScript, scripts.elements, []),
-      probe(input.takeScreenshot)
-    ])
-
+    const processedFrom = timer ? performance.now() : 0
     const mobile =
       isNativeMobile && pageSource
         ? fromPageSource(pageSource, input.platform ?? 'android')
         : undefined
+    const snapshotText =
+      mobile?.snapshotText ?? serializeWebSnapshot(tree, { url, title })
+    timer?.finish(processedFrom)
 
     return {
       timestamp,
@@ -166,8 +226,7 @@ export async function captureActionSnapshot(
       title,
       screenshot: shot ?? undefined,
       elements: mobile?.elements ?? elements,
-      snapshotText:
-        mobile?.snapshotText ?? serializeWebSnapshot(tree, { url, title })
+      snapshotText
     }
   } catch {
     return null

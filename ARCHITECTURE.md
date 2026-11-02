@@ -19,7 +19,7 @@ A devtools dashboard for end-to-end browser tests. Four adapters — WebdriverIO
         │                      │
         │                      ▼
         │                  [trace]  ◀── also used by backend
-        │                           pure transforms: events → trace.zip
+        │                           pure transforms: events ⇄ trace.zip
         ▼ (WS frames typed by shared)
    [backend]          Fastify + WS gateway + baseline store + rerun spawner
         │
@@ -55,20 +55,21 @@ Imports from: nothing. Imported by: every other package.
 
 ### `packages/trace`
 
-Trace-format transforms: captured events in, `trace.zip` out. Workspace-internal; inlined into each consumer at build time.
+Trace-format transforms: captured events in, `trace.zip` out, and a `trace.zip` back into a player payload. Workspace-internal; inlined into each consumer at build time.
 
-Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and §2.2 bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing the zip.
+Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and §2.2 bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing and reading the zip.
 
 Contains:
 
 - `writeTraceZip` / `buildTraceZip` — the zip writer and its resource model (`TraceZipResource`).
 - `buildActionEvents`: commands → the ordered before/after event stream the player replays, including the `(startTime, sequence, index)` ordering key, with a row's children written inside its span under its callId.
 - `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
-- `buildImageFrameSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots.
+- `buildImageFrameSnapshots` + `buildScreenshotResourceSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots (each a page whose image is the stored screenshot, reached through a `resourceOverrides` entry and the one recorded response it patches).
 - `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
 - `buildConsoleEvents`, `networkRequestToHar`, `buildSourceResources` / `sourceResourceName` / `callSourceToStack`, `generateTranscript`, `sha1Hex`.
+- `parseTraceZip` (`trace-reader.ts` and its `trace-reader-*` siblings) — the reverse direction: a `trace.zip`, ours or a foreign one, back into the `TracePlayerData` the player renders. Imported by subpath (`@wdio/devtools-trace/trace-reader`) and kept out of the package index, so adapters that reach `trace` through `core` never inline it. `parseTraceZip` is `unzipTraceZip` then `parseTraceEntries`, exported separately so the hosted player can report each as a phase. It reaches no Node built-in, because the hosted player runs it in the browser, in a Web Worker (`tests/trace-reader-browser-safe.test.ts` walks its imports); the disk read is `readTraceZip` in `read-trace-zip.ts`, and source paths are hashed with the pure `portableSha1Hex` so the reader needs no `node:crypto`; resource bytes keep native `sha1Hex`, ~30x faster.
 
-Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged) and `backend`.
+Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged), `backend`, and `app`, which may import `trace-reader` alone (ESLint enforces it).
 
 ### `packages/core`
 
@@ -274,7 +275,7 @@ The repo has converged on a clear ownership story. When in doubt, the top-down d
 
 - A type, constant, enum, schema, or contract used by more than one package → **`shared`**.
 - Capture, parsing, normalization, sourcemap, UID, reporter, screencast, or WS-framing logic that doesn't depend on a specific framework's API → **`core`**.
-- A pure transform that turns captured events into trace-zip content → **`trace`**. The test is whether the backend would ever need it: it builds traces for adapters that can't, and it may not import `core`.
+- A pure transform that turns captured events into trace-zip content, or a zip back into a player payload → **`trace`**. The test is whether the backend would ever need it: it builds traces for adapters that can't, and it may not import `core`.
 - A specific framework's hook, driver patch, or runner integration → the matching **adapter** package. Adapter code calls `core` for the actual work and only owns the hook registration.
 - A backend HTTP route, WS handler, or rerun behavior → **`backend`**, with the contract added to `shared` first.
 - UI → **`app`**, consuming `shared` contracts only.

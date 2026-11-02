@@ -9,7 +9,7 @@ import {
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
-import { skipsCapture } from '@wdio/devtools-shared'
+import { skipsCapture, type CaptureTrigger } from '@wdio/devtools-shared'
 import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
@@ -346,7 +346,14 @@ export async function handleOnCommand(
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
   maybeDrainAfterLiveCommand(ctx, capturer, cmd)
-  queueActionSnapshot(ctx, capturer, cmd.command, entry.timestamp, error)
+  queueActionSnapshot(
+    ctx,
+    capturer,
+    cmd.command,
+    entry.timestamp,
+    error,
+    cmd.waitScope ? 'wait-poll' : 'action'
+  )
   void capturer.nativeNetwork.forward({ throttle: true })
 }
 
@@ -356,7 +363,14 @@ export function handleActionsPerformed(ctx: OnCommandCtx): void {
   if (!capturer) {
     return
   }
-  queueActionSnapshot(ctx, capturer, 'performActions', Date.now(), undefined)
+  queueActionSnapshot(
+    ctx,
+    capturer,
+    'performActions',
+    Date.now(),
+    undefined,
+    'action'
+  )
 }
 
 /** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the
@@ -368,7 +382,8 @@ function queueActionSnapshot(
   capturer: SessionCapturer,
   command: string,
   timestamp: number,
-  error: unknown
+  error: unknown,
+  trigger: CaptureTrigger
 ): void {
   if (ctx.options.mode !== 'trace' || error || !ctx.driver) {
     return
@@ -385,7 +400,8 @@ function queueActionSnapshot(
         driver,
         command,
         timestamp,
-        capturer.isNativeAppSession
+        capturer.isNativeAppSession,
+        trigger
       )
   )
 }

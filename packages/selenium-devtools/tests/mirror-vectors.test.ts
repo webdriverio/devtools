@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CommandLog } from '@wdio/devtools-shared'
+import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
   deviceFromCapabilities,
   isNativeAppSession,
@@ -18,10 +18,13 @@ import {
 import {
   applyPerformanceData,
   finalFrameStamp,
+  formatCaptureTimingSummary,
   resolveAdapterOutputDir,
   resolveRunId,
   SessionCapturerBase,
-  type CapturedPerformancePayload
+  summarizeCaptureTiming,
+  type CapturedPerformancePayload,
+  type CaptureTimingSummary
 } from '@wdio/devtools-core'
 import { rememberElementLocator } from '../src/helpers/element-locators.js'
 import {
@@ -77,7 +80,8 @@ const RUNNERS = [
   'nestedWaitIdentity',
   'performancePayload',
   'waitRowNaming',
-  'finalFrameStamp'
+  'finalFrameStamp',
+  'captureTimingSummary'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -427,6 +431,25 @@ describe('finalFrameStamp', () => {
         c.lastCapturedTimestamp ?? undefined
       )
       expect(stamp).toEqual(c.expect)
+    })
+  }
+})
+
+describe('captureTimingSummary', () => {
+  for (const c of section<
+    Named & {
+      wall: number | null
+      file: string | null
+      records: CaptureTimingRecord[]
+      expect: { summary: CaptureTimingSummary; formatted: string }
+    }
+  >('captureTimingSummary').cases) {
+    it(c.name, () => {
+      const summary = summarizeCaptureTiming(c.records, c.wall ?? undefined)
+      expect({
+        summary,
+        formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
+      }).toEqual(c.expect)
     })
   }
 })

@@ -5,7 +5,11 @@ import type {
   TraceActionChild,
   TraceActionGroupNode
 } from '@wdio/devtools-shared'
-import { parseTraceZip } from '../src/trace-reader.js'
+import {
+  parseTraceEntries,
+  parseTraceZip,
+  unzipTraceZip
+} from '../src/trace-reader.js'
 import {
   buildSources,
   nearestFrame,
@@ -38,8 +42,8 @@ const IMG3 = Buffer.from('frame-three').toString('base64')
 const toNdjson = (events: object[]): Uint8Array =>
   strToU8(events.map((event) => JSON.stringify(event)).join('\n') + '\n')
 
-// Build a trace.zip matching the writer's format (core/trace-exporter.ts)
-// directly, so the reader is exercised without importing core (CLAUDE.md §2.2).
+// Build a trace.zip matching the writer's format (trace-exporter.ts)
+// by hand, so the reader is tested against the format rather than the writer.
 function fixtureZip(): Uint8Array {
   const events = [
     {
@@ -727,6 +731,16 @@ function foreignFixtureZip(): Uint8Array {
     [`resources/src@${FOREIGN_SPEC_SHA1}.txt`]: strToU8('test("foreign")')
   })
 }
+
+describe('unzipTraceZip and parseTraceEntries', () => {
+  // The hosted player runs the two steps separately to report each as a phase.
+  it('read a zip exactly as parseTraceZip does', () => {
+    const entries = unzipTraceZip(fixtureZip())
+
+    expect(Object.keys(entries)).toContain('trace.trace')
+    expect(parseTraceEntries(entries)).toEqual(parseTraceZip(fixtureZip()))
+  })
+})
 
 describe('parseTraceZip with a foreign multi-stream zip', () => {
   it('merges streams, drops runner wrappers and container steps', () => {

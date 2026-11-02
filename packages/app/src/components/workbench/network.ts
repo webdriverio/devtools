@@ -2,6 +2,7 @@ import { Element } from '@core/element'
 import type { NetworkRequest } from '@wdio/devtools-shared'
 import { html, nothing } from 'lit'
 import { networkStyles } from './network/styles.js'
+import { filterToolbarStyles, keyValueCardStyles } from '../shared-styles.js'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import { networkRequestContext } from '../../controller/context.js'
@@ -83,7 +84,12 @@ export class DevtoolsNetwork extends Element {
     }
   }
 
-  static styles = [...Element.styles, networkStyles]
+  static styles = [
+    ...Element.styles,
+    filterToolbarStyles,
+    keyValueCardStyles,
+    networkStyles
+  ]
 
   #filterRequests(): NetworkRequest[] {
     let filtered = this.networkRequests
