@@ -10,11 +10,11 @@ export const TRACE_API = {
 } as const
 
 /** A single screenshot frame reconstructed from a trace.zip's
- *  `screencast-frame` events + `resources/*.jpeg`. */
+ *  `screencast-frame` events + their `resources/` images. */
 export interface TracePlayerFrame {
   /** Absolute wall-clock ms when the frame was captured. */
   timestamp: number
-  /** Base64-encoded JPEG (no `data:` prefix), matching `CommandLog.screenshot`. */
+  /** Base64-encoded PNG or JPEG (no `data:` prefix), matching `CommandLog.screenshot`. */
   screenshot: string
 }
 

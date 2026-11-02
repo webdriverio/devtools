@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import {
   buildActionEvents,
   buildImageFrameSnapshots,
@@ -10,6 +10,7 @@ import {
   type AfterEvent,
   type FrameSnapshotEvent,
   type FrameSnapshotRef,
+  type ScreencastFrameEvent,
   type ScreenshotResourceEvent
 } from '@wdio/devtools-trace'
 import { parseTraceZip } from '../src/trace-reader.js'
@@ -354,7 +355,7 @@ describe('buildScreenshotResourceSnapshots', () => {
       [
         'https://screenshot.wdio-devtools.invalid/action.png',
         'image/png',
-        'page@abc123-2000.jpeg'
+        'page@abc123-2000.png'
       ],
       [
         'https://screenshot.wdio-devtools.invalid/action.jpeg',
@@ -461,11 +462,47 @@ describe('a written trace stores each screenshot once', () => {
     expect(
       frameSnapshots.map((e) => e.snapshot.resourceOverrides[0]!.sha1)
     ).toEqual([
-      'page@abc12345-1000.jpeg',
+      'page@abc12345-1000.png',
       'page@abc12345-2000.jpeg',
       'page@abc12345-2000.jpeg'
     ])
     expect(responseUrls).toEqual([screenshotUrl(PNG), screenshotUrl(JPEG)])
+  })
+
+  it('names each screenshot by its own format in every place that names it', async () => {
+    const { files, events } = await written()
+    const stored = Object.keys(files)
+      .filter((name) => /\.(png|jpeg)$/.test(name))
+      .sort()
+    expect(stored).toEqual([
+      'resources/page@abc12345-1000.png',
+      'resources/page@abc12345-2000.jpeg'
+    ])
+    const filmstrip = (
+      events.filter(
+        (e) => e.type === 'screencast-frame'
+      ) as ScreencastFrameEvent[]
+    ).map((e) => e.sha1)
+    const overrides = (
+      events.filter((e) => e.type === 'frame-snapshot') as FrameSnapshotEvent[]
+    ).map((e) => e.snapshot.resourceOverrides[0]!.sha1)
+    const responses = (
+      events.filter(
+        (e) => e.type === 'resource-snapshot'
+      ) as ScreenshotResourceEvent[]
+    ).map((e) => e.snapshot.response.content)
+    for (const name of [
+      ...filmstrip,
+      ...overrides,
+      ...responses.map((c) => c._sha1)
+    ]) {
+      expect(stored).toContain(`resources/${name}`)
+    }
+    expect(new Set(filmstrip)).toEqual(new Set(overrides))
+    expect(responses.map((c) => [c.mimeType, c._sha1])).toEqual([
+      ['image/png', 'page@abc12345-1000.png'],
+      ['image/jpeg', 'page@abc12345-2000.jpeg']
+    ])
   })
 
   it('reads back unchanged, with the screenshot responses kept out of the network rows', async () => {
@@ -479,5 +516,31 @@ describe('a written trace stores each screenshot once', () => {
     ])
     expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
     expect(data.trace.commands[1]!.snapshotText).toBe('- button "Go"')
+  })
+
+  it('still reads a zip written when every screenshot was named .jpeg', async () => {
+    const { files } = await written()
+    const legacy: Record<string, Uint8Array> = {}
+    for (const [name, data] of Object.entries(files)) {
+      legacy[name.replace(/\.png$/, '.jpeg')] = data
+    }
+    legacy['trace.trace'] = strToU8(
+      strFromU8(files['trace.trace']!).replaceAll(
+        'page@abc12345-1000.png',
+        'page@abc12345-1000.jpeg'
+      )
+    )
+    expect(legacy['resources/page@abc12345-1000.jpeg']).toBeDefined()
+    expect(Object.keys(legacy).some((name) => name.endsWith('.png'))).toBe(
+      false
+    )
+
+    const data = parseTraceZip(zipSync(legacy))
+    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
+    expect(data.trace.commands.map((c) => c.screenshot)).toEqual([
+      PNG,
+      JPEG,
+      JPEG
+    ])
   })
 })

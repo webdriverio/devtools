@@ -3,6 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
+  buildFilmstripEvents,
+  buildSnapshotResources,
+  screenshotResourceName,
   upsertRichestSnapshot,
   writeTraceZip,
   type TraceCapturer
@@ -131,6 +134,41 @@ async function exportWith(snapshots: ActionSnapshot[]) {
   const resources = await fs.readdir(path.join(dir, 'resources'))
   return { dir, events, resources, outputDir }
 }
+
+describe('screenshot resource names', () => {
+  const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ'
+  const JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMC'
+
+  it('takes the extension from the screenshot bytes', () => {
+    expect(screenshotResourceName('page@x', 10, PNG)).toBe('page@x-10.png')
+    expect(screenshotResourceName('page@x', 10, JPEG)).toBe('page@x-10.jpeg')
+  })
+
+  it('names a stored screenshot and its filmstrip frame alike', () => {
+    const snapshots = [snap(10, PNG), snap(20, JPEG)]
+    const stored = buildSnapshotResources(snapshots, 'page@x').map(
+      (r) => r.resourceName
+    )
+    const frames = buildFilmstripEvents(snapshots, 'page@x', 0, {
+      width: 1,
+      height: 1
+    }).map((e) => e.sha1)
+    expect(stored).toEqual(['page@x-10.png', 'page@x-20.jpeg'])
+    expect(frames).toEqual(stored)
+  })
+
+  it('names a same-timestamp collision after the capture that wins it', () => {
+    const richerJpeg = JPEG + 'A'.repeat(64)
+    const snapshots = [snap(10, PNG), snap(10, richerJpeg)]
+    const [stored] = buildSnapshotResources(snapshots, 'page@x')
+    const [frame] = buildFilmstripEvents(snapshots, 'page@x', 0, {
+      width: 1,
+      height: 1
+    })
+    expect(stored!.resourceName).toBe('page@x-10.jpeg')
+    expect(frame!.sha1).toBe(stored!.resourceName)
+  })
+})
 
 describe('snapshot binding contract (capture → export)', () => {
   it('binds a snapshot stamped at the command timestamp', async () => {
