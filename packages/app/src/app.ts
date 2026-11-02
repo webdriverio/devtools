@@ -6,10 +6,12 @@ import { TraceType, type CommandLog } from '@wdio/devtools-shared'
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
 import { TraceOpenController } from './controller/trace-open.js'
+import { TraceRunController } from './controller/trace-run.js'
 import { KeyboardController, KBD } from './controller/keyboard.js'
 import { DragController, Direction } from './utils/DragController.js'
 import {
   HOSTED_PLAYER,
+  TRACE_RUN_SELECT_EVENT,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_DEFAULT_WIDTH
 } from './controller/constants.js'
@@ -26,6 +28,8 @@ import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
 import './components/onboarding/open-trace.js'
+import './components/trace-run-list.js'
+import './components/placeholder.js'
 import './components/workbench/compare.js'
 import './components/shortcuts-overlay.js'
 
@@ -40,16 +44,25 @@ onThemeChange(applyDarkMode)
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   dataManager = new DataManagerController(this)
+  #traceRun = new TraceRunController(this, (data) =>
+    this.dataManager.loadPlayerData(data)
+  )
   #traceOpen = HOSTED_PLAYER
-    ? new TraceOpenController(this, (file, onPhase) =>
-        this.dataManager.openTraceArchive(file, onPhase)
-      )
+    ? new TraceOpenController(this, {
+        one: async (bytes, onPhase) => {
+          await this.dataManager.openTraceArchive(bytes, onPhase)
+          this.#traceRun.clear()
+        },
+        many: (sources) => void this.#traceRun.open(sources)
+      })
     : undefined
 
   @state() showShortcuts = false
 
   constructor() {
     super()
+    this.dataManager.onServedRun = (sources) =>
+      void this.#traceRun.open(sources)
     // Global keyboard shortcuts — a side-effect controller (hooks window
     // keydown via addController); active in both the player and live dashboard.
     new KeyboardController(this, {
@@ -117,6 +130,7 @@ export class WebdriverIODevtoolsApplication extends Element {
     // or a popout — and the Compare tab, which keys on it, kept showing the
     // previously selected test's baseline after clicking a different test.
     this.addEventListener('app-test-select', this.#onTestSelect)
+    this.addEventListener(TRACE_RUN_SELECT_EVENT, this.#onTraceRunSelect)
     window.addEventListener('show-command', this.#onShowCommand)
     window.addEventListener(KBD.step, this.#onKbdStep)
     window.addEventListener(KBD.jump, this.#onKbdJump)
@@ -134,6 +148,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   disconnectedCallback(): void {
     super.disconnectedCallback()
     this.removeEventListener('app-test-select', this.#onTestSelect)
+    this.removeEventListener(TRACE_RUN_SELECT_EVENT, this.#onTraceRunSelect)
     window.removeEventListener('show-command', this.#onShowCommand)
     window.removeEventListener(KBD.step, this.#onKbdStep)
     window.removeEventListener(KBD.jump, this.#onKbdJump)
@@ -141,6 +156,10 @@ export class WebdriverIODevtoolsApplication extends Element {
 
   #onTestSelect = (event: Event): void => {
     this.dataManager.setSelectedTestUid((event as CustomEvent<string>).detail)
+  }
+
+  #onTraceRunSelect = (event: CustomEvent<number>): void => {
+    this.#traceRun.select(event.detail)
   }
 
   #onShowCommand = (event: Event): void => {
@@ -250,15 +269,61 @@ export class WebdriverIODevtoolsApplication extends Element {
     </div>`
   }
 
+  #runPane() {
+    const run = this.#traceRun
+    if (run.selectedId !== undefined) {
+      return html`<wdio-devtools-workbench
+        class="basis-auto"
+        .playerMode="${true}"
+      ></wdio-devtools-workbench>`
+    }
+    if (run.loading) {
+      return html`<wdio-devtools-placeholder
+        class="flex-1"
+      ></wdio-devtools-placeholder>`
+    }
+    return html`<wdio-devtools-placeholder
+      class="flex-1"
+      heading="None of these traces could be opened"
+      description="Each row says why."
+    ></wdio-devtools-placeholder>`
+  }
+
+  // Several traces opened together: their list where a live run's tree would be.
+  #runContent() {
+    return html`
+      <section
+        data-resizer-window
+        class="flex h-[calc(100%-40px)] w-full relative"
+      >
+        <wdio-devtools-trace-run-list
+          style="${this.#drag?.getPosition()}"
+          .entries="${this.#traceRun.ordered}"
+          .selectedId="${this.#traceRun.selectedId}"
+        ></wdio-devtools-trace-run-list>
+        ${this.#drag.getSlider('z-10 h-full')} ${this.#runPane()}
+        ${this.#traceOpenBanner()}
+      </section>
+    `
+  }
+
   #mainContent() {
     const traceOpen = this.#traceOpen
-    // Once a trace is loaded, a failed open keeps it and reports in a banner.
-    if (traceOpen && (traceOpen.opening || !this.dataManager.hasConnection)) {
-      return html`<wdio-devtools-open-trace
-        .busy="${traceOpen.opening}"
-        .phase="${traceOpen.phase}"
-        .error="${traceOpen.error}"
+    const landing = (busy: boolean) =>
+      html`<wdio-devtools-open-trace
+        .busy="${busy}"
+        .phase="${traceOpen?.phase}"
+        .error="${traceOpen?.error}"
       ></wdio-devtools-open-trace>`
+    if (traceOpen?.opening) {
+      return landing(true)
+    }
+    if (this.#traceRun.active) {
+      return this.#runContent()
+    }
+    // Once a trace is loaded, a failed open keeps it and reports in a banner.
+    if (traceOpen && !this.dataManager.hasConnection) {
+      return landing(false)
     }
     if (!this.dataManager.hasConnection) {
       return html`<wdio-devtools-start></wdio-devtools-start>`

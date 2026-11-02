@@ -1,13 +1,35 @@
 // HTTP contract for the trace player (`pnpm show-trace trace.zip`). The backend
 // runs in trace-serve mode and exposes the reconstructed trace at TRACE_API.get;
-// the app fetches it on boot to enter player mode.
+// the app fetches it on boot to enter player mode. Given several zips, it lists
+// them at TRACE_API.run instead and serves each one's bytes for the app to read.
 
 import type { TraceLog } from './types.js'
 
 /** Endpoint the backend serves the reconstructed trace from in player mode. */
 export const TRACE_API = {
-  get: '/api/trace'
+  get: '/api/trace',
+  /** The zips `show-trace` was given, when it was given more than one; 204 otherwise. */
+  run: '/api/trace/run',
+  /** One listed zip's bytes, by its position in the listing. */
+  zip: '/api/trace/zip/:index'
 } as const
+
+/** Where one listed zip's bytes are served. */
+export function traceZipUrl(index: number): string {
+  return TRACE_API.zip.replace(':index', String(index))
+}
+
+/** One zip in a served run: the path it was found at, and where to fetch it. */
+export interface TraceRunListingEntry {
+  /** Relative to the directory `show-trace` ran in, or absolute outside it. */
+  path: string
+  url: string
+}
+
+/** Payload served at `TRACE_API.run`, in the order the zips were found. */
+export interface TraceRunListing {
+  traces: TraceRunListingEntry[]
+}
 
 /** A single screenshot frame reconstructed from a trace.zip's
  *  `screencast-frame` events + their `resources/` images. */

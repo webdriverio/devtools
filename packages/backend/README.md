@@ -19,10 +19,11 @@ Lives only in `runner.ts` and `framework-filters.ts`. Both branch on a typed `Te
 
 Trace mode (see the [root README](../../README.md#-trace-mode-tracezip)) writes a portable `trace.zip`; the backend is what opens it back up.
 
-- **CLI** (`src/show-trace.ts`) — `runShowTraceCli` resolves the argument, reads the archive with `readTraceZip`, calls `start({ trace })` in trace-serve mode, prints the URL, and opens the default browser. Run it from this repo with the root script:
+- **CLI** (`src/show-trace.ts`): `runShowTraceCli` resolves its arguments, each a zip or a folder searched for zips (`trace-files.ts`). One zip is read with `readTraceZip` and served through `start({ trace })` in trace-serve mode; several are served through `start({ traceRun })`, which lists them at `TRACE_API.run` and serves each one's bytes at `TRACE_API.zip` by its position in that list (never by a path from the request), for the app to read and list with their outcomes. It then prints the URL and opens the default browser. Run it from this repo with the root script:
 
   ```sh
   pnpm show-trace path/to/trace.zip
+  pnpm show-trace test-results/      # every zip under the folder, as a list
   ```
 
   The same entry is shipped as a `show-trace` **bin** by the backend (`./dist/show-trace.js`) and by each adapter (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools` each ship a thin `bin/show-trace.mjs`), so `npx show-trace <trace.zip>` works in any project that installs an adapter — backend need only be a transitive dependency. In trace-serve mode `start({ trace })` exposes the reconstructed payload at `TRACE_API.get` and skips the worker/rerun machinery. It is one of the backend's two bins; the other, `devtools-backend` (`./dist/server.js`), starts the live dashboard server described under [Public API](#public-api).

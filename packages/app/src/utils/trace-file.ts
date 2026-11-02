@@ -1,21 +1,25 @@
 import { TRACE_OPEN_EVENT } from '../controller/constants.js'
+import { sourcesFromFiles, type TraceSource } from './trace-sources.js'
 
-/** Hand a picked or dropped trace.zip to the app, which opens it. */
-export function announceTraceFile(source: EventTarget, file: File): void {
+/** Hand picked or dropped traces to the app, which opens them. */
+export function announceTraceSources(
+  source: EventTarget,
+  sources: readonly TraceSource[]
+): void {
   source.dispatchEvent(
-    new CustomEvent(TRACE_OPEN_EVENT, {
-      detail: file,
+    new CustomEvent<readonly TraceSource[]>(TRACE_OPEN_EVENT, {
+      detail: sources,
       bubbles: true,
       composed: true
     })
   )
 }
 
-/** Cleared after reading, so picking the same file again still fires `change`. */
-export function takePickedFile(input?: HTMLInputElement): File | undefined {
-  const file = input?.files?.[0]
+/** Cleared after reading, so picking the same files again still fires `change`. */
+export function takePickedSources(input?: HTMLInputElement): TraceSource[] {
+  const sources = sourcesFromFiles(Array.from(input?.files ?? []))
   if (input) {
     input.value = ''
   }
-  return file
+  return sources
 }

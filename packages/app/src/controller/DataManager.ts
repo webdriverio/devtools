@@ -28,9 +28,12 @@ import {
   actionGroupsContext,
   transcriptContext
 } from './context.js'
-import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
-import { CACHE_ID, HOSTED_PLAYER } from './constants.js'
+import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
+import { HOSTED_PLAYER } from './constants.js'
+import { cacheTrace, readCachedTrace } from './trace-cache.js'
 import { readTraceArchive } from './trace-archive.js'
+import { probeServedTrace } from './trace-serve.js'
+import type { TraceSource } from '../utils/trace-sources.js'
 import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
@@ -75,6 +78,8 @@ export class DataManagerController implements ReactiveController {
   transcriptContextProvider: ContextProvider<typeof transcriptContext>
 
   #playerMode = false
+  /** Opens the zips `show-trace` lists; without it, a served run is never probed. */
+  onServedRun?: (sources: TraceSource[]) => void
 
   constructor(host: ReactiveControllerHost & HTMLElement) {
     ;(this.#host = host).addController(this)
@@ -203,25 +208,22 @@ export class DataManagerController implements ReactiveController {
     void this.#bootstrap()
   }
 
-  // Trace-player mode (`pnpm show-trace`) serves the reconstructed trace at
-  // TRACE_API.get. Probe it first; if present, load it and skip the live WS.
+  // `show-trace` serves a trace, or several to list; either skips the live WS.
   async #bootstrap() {
     // Hosted, there is no backend: the trace arrives as a file the viewer picks.
     if (HOSTED_PLAYER) {
       return
     }
-    try {
-      const response = await fetch(TRACE_API.get)
-      // 204 = live mode (the route is always registered but serves no trace);
-      // any 2xx with a body is a reconstructed trace to play.
-      if (response.ok && response.status !== 204) {
-        this.loadPlayerData((await response.json()) as TracePlayerData)
-        return
-      }
-    } catch {
-      // Not serving a trace — fall through to the live WS connection.
+    const served = await probeServedTrace(Boolean(this.onServedRun))
+    if (!served) {
+      return this.#connectWebSocket()
     }
-    this.#connectWebSocket()
+    if ('trace' in served) {
+      return this.loadPlayerData(served.trace)
+    }
+    this.#playerMode = true
+    this.onServedRun?.(served.run)
+    this.#host.requestUpdate()
   }
 
   loadPlayerData(data: TracePlayerData) {
@@ -250,15 +252,9 @@ export class DataManagerController implements ReactiveController {
     })
 
     ws.addEventListener('error', () => {
-      try {
-        const localStorageValue = JSON.parse(
-          localStorage.getItem(CACHE_ID) || ''
-        ) as TraceLog
-        this.loadTraceFile(localStorageValue)
-      } catch (e: unknown) {
-        console.warn(
-          `Failed to parse cached trace file: ${(e as Error).message}`
-        )
+      const cached = readCachedTrace()
+      if (cached) {
+        this.loadTraceFile(cached)
       }
     })
   }
@@ -552,15 +548,8 @@ export class DataManagerController implements ReactiveController {
   }
 
   loadTraceFile(traceFile: TraceLog, cache = true) {
-    try {
-      if (cache) {
-        localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
-      }
-    } catch (err) {
-      console.warn(
-        'Trace too large to cache in localStorage; skipping cache.',
-        err
-      )
+    if (cache) {
+      cacheTrace(traceFile)
     }
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]

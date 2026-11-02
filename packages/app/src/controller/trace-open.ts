@@ -5,24 +5,30 @@ import type {
   TraceOpenPhase,
   TraceOpenProgress
 } from './trace-parse-protocol.js'
+import { sourcesFromDrop, type TraceSource } from '../utils/trace-sources.js'
 
 type Host = ReactiveControllerHost & HTMLElement
 
-/** The hosted player's open flow: a file picked in the UI or dropped anywhere. */
+/** What the app does with what was opened: one zip into the player, several into a list. */
+export interface TraceOpenTargets {
+  one: (bytes: Blob, onPhase: TraceOpenProgress) => Promise<void>
+  many: (sources: readonly TraceSource[]) => void
+}
+
+const fileName = (path: string): string => path.split('/').pop() || path
+
+/** The hosted player's open flow: files or folders picked in the UI or dropped anywhere. */
 export class TraceOpenController implements ReactiveController {
   opening = false
   phase?: TraceOpenPhase
   error?: string
 
   readonly #host: Host
-  readonly #load: (file: File, onPhase: TraceOpenProgress) => Promise<void>
+  readonly #targets: TraceOpenTargets
 
-  constructor(
-    host: Host,
-    load: (file: File, onPhase: TraceOpenProgress) => Promise<void>
-  ) {
+  constructor(host: Host, targets: TraceOpenTargets) {
     this.#host = host
-    this.#load = load
+    this.#targets = targets
     host.addController(this)
   }
 
@@ -38,22 +44,22 @@ export class TraceOpenController implements ReactiveController {
     window.removeEventListener('drop', this.#onDrop)
   }
 
-  async open(file: File) {
+  async open(sources: readonly TraceSource[]) {
     if (this.opening) {
       return
     }
-    this.opening = true
-    this.error = undefined
-    this.#host.requestUpdate()
-    try {
-      await this.#load(file, this.#onPhase)
-    } catch (error) {
-      this.error = `Could not open ${file.name}: ${(error as Error).message}`
-    } finally {
-      this.opening = false
-      this.phase = undefined
+    if (!sources.length) {
+      this.error = 'No trace .zip found in what was opened'
       this.#host.requestUpdate()
+      return
     }
+    this.error = undefined
+    if (sources.length > 1) {
+      this.#targets.many(sources)
+      this.#host.requestUpdate()
+      return
+    }
+    await this.#openOne(sources[0])
   }
 
   dismissError() {
@@ -61,12 +67,26 @@ export class TraceOpenController implements ReactiveController {
     this.#host.requestUpdate()
   }
 
+  async #openOne(source: TraceSource) {
+    this.opening = true
+    this.#host.requestUpdate()
+    try {
+      await this.#targets.one(await source.read(), this.#onPhase)
+    } catch (error) {
+      this.error = `Could not open ${fileName(source.path)}: ${(error as Error).message}`
+    } finally {
+      this.opening = false
+      this.phase = undefined
+      this.#host.requestUpdate()
+    }
+  }
+
   #onPhase = (phase: TraceOpenPhase): void => {
     this.phase = phase
     this.#host.requestUpdate()
   }
 
-  #onAnnounced = (event: CustomEvent<File>): void => {
+  #onAnnounced = (event: CustomEvent<readonly TraceSource[]>): void => {
     void this.open(event.detail)
   }
 
@@ -77,9 +97,19 @@ export class TraceOpenController implements ReactiveController {
 
   #onDrop = (event: DragEvent): void => {
     event.preventDefault()
-    const file = event.dataTransfer?.files[0]
-    if (file) {
-      void this.open(file)
+    void this.openDrop(sourcesFromDrop(event.dataTransfer))
+  }
+
+  /** Opens what a drop held, once its folders have been walked. */
+  async openDrop(collected: Promise<TraceSource[]>) {
+    let sources: TraceSource[]
+    try {
+      sources = await collected
+    } catch (error) {
+      this.error = `Could not read what was dropped: ${(error as Error).message}`
+      this.#host.requestUpdate()
+      return
     }
+    await this.open(sources)
   }
 }
