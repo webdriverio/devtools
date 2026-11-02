@@ -39,7 +39,6 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@wdio/snapshot": "^10.2.0-0",
     "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
@@ -49,12 +48,19 @@
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/globals": "10.1.0",
+    "@wdio/snapshot": "^10.2.0-0",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
     "vitest": "^5.0.2",
     "webdriverio": "^10.1.0"
   },
   "peerDependencies": {
+    "@wdio/snapshot": "^10.2.0-0",
     "webdriverio": "^9.0.0 || ^10.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@wdio/snapshot": {
+      "optional": true
+    }
   }
 }

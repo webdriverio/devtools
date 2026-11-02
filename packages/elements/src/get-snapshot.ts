@@ -2,7 +2,11 @@ import type { SnapshotElement } from '@wdio/devtools-core/element-types'
 import type { SnapshotRef } from '@wdio/snapshot'
 import { getSnapshot as getLegacySnapshot } from './legacy-snapshot.js'
 import { usesWdioSnapshot } from './webdriverio-version.js'
-import { getWdioSnapshot, loadWdioSnapshot } from './wdio-snapshot.js'
+import {
+  getWdioSnapshot,
+  loadWdioSnapshot,
+  resolvesWdioSnapshot
+} from './wdio-snapshot.js'
 
 export type SnapshotFormat = 'legacy' | 'snapshot'
 
@@ -22,15 +26,18 @@ export interface GetSnapshotResult {
   refs?: SnapshotRef[]
 }
 
-/** The renderer `getSnapshot` picks for the installed WebdriverIO. */
+/**
+ * The renderer `getSnapshot` picks: `snapshot` when the installed WebdriverIO is
+ * 10.2 or later and `@wdio/snapshot` is installed, else `legacy`.
+ */
 export function snapshotRenderer(): SnapshotFormat {
-  return usesWdioSnapshot() ? 'snapshot' : 'legacy'
+  return usesWdioSnapshot() && resolvesWdioSnapshot() ? 'snapshot' : 'legacy'
 }
 
 /**
- * Renders with `@wdio/snapshot` when the installed WebdriverIO is 10.2 or later,
- * else the legacy renderer. `format` on the result is what rendered, which can
- * differ from `snapshotRenderer()` if `@wdio/snapshot` fails to load.
+ * Renders with `@wdio/snapshot` when `snapshotRenderer()` picks it, else the legacy
+ * renderer. `format` on the result is what rendered, which can differ from
+ * `snapshotRenderer()` if `@wdio/snapshot` fails to load.
  */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,

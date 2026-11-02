@@ -8,6 +8,11 @@ vi.mock('../src/legacy-snapshot.js', () => ({
   getSnapshot: vi.fn(async () => ({ text: 'LEGACY', elements: {} }))
 }))
 
+vi.mock('../src/wdio-snapshot.js', async (importActual) => ({
+  ...(await importActual<Record<string, unknown>>()),
+  resolvesWdioSnapshot: vi.fn(() => true)
+}))
+
 vi.mock('@wdio/snapshot', () => {
   throw new Error('module graph broken')
 })

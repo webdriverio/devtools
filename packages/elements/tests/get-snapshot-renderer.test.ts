@@ -10,6 +10,11 @@ vi.mock('../src/legacy-snapshot.js', () => ({
   getSnapshot: vi.fn(async () => ({ text: 'LEGACY', elements: {} }))
 }))
 
+vi.mock('../src/wdio-snapshot.js', async (importActual) => ({
+  ...(await importActual<Record<string, unknown>>()),
+  resolvesWdioSnapshot: vi.fn(() => true)
+}))
+
 vi.mock('@wdio/snapshot', async (importActual) => {
   loaded()
   const actual = await importActual<typeof WdioSnapshot>()
@@ -20,7 +25,8 @@ import * as snap from '@wdio/snapshot'
 import type * as WdioSnapshot from '@wdio/snapshot'
 import { getSnapshot as getLegacySnapshot } from '../src/legacy-snapshot.js'
 import { usesWdioSnapshot } from '../src/webdriverio-version.js'
-import { getSnapshot } from '../src/get-snapshot.js'
+import { resolvesWdioSnapshot } from '../src/wdio-snapshot.js'
+import { getSnapshot, snapshotRenderer } from '../src/get-snapshot.js'
 
 const browser = {
   capabilities: { browserName: 'chrome' },
@@ -30,6 +36,7 @@ const browser = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(usesWdioSnapshot).mockReturnValue(false)
+  vi.mocked(resolvesWdioSnapshot).mockReturnValue(true)
 })
 
 describe('getSnapshot renderer routing', () => {
@@ -39,6 +46,27 @@ describe('getSnapshot renderer routing', () => {
     expect(result).toEqual({ format: 'legacy', text: 'LEGACY', elements: {} })
     expect(loaded).not.toHaveBeenCalled()
     expect(snap.collectWeb).not.toHaveBeenCalled()
+  })
+
+  it('picks the snapshot renderer only when the version gate and the resolver both pass', () => {
+    expect(snapshotRenderer()).toBe('legacy')
+
+    vi.mocked(usesWdioSnapshot).mockReturnValue(true)
+    expect(snapshotRenderer()).toBe('snapshot')
+  })
+
+  it('renders legacy silently when @wdio/snapshot is not installed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(usesWdioSnapshot).mockReturnValue(true)
+    vi.mocked(resolvesWdioSnapshot).mockReturnValue(false)
+
+    const result = await getSnapshot(browser)
+
+    expect(result).toEqual({ format: 'legacy', text: 'LEGACY', elements: {} })
+    expect(snapshotRenderer()).toBe('legacy')
+    expect(loaded).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it.each([

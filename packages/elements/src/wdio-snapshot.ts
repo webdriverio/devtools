@@ -13,6 +13,20 @@ const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
 
 let loadFailureLogged = false
 
+let wdioSnapshotResolved: boolean | undefined
+
+export function resolvesWdioSnapshot(): boolean {
+  wdioSnapshotResolved ??= (() => {
+    try {
+      import.meta.resolve('@wdio/snapshot')
+      return true
+    } catch {
+      return false
+    }
+  })()
+  return wdioSnapshotResolved
+}
+
 export async function loadWdioSnapshot(): Promise<
   WdioSnapshotModule | undefined
 > {

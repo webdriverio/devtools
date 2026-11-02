@@ -46,13 +46,11 @@ async function checkEntryPoints() {
   ]) {
     assert.equal(typeof elements[fn], 'function', `@wdio/elements ${fn}`)
   }
-  if (major === '9') {
-    assert.equal(
-      elements.snapshotRenderer(),
-      'legacy',
-      'WebdriverIO 9 keeps the legacy snapshot renderer'
-    )
-  }
+  assert.equal(
+    elements.snapshotRenderer(),
+    'legacy',
+    'no @wdio/snapshot is installed here, so the legacy renderer renders'
+  )
   const locators = await import('@wdio/elements/locators')
   assert.equal(typeof locators.xmlToJSON, 'function', '@wdio/elements/locators')
 }

@@ -23,10 +23,11 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 
 ### Accessibility snapshot (`getSnapshot`)
 
-Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The installed `webdriverio` picks the renderer:
+Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer is opt-in:
 
-- **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output.
-- **10.2 and later, prereleases included** (`10.2.0-alpha.*`): `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below.
+- **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
+- **10.2 and later, prereleases included** (`10.2.0-alpha.*`), with `@wdio/snapshot` installed (`npm i -D @wdio/snapshot`): `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below.
+- **10.2 and later without `@wdio/snapshot`**: the legacy renderer, silently.
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
@@ -50,7 +51,7 @@ On the snapshot path a ref can carry no selector: when none of its candidates re
 
 Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default differs by renderer: viewport-only on the legacy path, the full page on the snapshot path. Pass `{ viewport: true }` on long pages, where it is much smaller and faster.
 
-`snapshotRenderer()` returns `'snapshot'` or `'legacy'` for the installed `webdriverio`. It reports the version gate only: if `@wdio/snapshot` fails to load, `getSnapshot` falls back to legacy with a warning, and the result's `format` is the authoritative answer.
+`snapshotRenderer()` returns `'snapshot'` when the installed `webdriverio` is 10.2 or later and `@wdio/snapshot` resolves, else `'legacy'`. If `@wdio/snapshot` is installed but fails to load, `getSnapshot` falls back to legacy with a warning, and the result's `format` is the authoritative answer.
 
 Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Errors on the snapshot path are `SnapshotError`s and propagate.
 
