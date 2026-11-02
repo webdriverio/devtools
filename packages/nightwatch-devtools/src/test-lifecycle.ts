@@ -41,6 +41,7 @@ export interface TestLifecycleCtx extends TestSliceCtx {
   incrementCount(state: TestStats['state']): void
   testIcon(state: TestStats['state']): string
   setCurrentTest(t: unknown): void
+  /** Records a start under its retry-stable uid and returns the 0-based attempt; `specFile` enables spec-scoped retention. */
   recordAttempt(uid: string, specFile?: string): number
 }
 

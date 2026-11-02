@@ -7,6 +7,7 @@ import type {
   TestStatus
 } from '@wdio/devtools-shared'
 import type { RunnerHookCallbacks } from '../types.js'
+import { reportRunComplete, type RunCounters } from './run-summary.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:cucumber')
 
@@ -29,14 +30,6 @@ interface GherkinIndex {
   stepKeywordById: Map<string, string>
   stepLineById: Map<string, number>
   scenarioLineById: Map<string, number>
-}
-
-interface RunCounters {
-  runStartTs: number
-  started: number
-  passed: number
-  failed: number
-  pending: number
 }
 
 function loadCucumber(): CucumberModule | null {
@@ -250,21 +243,7 @@ function registerRunLifecycleHooks(
     counters.runStartTs = Date.now()
     log.info('🧪 Test run starting')
   })
-  AfterAll(() => {
-    const durationMs = Date.now() - counters.runStartTs
-    const duration = (durationMs / 1000).toFixed(2)
-    log.info(
-      `🧪 Test run complete: ${counters.passed} passed, ${counters.failed} failed` +
-        (counters.pending ? `, ${counters.pending} pending` : '') +
-        ` (${duration}s, ${counters.started} total)`
-    )
-    callbacks.onTestRunComplete?.({
-      passed: counters.passed,
-      failed: counters.failed,
-      pending: counters.pending,
-      durationMs
-    })
-  })
+  AfterAll(() => reportRunComplete(counters, callbacks, log))
 }
 
 function handleScenarioStart(

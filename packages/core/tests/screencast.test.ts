@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ScreencastRecorderBase } from '../src/screencast.js'
+import {
+  ScreencastRecorderBase,
+  type ScreencastLogger
+} from '../src/screencast.js'
 import {
   INPUT_DISPATCH_MAX_HOLD_MS,
   beginInputDispatch
@@ -538,5 +541,53 @@ describe('ScreencastRecorderBase — buffer cap / decimation', () => {
     expect(r.duration).toBeGreaterThan(0)
     expect(r.duration).toBeLessThanOrEqual(199 * 1000)
     await r.stop()
+  })
+})
+
+describe('ScreencastRecorderBase: lifecycle logging', () => {
+  function makeLogger() {
+    const lines: Array<[string, string]> = []
+    const logger: ScreencastLogger = {
+      info: (m) => lines.push(['info', m]),
+      warn: (m) => lines.push(['warn', m])
+    }
+    return { logger, lines }
+  }
+
+  it('reports polling start and stop through the adapter logger', async () => {
+    const { logger, lines } = makeLogger()
+    class Logged extends TestRecorder {
+      protected override readonly logger = logger
+    }
+    const r = new Logged({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    await r.stop()
+    expect(lines).toEqual([
+      ['info', '✓ Screencast recording started (polling mode, 50 ms interval)'],
+      ['info', '✓ Screencast stopped — 1 frame(s) collected']
+    ])
+  })
+
+  it('warns with the cause when the first shot cannot be taken', async () => {
+    const { logger, lines } = makeLogger()
+    class Logged extends TestRecorder {
+      protected override readonly logger = logger
+    }
+    const r = new Logged({ pollIntervalMs: 50 })
+    r.shouldFailFirst = true
+    await r.start({ name: 'driver' })
+    expect(lines).toEqual([
+      [
+        'warn',
+        'Screencast unavailable (first screenshot returned null). Recording skipped.'
+      ]
+    ])
+  })
+
+  it('stays silent without a logger', async () => {
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    r.shouldFailFirst = true
+    await expect(r.start({ name: 'driver' })).resolves.toBeUndefined()
+    expect(r.isRecording).toBe(false)
   })
 })

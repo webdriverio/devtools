@@ -7,82 +7,20 @@
  * narrow its dependencies.
  */
 
-import type { SessionCapturer } from './session.js'
+import type { SessionLifecycleCtx } from './session-lifecycle.js'
+import type { TestManagementCtx } from './test-management.js'
+import type { OnCommandCtx } from './helpers/commandPostActions.js'
 import type { TestReporter } from './reporter.js'
-import type { SuiteManager } from './helpers/suiteManager.js'
+import type { SessionCapturer } from './session.js'
 import type { TestManager } from './helpers/testManager.js'
-import type { ScreencastRecorder } from './screencast.js'
-import type {
-  ActionSnapshot,
-  DetectedRunner,
-  DevToolsMode,
-  ScreencastFrame,
-  ScreencastOptions,
-  SeleniumDriverLike,
-  TraceFormat,
-  TraceGranularity
-} from './types.js'
-import type { RetryTracker } from '@wdio/devtools-core'
-import type { PendingTestAction, PendingScenario } from './test-management.js'
-import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
+import type { SeleniumDriverLike } from './types.js'
 
-export interface PluginInternals {
-  // Config
-  readonly options: {
-    hostname: string
-    port: number
-    openUi: boolean
-    captureScreenshots: boolean
-    rerunCommand?: string
-    mode?: DevToolsMode
-    traceFormat?: TraceFormat
-    traceGranularity?: TraceGranularity
-  }
-  readonly screencastOptions: ScreencastOptions
-  /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
-   *  from `Metadata.runner`, which names this adapter for every one of them. */
-  readonly detectedRunner: DetectedRunner
-  readonly rerunTemplate: string | undefined
-  readonly launchCommand: string | undefined
-  readonly isReuse: boolean
-  readonly finalized: boolean
-  readonly retryTracker: RetryTracker
-  /** Whether the `build()` that created this driver asked for appium-interceptor's proxy. */
-  interceptRequestedFor(driver: SeleniumDriverLike): boolean
-
-  // Mutable runtime instances
+export interface PluginInternals
+  extends SessionLifecycleCtx, TestManagementCtx, OnCommandCtx {
+  // Redeclared because the bases disagree on these, which `extends` rejects.
+  readonly options: SessionLifecycleCtx['options']
   driver: SeleniumDriverLike | undefined
   sessionCapturer: SessionCapturer | undefined
   testReporter: TestReporter | undefined
-  suiteManager: SuiteManager | undefined
   testManager: TestManager | undefined
-  screencast: ScreencastRecorder | undefined
-  sessionId: string | undefined
-  testFilePath: string | undefined
-  keepAliveTimer: ReturnType<typeof setInterval> | undefined
-
-  // Test management buffers
-  pendingTestActions: PendingTestAction[]
-  pendingScenario: PendingScenario | null
-
-  // trace-mode snapshot accumulators (mode === 'trace' only)
-  readonly actionSnapshots: ActionSnapshot[]
-  readonly snapshotCaptures: Promise<void>[]
-
-  // Per-spec trace tracking (populated at spec file boundaries).
-  readonly specRanges: SpecRange[]
-  readonly flushedSpecs: Set<string>
-  // In-flight per-test eager flushes (test granularity), awaited at finalize.
-  readonly traceFlushes: Promise<unknown>[]
-  // Every trace/video artifact seen this run, for the end-of-run manifest.
-  readonly artifacts: TraceArtifact[]
-  // Dense filmstrip frames accumulated across drivers (filmstrip option only).
-  readonly filmstripFrames: ScreencastFrame[]
-
-  // Plugin-side delegates
-  setFinalized(v: boolean): void
-  ensureBackendStarted(): Promise<void>
-  flushPendingTestActions(): void
-  resetRetryTracker(): void
-  clearKeepAlive(): void
 }

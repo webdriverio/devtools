@@ -2,6 +2,7 @@ import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
 import { findTestLineInFile } from '../helpers/utils.js'
 import type { RunnerHookCallbacks } from '../types.js'
+import { reportRunComplete } from './run-summary.js'
 
 const log = logger('@wdio/selenium-devtools:runnerHooks:jest')
 
@@ -161,20 +162,19 @@ function registerJestRunLifecycle(
     state.runStartTs = Date.now()
     log.info('🧪 Test run starting')
   })
-  g.afterAll(() => {
-    const durationMs = Date.now() - state.runStartTs
-    const duration = (durationMs / 1000).toFixed(2)
-    log.info(
-      `🧪 Test run complete: ${state.testsPassed} passed, ${state.testsFailed} failed ` +
-        `(${duration}s, ${state.testsStarted} total)`
+  g.afterAll(() =>
+    reportRunComplete(
+      {
+        runStartTs: state.runStartTs,
+        started: state.testsStarted,
+        passed: state.testsPassed,
+        failed: state.testsFailed,
+        pending: 0
+      },
+      callbacks,
+      log
     )
-    callbacks.onTestRunComplete?.({
-      passed: state.testsPassed,
-      failed: state.testsFailed,
-      pending: 0,
-      durationMs
-    })
-  })
+  )
 }
 
 function registerJestBeforeEach(
