@@ -1,7 +1,7 @@
 // Converts a serialized VNode (captured by the injected script) into a Preact
 // VNode the snapshot iframe can render. Pure — no DOM or component state.
 
-import { type VNode, h } from 'preact'
+import { type ComponentChildren, type VNode, h, toChildArray } from 'preact'
 
 import { isBooleanAttribute } from './boolean-attribute.js'
 import {
@@ -97,4 +97,24 @@ export function transform(node: TransformInput): VNode<{}> {
     ? childrenRequired
     : [childrenRequired]
   return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
+}
+
+type WithChildren = { children?: ComponentChildren }
+
+/** Puts `<base href>` first in a replayed document's head, adding a head when it has none. */
+export function withBaseUrl(root: VNode<{}>, href: string): VNode<{}> {
+  // Preact keeps one child, or none, as a bare value rather than an array.
+  const props = root.props as WithChildren
+  const children = toChildArray(props.children)
+  const base = h('base', { href })
+  const head = children.find(
+    (child): child is VNode<WithChildren> =>
+      typeof child === 'object' && child.type === 'head'
+  )
+  if (head) {
+    head.props.children = [base, ...toChildArray(head.props.children)]
+  } else {
+    props.children = [h('head', {}, base), ...children]
+  }
+  return root
 }

@@ -19,9 +19,9 @@ import { commandPageUrl } from './url-at-timestamp.js'
 import { mutationForCommand } from './mutation-at-command.js'
 import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
-import { type ComponentChildren, h, render, type VNode } from 'preact'
+import { render } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
-import { transform } from './vnode-transform.js'
+import { transform, withBaseUrl } from './vnode-transform.js'
 import { isUnsafeReplayAttribute } from './replay-safety.js'
 import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
@@ -516,22 +516,7 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {
-    const root = transform(doc)
-    const baseTag = h('base', { href: baseUrl })
-    const head: VNode<{}> | undefined = (root.props.children as VNode[])
-      .filter(Boolean)
-      .find((node) => node!.type === 'head')
-    if (head) {
-      head.props.children = [
-        baseTag,
-        ...(head.props.children as ComponentChildren[])
-      ]
-    } else {
-      const head = h('head', {}, baseTag)
-      const docChildren = (root.props.children as ComponentChildren[]) || []
-      docChildren.unshift(head)
-    }
-    render(root, this.#vdom)
+    render(withBaseUrl(transform(doc), baseUrl), this.#vdom)
   }
 
   #renderVdom() {
