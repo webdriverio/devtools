@@ -3,10 +3,13 @@ import { spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
-import { RERUN_SLOT, REUSE_ENV } from '@wdio/devtools-shared'
+import {
+  RERUN_SLOT,
+  REUSE_ENV,
+  type RunnerRequestBody
+} from '@wdio/devtools-shared'
 
 import type * as BinResolver from '../src/bin-resolver.js'
-import type { RunnerRequestBody } from '../src/types.js'
 
 vi.mock('node:child_process')
 vi.mock('tree-kill')

@@ -15,18 +15,21 @@ const [LOGIN, MISSING] = [
   'times out waiting for a missing element'
 ].map(scenarioIndex)
 
+/** What a document left before an appended collector anchors it costs, in either adapter without BiDi. */
+const SCRIPT_INJECTION_RULES: RuleId[] = [
+  'every-document-anchored',
+  'row-replays-its-page',
+  'every-browser-request-listed',
+  'adapters-agree-on-pages',
+  'adapters-agree-on-snapshots',
+  'adapters-agree-on-requests'
+]
+
 export const KNOWN_GAPS: KnownGap[] = [
   {
     adapter: 'selenium-devtools',
     bidi: 'off',
-    rules: [
-      'every-document-anchored',
-      'row-replays-its-page',
-      'every-browser-request-listed',
-      'adapters-agree-on-pages',
-      'adapters-agree-on-snapshots',
-      'adapters-agree-on-requests'
-    ],
+    rules: SCRIPT_INJECTION_RULES,
     reason:
       'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true
@@ -34,14 +37,7 @@ export const KNOWN_GAPS: KnownGap[] = [
   {
     adapter: 'nightwatch-devtools',
     bidi: 'off',
-    rules: [
-      'every-document-anchored',
-      'row-replays-its-page',
-      'every-browser-request-listed',
-      'adapters-agree-on-pages',
-      'adapters-agree-on-snapshots',
-      'adapters-agree-on-requests'
-    ],
+    rules: SCRIPT_INJECTION_RULES,
     reason:
       'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
     timingDependent: true

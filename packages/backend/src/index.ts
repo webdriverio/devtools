@@ -40,10 +40,10 @@ import {
   type BaselineGetQuery,
   type BaselineSavedWsPayload,
   type BaselineClearedWsPayload,
+  type RunnerRequestBody,
   type SocketMessage,
   type TracePlayerData
 } from '@wdio/devtools-shared'
-import type { RunnerRequestBody } from './types.js'
 
 let server: FastifyInstance | undefined
 

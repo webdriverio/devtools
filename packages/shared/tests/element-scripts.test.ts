@@ -390,7 +390,11 @@ describe('what a capture keeps', () => {
 
     expect(link.selector).toBeTruthy()
     expect(link).toHaveProperty('boundingBox')
-    expect(link).toMatchObject({ tagName: 'a', name: 'Go', isInViewport: true })
+    expect(link).toMatchObject({
+      tagName: 'a',
+      name: 'Go',
+      isInViewport: true
+    })
   })
 
   it('drops the fields nothing reads, so a trace zip carries neither', () => {
@@ -413,5 +417,60 @@ describe('what a capture keeps', () => {
 
     expect(live.find((e) => e.tagName === 'a')!.href).toContain('token=SECRET')
     expect(live.find((e) => e.tagName === 'input')!.value).toBe('123456')
+  })
+})
+
+describe('accessible names', () => {
+  const named: Array<[string, string, string]> = [
+    ['aria-label', '<button aria-label=" Save "><b>x</b></button>', 'Save'],
+    [
+      'aria-labelledby',
+      '<span id="a">First</span><span id="b">Second</span><button aria-labelledby="a b">x</button>',
+      'First Second'
+    ],
+    [
+      'an image input alt',
+      '<input type="image" alt=" Go " src="go.png">',
+      'Go'
+    ],
+    [
+      'a label for the control',
+      '<label for="user">Username</label><input id="user">',
+      'Username'
+    ],
+    [
+      'a wrapping label without its control text',
+      '<label>Remember me <select><option>opt</option></select></label>',
+      'Remember me'
+    ],
+    ['a placeholder', '<input placeholder="Search">', 'Search'],
+    ['a title', '<button title="Close">x</button>', 'Close']
+  ]
+
+  for (const [source, html, name] of named) {
+    it(`names a control from ${source} in both scripts`, () => {
+      expect(interactables(html).map((n) => n.name)).toContain(name)
+      expect(a11yNodes(html).map((n) => n.name)).toContain(name)
+    })
+  }
+
+  it('keeps an empty alt rather than falling through to the text', () => {
+    const html = '<input type="image" alt="" value="Submit">'
+
+    expect(interactables(html)[0].name).toBe('')
+  })
+
+  it('names a control after its child image only in the accessibility tree', () => {
+    const html = '<button><img alt="Trash"> Delete</button>'
+
+    expect(interactables(html)[0].name).toBe('Delete')
+    expect(locatorFor(a11yNodes(html), 'Trash')).toBeTruthy()
+  })
+
+  it('names a container role from attributes only in the accessibility tree', () => {
+    const html = '<ul aria-label="Steps"><li>One</li></ul><ul><li>Two</li></ul>'
+    const lists = a11yNodes(html).filter((n) => n.role === 'list')
+
+    expect(lists.map((n) => n.name)).toEqual(['Steps', ''])
   })
 })

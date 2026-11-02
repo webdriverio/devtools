@@ -9,6 +9,23 @@ export const TESTS_API = {
   stop: '/api/tests/stop'
 } as const
 
+/** WebdriverIO config file names, in the order a search prefers them. */
+export const WDIO_CONFIG_FILENAMES = [
+  'wdio.conf.ts',
+  'wdio.conf.js',
+  'wdio.conf.cjs',
+  'wdio.conf.mjs'
+] as const
+
+/** Nightwatch config file names, in the order a search prefers them. */
+export const NIGHTWATCH_CONFIG_FILENAMES = [
+  'nightwatch.conf.cjs',
+  'nightwatch.conf.js',
+  'nightwatch.conf.ts',
+  'nightwatch.conf.mjs',
+  'nightwatch.json'
+] as const
+
 /**
  * Environment variables the backend's rerun spawner sets on the child
  * process: how the adapter (service/nightwatch/selenium/python) detects the
