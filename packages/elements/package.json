@@ -39,7 +39,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@wdio/snapshot": "^10.0.2",
+    "@wdio/snapshot": "^10.2.0-0",
     "@xmldom/xmldom": "^0.9.12",
     "xpath": "^0.0.34"
   },
@@ -55,6 +55,6 @@
     "webdriverio": "^10.1.0"
   },
   "peerDependencies": {
-    "webdriverio": "^10.0.0"
+    "webdriverio": "^9.0.0 || ^10.0.0"
   }
 }
