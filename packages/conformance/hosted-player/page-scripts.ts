@@ -70,6 +70,39 @@ export const EXPAND_COLLAPSED_ROWS = `${COLLECT_NODES}
   return new Promise((resolve) => setTimeout(() => resolve(opened), 50))
 `
 
+export interface ReplayState {
+  /** The replay frame's `sandbox` attribute, or null without one. */
+  sandbox: string | null
+  /** Whether the replayed page's marker element rendered. */
+  replayed: boolean
+  /** How many `<script>` elements reached the replay frame. */
+  scripts: number
+  /** What any script that ran in the replay wrote, or null. */
+  ran: string | null
+}
+
+/** Selects the last action row, then resolves a `ReplayState` once the frame has had time to replay it. */
+export function replayLastRow(marker: string, flag: string): string {
+  return `${COLLECT_NODES}
+  const rows = nodes.filter((el) => el.localName === 'wdio-devtools-command-item')
+  const last = rows[rows.length - 1]
+  const label = last && inShadow(last, 'code.label')
+  if (label) label.click()
+  return new Promise((resolve) => setTimeout(() => {
+    nodes.length = 0
+    walk(document)
+    const frame = nodes.find((el) => el.localName === 'iframe')
+    const doc = frame && frame.contentDocument
+    resolve({
+      sandbox: frame ? frame.getAttribute('sandbox') : null,
+      replayed: Boolean(doc && doc.getElementById(${JSON.stringify(marker)})),
+      scripts: doc ? doc.querySelectorAll('script').length : 0,
+      ran: window[${JSON.stringify(flag)}] ?? null
+    })
+  }, 1500))
+`
+}
+
 /** Reports each CSP violation as a console error: BiDi's `log.entryAdded` carries console calls and exceptions, not the browser's own CSP messages. */
 export function cspViolationReporter(prefix: string): string {
   return `() => {

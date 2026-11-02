@@ -1,9 +1,13 @@
 // Converts a serialized VNode (captured by the injected script) into a Preact
 // VNode the snapshot iframe can render. Pure — no DOM or component state.
 
-import { type VNode, h } from 'preact'
+import { type ComponentChildren, type VNode, h, toChildArray } from 'preact'
 
 import { isBooleanAttribute } from './boolean-attribute.js'
+import {
+  isUnsafeReplayAttribute,
+  isUnsafeReplayElement
+} from './replay-safety.js'
 
 interface SerializedVNode {
   type?: string
@@ -19,20 +23,18 @@ type TransformInput = SerializedVNode | string | number | null
  * Preact reads any `on*` prop as a listener: it stamps its own bookkeeping
  * property onto the value, which throws `Cannot create property … on string`
  * and aborts the whole render. One such attribute anywhere in the document was
- * enough to leave the replay iframe blank with nothing logged — the render
- * never reached an `<html>` element, so the caller's own guard returned early.
+ * enough to leave the replay iframe blank with nothing logged.
  *
- * Dropping them costs nothing: the replay is a static reconstruction and
- * `#renderVdom` strips `<script>` tags for the same reason, so a handler has
- * nothing left to fire. A function value (never produced by capture) is left
- * alone so a real listener still binds.
+ * They, and every other attribute that could run script, are dropped: the
+ * replay is a static reconstruction of an untrusted trace. A function value
+ * (never produced by capture) is left alone so a real listener still binds.
  */
-function withoutInlineHandlers(
+function withoutUnsafeAttributes(
   props: Record<string, unknown>
 ): Record<string, unknown> {
   const kept: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(props)) {
-    if (!(/^on[A-Za-z]/.test(key) && typeof value === 'string')) {
+    if (typeof value === 'function' || !isUnsafeReplayAttribute(key, value)) {
       kept[key] = value
     }
   }
@@ -71,8 +73,12 @@ export function transform(node: TransformInput): VNode<{}> {
     return node as unknown as VNode<{}>
   }
 
+  // Every replayed node passes here, an added one included; Preact renders a null child as nothing.
+  if (isUnsafeReplayElement(node.type)) {
+    return null as unknown as VNode<{}>
+  }
   const { children, ...rawProps } = node.props ?? {}
-  const props = withBooleanAttributeState(withoutInlineHandlers(rawProps))
+  const props = withBooleanAttributeState(withoutUnsafeAttributes(rawProps))
   /**
    * ToDo(Christian): fix way we collect data on added nodes in script
    */
@@ -91,4 +97,24 @@ export function transform(node: TransformInput): VNode<{}> {
     ? childrenRequired
     : [childrenRequired]
   return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
+}
+
+type WithChildren = { children?: ComponentChildren }
+
+/** Puts `<base href>` first in a replayed document's head, adding a head when it has none. */
+export function withBaseUrl(root: VNode<{}>, href: string): VNode<{}> {
+  // Preact keeps one child, or none, as a bare value rather than an array.
+  const props = root.props as WithChildren
+  const children = toChildArray(props.children)
+  const base = h('base', { href })
+  const head = children.find(
+    (child): child is VNode<WithChildren> =>
+      typeof child === 'object' && child.type === 'head'
+  )
+  if (head) {
+    head.props.children = [base, ...toChildArray(head.props.children)]
+  } else {
+    props.children = [h('head', {}, base), ...children]
+  }
+  return root
 }

@@ -4,7 +4,10 @@
 import { describe, expect, it } from 'vitest'
 import { render, type VNode } from 'preact'
 
-import { transform } from '../src/components/browser/vnode-transform.js'
+import {
+  transform,
+  withBaseUrl
+} from '../src/components/browser/vnode-transform.js'
 // The producers on the other side of the wire. `transform` only ever sees what
 // these two emit, so the shapes below are taken from them rather than guessed:
 // `parseDocument` serializes the full-DOM anchor (collector.captureCurrentDom),
@@ -425,5 +428,97 @@ describe('transform', () => {
       expect(Array.isArray(childrenOf(head))).toBe(false)
       expect(onlyChild(head).type).toBe('title')
     })
+  })
+})
+
+describe('a replayed node from an untrusted trace', () => {
+  it('renders no script, wherever it sits', () => {
+    const holder = document.createElement('div')
+    render(
+      transform({
+        type: 'div',
+        props: {
+          children: [
+            { type: 'script', props: { children: 'top.ran = 1' } },
+            { type: 'span', props: { children: 'kept' } }
+          ]
+        }
+      }),
+      holder
+    )
+
+    expect(holder.querySelector('script')).toBeNull()
+    expect(holder.querySelector('span')?.textContent).toBe('kept')
+  })
+
+  it('drops script URLs and srcdoc but keeps ordinary ones', () => {
+    const link = transform({
+      type: 'a',
+      props: { href: 'javascript:top.ran = 1', title: 'x' }
+    })
+    const frame = transform({
+      type: 'iframe',
+      props: {
+        srcdoc: '<script>top.ran = 1</script>',
+        src: 'https://example.com/'
+      }
+    })
+
+    expect(propsOf(link).href).toBeUndefined()
+    expect(propsOf(link).title).toBe('x')
+    expect(propsOf(frame).srcdoc).toBeUndefined()
+    expect(propsOf(frame).src).toBe('https://example.com/')
+  })
+})
+
+describe('withBaseUrl', () => {
+  const page = (head: Serialized[] | Serialized | undefined) =>
+    transform({
+      type: 'html',
+      props: {
+        children: [
+          { type: 'head', props: head === undefined ? {} : { children: head } },
+          { type: 'body', props: { children: 'page' } }
+        ]
+      }
+    })
+
+  const baseOf = (root: VNode<{}>) => {
+    const holder = document.createElement('div')
+    render(withBaseUrl(root, 'https://example.com/login'), holder)
+    return holder.querySelector('head')
+  }
+
+  // Preact keeps zero or one child as a bare value, which once crashed the replay of such a page.
+  it.each([
+    ['an empty head', undefined],
+    ['a head with one child', { type: 'title', props: { children: 'One' } }],
+    [
+      'a head with several children',
+      [
+        { type: 'title', props: { children: 'Many' } },
+        { type: 'meta', props: { charset: 'utf-8' } }
+      ]
+    ]
+  ])('puts the base first in %s', (_name, head) => {
+    const rendered = baseOf(page(head as Serialized[] | Serialized | undefined))
+
+    expect(rendered?.firstElementChild?.getAttribute('href')).toBe(
+      'https://example.com/login'
+    )
+  })
+
+  it('adds a head to a document without one', () => {
+    const root = transform({
+      type: 'html',
+      props: { children: { type: 'body', props: { children: 'page' } } }
+    })
+    const holder = document.createElement('div')
+    render(withBaseUrl(root, 'https://example.com/'), holder)
+
+    expect(holder.querySelector('head > base')?.getAttribute('href')).toBe(
+      'https://example.com/'
+    )
+    expect(holder.querySelector('body')?.textContent).toBe('page')
   })
 })

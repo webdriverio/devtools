@@ -41,7 +41,9 @@ import {
   type BaselineSavedWsPayload,
   type BaselineClearedWsPayload,
   type RunnerRequestBody,
-  type SocketMessage
+  type SocketMessage,
+  dashboardSocketSource,
+  playerCsp
 } from '@wdio/devtools-shared'
 
 let server: FastifyInstance | undefined
@@ -471,6 +473,16 @@ export async function start(
   await server.register(rateLimit, { max: 100, timeWindow: '1 minute' })
   await server.register(websocket)
   await server.register(staticServer, { root: appPath })
+  // The dashboard and show-trace replay recorded pages too, so they get the hosted player's policy.
+  server.addHook('onSend', async (request, reply, payload) => {
+    if (String(reply.getHeader('content-type') ?? '').startsWith('text/html')) {
+      reply.header(
+        'Content-Security-Policy',
+        playerCsp(dashboardSocketSource(request.headers.host))
+      )
+    }
+    return payload
+  })
 
   registerTraceRoutes(server, opts)
   registerCollectorRoute(server, collectorSource)

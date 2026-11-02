@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { playerCsp } from '@wdio/devtools-shared'
+
 import { hostingHeaders } from '../hosting-headers.js'
 
 // The replay iframe is same-origin, so it inherits this policy.
@@ -36,5 +38,9 @@ describe('the hosted player CSP', () => {
 
   it('keeps the year-long asset cache off index.html and every other path', () => {
     expect(hostingHeaders()['Cache-Control']).toBeUndefined()
+  })
+
+  it('is the policy the local backend sends, so the two cannot drift', () => {
+    expect(policy).toBe(playerCsp())
   })
 })
