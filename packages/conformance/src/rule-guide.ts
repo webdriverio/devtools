@@ -158,6 +158,13 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The wait row is sent only when it completes, carries no id, or the commands issued while it runs do not carry that id as parentId.',
     responsibility: 'command-interception'
   },
+  'typed-text-never-reaches-the-dashboard': {
+    meaning:
+      'Text the test typed into the page reached the dashboard: a row carries it as an argument or result, or another frame (a log line, a request body) contains it.',
+    cause:
+      "The input command's arguments were captured without `maskCommandArgs` (core) or `mask_command_params` (Python), or a send path skipped the scrub of typed values.",
+    responsibility: 'command-interception'
+  },
   'one-row-per-browser-action': {
     meaning:
       'The rows do not match what the browser did: a navigation, click or keystroke is missing or appears twice.',

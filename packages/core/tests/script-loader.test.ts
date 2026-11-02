@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
+import { configureInputMasking } from '../src/input-masking.js'
 import {
   collectorSourceCandidates,
   drainCollectorWithRecovery,
+  loadCollectorSource,
   loadInjectableScript,
   pollUntilReady
 } from '../src/script-loader.js'
@@ -28,6 +30,22 @@ describe('loadInjectableScript', () => {
       // Body must be non-empty — the actual script.js is shipped by the
       // workspace build; this fails fast if the file is missing or empty.
       expect(wrapped.length).toBeGreaterThan('(async function() {  })()'.length)
+    }
+  )
+})
+
+describe('loadCollectorSource', () => {
+  it.skipIf(!scriptPackageAvailable)(
+    'declares the run’s mask policy ahead of the bundle',
+    async () => {
+      configureInputMasking({ maskInputs: false, maskSelectors: ['.iban'] })
+      expect(await loadCollectorSource()).toMatch(
+        /^var __wdioCaptureMask = \{"inputs":false,"selectors":\[".iban"\]\};\n/
+      )
+      configureInputMasking()
+      expect(await loadCollectorSource()).toMatch(
+        /^var __wdioCaptureMask = \{"inputs":true,"selectors":\[\]\};\n/
+      )
     }
   )
 })

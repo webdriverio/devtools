@@ -167,31 +167,16 @@ describe('DOM mutation capture utilities', () => {
     expect(JSON.stringify(vnode)).toBeTruthy()
   })
 
-  it('carries a field’s typed value and checked state, which no attribute holds', () => {
-    // A collector that arrives after the typing anchors the form as it is now;
-    // without this the replay of a page typed into before injection is empty.
+  it('carries a checkbox’s checked state, which no attribute holds', () => {
     const form = document.createElement('form')
     form.innerHTML =
-      '<input id="u" value="initial"><textarea id="t"></textarea>' +
       '<input id="c" type="checkbox"><input id="d" type="checkbox" checked>'
-    ;(form.querySelector('#u') as HTMLInputElement).value = 'tomsmith'
-    ;(form.querySelector('#t') as HTMLTextAreaElement).value = 'notes'
     ;(form.querySelector('#c') as HTMLInputElement).checked = true
     ;(form.querySelector('#d') as HTMLInputElement).checked = false
 
     const props = childProps(parseDocument(form as unknown as HTMLElement))
-    expect(props[0]).toMatchObject({ id: 'u', value: 'tomsmith' })
-    expect(props[1]).toMatchObject({ id: 't', value: 'notes' })
-    expect(props[2]).toMatchObject({ id: 'c', checked: '' })
-    expect(props[3]).not.toHaveProperty('checked')
-  })
-
-  it('leaves an untouched field’s attributes as they are', () => {
-    const div = document.createElement('div')
-    div.innerHTML = '<input id="u" value="initial"><input id="e">'
-    const props = childProps(parseDocument(div as unknown as HTMLElement))
-    expect(props[0]).toMatchObject({ value: 'initial' })
-    expect(props[1]).not.toHaveProperty('value')
+    expect(props[0]).toMatchObject({ id: 'c', checked: '' })
+    expect(props[1]).not.toHaveProperty('checked')
   })
 
   it('should serialize complete document hierarchy for initial capture', () => {

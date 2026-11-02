@@ -1,12 +1,16 @@
 import {
+  maskCommandArgs,
   RetryTracker,
   rememberReadValue,
+  scrubTypedText,
   selectorForReadValue
 } from '@wdio/devtools-core'
+import { MASKED_VALUE } from '@wdio/devtools-shared'
 import { describe, expect, it, vi } from 'vitest'
 
 import { SuiteManager } from '../src/helpers/suiteManager.js'
 import { TestReporter } from '../src/reporter.js'
+import { SessionCapturer } from '../src/session.js'
 import {
   startScenario,
   startTest,
@@ -50,5 +54,53 @@ describe('read-value provenance is scoped to a test', () => {
     startTest(ctx, 'only', { file: '/specs/a.spec.ts' })
     rememberReadValue(true, '#remember-me')
     expect(selectorForReadValue(true)).toBe('#remember-me')
+  })
+})
+
+describe('typed values are scoped to a test', () => {
+  it('forgets what was typed when a test or a scenario starts', () => {
+    const ctx = makeCtx()
+    maskCommandArgs('selenium-webdriver', 'sendKeys', ['S3cret pass'])
+    startTest(ctx, 'next', { file: '/specs/a.spec.ts' })
+    expect(scrubTypedText('S3cret pass')).toBe('S3cret pass')
+    maskCommandArgs('selenium-webdriver', 'sendKeys', ['S3cret pass'])
+    startScenario(ctx, 'next', { file: '/features/a.feature' })
+    expect(scrubTypedText('S3cret pass')).toBe('S3cret pass')
+  })
+})
+
+describe('a capture still in flight when the next test starts', () => {
+  it('is scrubbed against what its own test typed', async () => {
+    const capturer = new SessionCapturer({})
+    try {
+      const ctx = { ...makeCtx(), sessionCapturer: capturer }
+      maskCommandArgs('selenium-webdriver', 'sendKeys', ['S3cret pass'])
+      // The last row of test 1, still waiting on its screenshot when test 2 starts.
+      let screenshot!: () => void
+      const row = {
+        command: 'getAttribute',
+        args: ['value'],
+        result: 'S3cret pass',
+        timestamp: 1
+      }
+      capturer.track(
+        new Promise<void>((resolve) => {
+          screenshot = resolve
+        }).then(() => {
+          capturer.sendCommand(row)
+        })
+      )
+      startTest(ctx, 'second', { file: '/specs/a.spec.ts' })
+      maskCommandArgs('selenium-webdriver', 'sendKeys', ['next-test value'])
+      screenshot()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(row.result).toBe(MASKED_VALUE)
+      expect(scrubTypedText('S3cret pass')).toBe('S3cret pass')
+      expect(scrubTypedText('next-test value')).toBe(MASKED_VALUE)
+    } finally {
+      capturer.cleanup()
+    }
   })
 })

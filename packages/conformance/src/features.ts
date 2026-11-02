@@ -10,6 +10,9 @@ import {
   allTested,
   byHand,
   covered,
+  NEEDS_APPIUM_WEB,
+  NEEDS_IOS,
+  onAndroid,
   partial,
   tested,
   unsupported
@@ -36,16 +39,12 @@ const WITHOUT_BIDI_DRAIN =
 const SELENIUM_JS_FILMSTRIP = 'CDP push (Chromium), polling elsewhere'
 const NETWORK_FLOOR =
   "Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari."
-const NO_CUCUMBER_STEP_RERUN =
-  'Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.'
+const NO_CUCUMBER_STEP_RERUN = partial(
+  'Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.',
+  'no Cucumber step rerun'
+)
 const STARTUP_CAPS_ONLY =
   "Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native."
-// appium-interceptor is an Android plugin; iOS app traffic needs a device or proxy capture outside the adapters.
-const onAndroid = (path: string) => covered(path, 'Android')
-const NEEDS_APPIUM_WEB = (demo: string) =>
-  `Needs an Appium device; check by hand with \`DEVTOOLS_MOBILE=web pnpm ${demo}\`.`
-const NEEDS_IOS = (demo: string) =>
-  `Needs a booted iOS simulator; check by hand with \`DEVTOOLS_MOBILE_PLATFORM=ios pnpm ${demo}\`.`
 
 export const FEATURES = [
   {
@@ -237,6 +236,12 @@ export const FEATURES = [
     cells: allCovered('packages/trace/tests/trace-transcript.test.ts')
   },
   {
+    id: 'input-masking',
+    name: 'Typed input masked (`maskInputs`, `maskSelectors`)',
+    tables: ['readme-trace', 'cross-framework'],
+    cells: allTested([RULES.typedTextMasked])
+  },
+  {
     id: 'actions-list',
     name: 'One row per command in the Actions list',
     tables: ['readme-dashboard', 'cross-framework'],
@@ -314,18 +319,9 @@ export const FEATURES = [
     name: 'Run, Rerun and Run all from the dashboard',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': partial(
-        NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
-      'selenium-devtools': partial(
-        NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
-      'nightwatch-devtools': partial(
-        NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
+      'devtools-service': NO_CUCUMBER_STEP_RERUN,
+      'selenium-devtools': NO_CUCUMBER_STEP_RERUN,
+      'nightwatch-devtools': NO_CUCUMBER_STEP_RERUN,
       // pytest has no Gherkin steps to rerun.
       'selenium-devtools-py': covered(`${PYTHON}test_rerun.py`)
     }

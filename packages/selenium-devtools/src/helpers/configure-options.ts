@@ -1,6 +1,6 @@
 import type { DevToolsOptions, ServerLock } from '../types.js'
 
-type OptionKind = 'boolean' | 'choice' | 'port' | 'host'
+type OptionKind = 'boolean' | 'choice' | 'port' | 'host' | 'strings'
 
 // A Record over every option, so a key added to DevToolsOptions fails to compile here instead of being silently ignored.
 const OPTION_KIND = {
@@ -10,6 +10,8 @@ const OPTION_KIND = {
   captureAssertions: 'boolean',
   filmstrip: 'boolean',
   emitArtifactsManifest: 'boolean',
+  maskInputs: 'boolean',
+  maskSelectors: 'strings',
   mode: 'choice',
   traceFormat: 'choice',
   traceGranularity: 'choice',
@@ -27,7 +29,8 @@ const EXPECTED: Record<OptionKind, string> = {
   boolean: 'a boolean',
   choice: 'a non-empty string',
   port: 'an integer between 1 and 65535',
-  host: 'a non-empty string'
+  host: 'a non-empty string',
+  strings: 'an array of strings'
 }
 
 type ConfigurableKey = keyof typeof OPTION_KIND
@@ -66,6 +69,10 @@ function hasExpectedShape(kind: OptionKind, value: unknown): boolean {
     case 'choice':
     case 'host':
       return typeof value === 'string' && value !== ''
+    case 'strings':
+      return (
+        Array.isArray(value) && value.every((item) => typeof item === 'string')
+      )
   }
 }
 

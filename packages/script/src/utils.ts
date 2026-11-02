@@ -1,6 +1,7 @@
 import type { SimplifiedVNode } from '../types.ts'
 
 import { log } from './logger.js'
+import { pageMask } from './masking.js'
 
 /** Build the wire node the replay reads.
  *
@@ -31,21 +32,13 @@ function vnode(
 const errorNode = (className: string, err: unknown) =>
   vnode('div', { class: className }, [(err as Error)?.stack ?? String(err)])
 
-/** Serialize a LIVE DOM node. The collector stands in the document, so the tree
- *  is read directly rather than serialized to HTML and parsed back — that round
- *  trip is what put a 148 KB HTML parser in a script injected into every
- *  document, and a preload that size stalls navigation in headed Chrome (#403).
- *
- *  Reading the DOM also describes the page the browser actually built, rather
- *  than what a second parser makes of its markup: `localName` keeps the case
- *  foreign elements need (`linearGradient`), and attribute names arrive already
- *  adjusted (`viewBox`), both of which parse5 had to special-case. */
 /** Field state lives on properties the attributes never see. A collector that
  *  arrives after the typing (no document-start injection: Safari, Appium) would
  *  otherwise anchor a form that replays empty. Mirrors `captureFieldState`. */
 function recordFieldState(
   element: Element,
-  props: Record<string, unknown>
+  props: Record<string, unknown>,
+  masked: boolean
 ): void {
   const tag = element.tagName
   if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') {
@@ -63,7 +56,13 @@ function recordFieldState(
     }
     return
   }
-  // A password's value stays out of the archive, as element-scripts keeps it.
+  if (masked) {
+    if (field.value !== '' || 'value' in props) {
+      props.value = pageMask.maskValue(field.value)
+    }
+    return
+  }
+  // Unmasked, a password's value still stays out of the archive, as element-scripts keeps it.
   if (tag === 'INPUT' && field.type === 'password') {
     return
   }
@@ -72,7 +71,11 @@ function recordFieldState(
   }
 }
 
-export function parseNode(node: Node): SimplifiedVNode | string {
+/** Serialize a LIVE DOM node off the DOM itself (#403); `maskText` carries a masked ancestor down so no node runs `closest`. */
+export function parseNode(
+  node: Node,
+  maskText = false
+): SimplifiedVNode | string {
   if (node.nodeType === Node.COMMENT_NODE) {
     // Drop comment content — returning its data rendered the comment as visible
     // text on replay (e.g. an IE conditional comment's `<![endif]` showed as
@@ -80,18 +83,25 @@ export function parseNode(node: Node): SimplifiedVNode | string {
     return ''
   }
   if (node.nodeType === Node.TEXT_NODE) {
-    return node.nodeValue ?? ''
+    const text = node.nodeValue ?? ''
+    return maskText ? pageMask.maskText(text) : text
   }
 
   try {
     const element = node as Element
+    const inSelector = maskText || pageMask.matchesSelector(element)
+    const maskedValue = inSelector || pageMask.masksFieldKind(element)
     const props: Record<string, unknown> = {}
     for (const attr of Array.from(element.attributes ?? [])) {
-      props[attr.name] = attr.value
+      props[attr.name] =
+        maskedValue && attr.name === 'value'
+          ? pageMask.maskValue(attr.value)
+          : attr.value
     }
-    recordFieldState(element, props)
+    recordFieldState(element, props, maskedValue)
+    const childMask = inSelector || pageMask.isTypingSurface(element)
     const children = Array.from(node.childNodes).map((child) =>
-      parseNode(child)
+      parseNode(child, childMask)
     )
     return vnode(element.localName, props, children)
   } catch (err) {
@@ -107,11 +117,13 @@ export function parseDocument(node: HTMLElement) {
   }
 }
 
-export function parseFragment(node: Element) {
+/** `maskText` is whether the node's new parent masks its text, which the caller reads once per record. */
+export function parseFragment(node: Element, maskText = false) {
   // A Text or Comment child has no attributes to read, and the replay inserts a
   // bare string as a text node; a comment is dropped, matching `parseNode`.
   if (node?.nodeType === Node.TEXT_NODE) {
-    return node.textContent || ''
+    const text = node.textContent || ''
+    return maskText ? pageMask.maskText(text) : text
   }
   if (node?.nodeType === Node.COMMENT_NODE) {
     return ''
@@ -119,7 +131,7 @@ export function parseFragment(node: Element) {
   try {
     // The typeless wrapper is kept deliberately: it is what the fragment parser
     // produced, `transform` unwraps it, and archives already written carry it.
-    return vnode(undefined, {}, [parseNode(node)])
+    return vnode(undefined, {}, [parseNode(node, maskText)])
   } catch (err) {
     return errorNode('parseFragmentWrapper', err)
   }

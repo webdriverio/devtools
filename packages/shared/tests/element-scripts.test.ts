@@ -12,6 +12,7 @@ import type {
   TestRunnerId
 } from '../src/types.js'
 import { locatorsMatch } from '../src/locator-dialect.js'
+import { MASKED_VALUE, TYPING_SURFACE_SELECTOR } from '../src/input-mask.js'
 
 /** The scripts are injectable source, so they are run the way the adapters run
  *  them — `@wdio/elements` builds the same `new Function` wrapper. */
@@ -472,5 +473,67 @@ describe('accessible names', () => {
     const lists = a11yNodes(html).filter((n) => n.role === 'list')
 
     expect(lists.map((n) => n.name)).toEqual(['Steps', ''])
+  })
+})
+
+describe('masked elements', () => {
+  const withCollector = (
+    selector: string | null,
+    typing: string | null = null
+  ) => {
+    window.wdioTraceCollector = {
+      maskSelector: () => selector,
+      typingSurfaceSelector: () => typing
+    } as unknown as typeof window.wdioTraceCollector
+  }
+
+  it('names an element under a mask selector by the placeholder, and locates it by CSS', () => {
+    withCollector('.account')
+    try {
+      const html =
+        '<p class="account"><a href="/acct" id="acct">DE89 3704</a></p><a href="/help">Help</a>'
+      for (const nodes of [a11yNodes(html), interactables(html)]) {
+        expect(JSON.stringify(nodes)).not.toContain('DE89')
+        expect(locatorFor(nodes, MASKED_VALUE)).toBe('#acct')
+        expect(locatorFor(nodes, 'Help')).toBe('//a[contains(., "Help")]')
+      }
+    } finally {
+      delete window.wdioTraceCollector
+    }
+  })
+
+  it('masks nothing without a collector to ask', () => {
+    const nodes = a11yNodes('<a href="/acct" class="account">DE89 3704</a>')
+    expect(locatorFor(nodes, 'DE89 3704')).toBe('//a[contains(., "DE89 3704")]')
+  })
+
+  it('names an editable region by the placeholder and never locates it by what was typed', () => {
+    withCollector(null, TYPING_SURFACE_SELECTOR)
+    try {
+      const html =
+        '<div role="textbox" tabindex="0">Dear Bob</div><button>Send</button>'
+      for (const nodes of [a11yNodes(html), interactables(html)]) {
+        expect(JSON.stringify(nodes)).not.toContain('Dear Bob')
+        expect(locatorFor(nodes, MASKED_VALUE)).not.toContain('Dear')
+        expect(locatorFor(nodes, 'Send')).toBe('//button[contains(., "Send")]')
+      }
+    } finally {
+      delete window.wdioTraceCollector
+    }
+  })
+
+  it('masks the editable region itself, not an ancestor that holds one', () => {
+    withCollector(null, TYPING_SURFACE_SELECTOR)
+    try {
+      const nodes = interactables(
+        '<div tabindex="0" id="panel">Compose <div contenteditable="true" tabindex="0">Dear Bob</div></div>'
+      )
+      expect(nodes.find((n) => n.selector === '#panel')?.name).not.toBe(
+        MASKED_VALUE
+      )
+      expect(nodes.filter((n) => n.name === MASKED_VALUE)).toHaveLength(1)
+    } finally {
+      delete window.wdioTraceCollector
+    }
   })
 })

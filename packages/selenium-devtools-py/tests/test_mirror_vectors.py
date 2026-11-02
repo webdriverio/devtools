@@ -22,6 +22,7 @@ from selenium_devtools import (
     capture_timing,
     capturer,
     device,
+    input_masking,
     output_dir,
     performance,
     read_value_locators,
@@ -52,6 +53,9 @@ RUNNERS = {
     "performancePayload",
     "waitRowNaming",
     "captureTimingSummary",
+    "typedArgMasking",
+    "typedValueScrub",
+    "collectorMaskPrelude",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -362,6 +366,55 @@ class TestCaptureTimingSummary(unittest.TestCase):
                     },
                     case["expect"],
                 )
+
+
+
+
+def _fresh_mask(options: Dict[str, Any]) -> None:
+    """The vectors' camelCase options as keywords, explicit so the environment cannot leak in."""
+    input_masking.configure(
+        mask_inputs=options.get("maskInputs", True),
+        mask_selectors=options.get("maskSelectors", []),
+    )
+    input_masking.clear_typed()
+
+
+class TestTypedArgMasking(unittest.TestCase):
+    def tearDown(self):
+        _fresh_mask({})
+
+    def test_cases(self):
+        for case in _cases("typedArgMasking"):
+            with self.subTest(case["name"]):
+                _fresh_mask(case)
+                params = json.loads(json.dumps(case["params"]))
+                masked = input_masking.mask_command_params(case["command"], params)
+                self.assertEqual(masked, case["expect"])
+                self.assertEqual(params, case["params"], "the driver's params stay untouched")
+
+
+class TestTypedValueScrub(unittest.TestCase):
+    def tearDown(self):
+        _fresh_mask({})
+
+    def test_cases(self):
+        for case in _cases("typedValueScrub"):
+            with self.subTest(case["name"]):
+                _fresh_mask(case)
+                for typed in case["typed"]:
+                    input_masking.mask_command_params(typed["command"], typed["params"])
+                self.assertEqual(input_masking.scrub_text(case["text"]), case["expect"])
+
+
+class TestCollectorMaskPrelude(unittest.TestCase):
+    def tearDown(self):
+        _fresh_mask({})
+
+    def test_cases(self):
+        for case in _cases("collectorMaskPrelude"):
+            with self.subTest(case["name"]):
+                _fresh_mask(case["options"])
+                self.assertEqual(input_masking.capture_mask_prelude(), case["expect"])
 
 
 if __name__ == "__main__":

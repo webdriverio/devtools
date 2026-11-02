@@ -138,7 +138,8 @@ export function decorateSelector(
   }
   if (command === 'setValue' || command === 'addValue') {
     if (args.length >= 1 && typeof args[0] !== 'object') {
-      entry.args = [lastSelector, ...args]
+      // From the row, not `args`: the row's copy has the typed text masked.
+      entry.args = [lastSelector, ...entry.args]
     }
     entry.selector = lastSelector
   }

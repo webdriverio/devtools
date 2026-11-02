@@ -1,5 +1,10 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
-import { loadInjectableScript } from '@wdio/devtools-core'
+import {
+  clearTypedValues,
+  configureInputMasking,
+  loadInjectableScript,
+  maskCommandArgs
+} from '@wdio/devtools-core'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
 import { buildDriverMetadata } from '../src/helpers/driverMetadata.js'
@@ -152,6 +157,29 @@ describe('selenium SessionCapturer.captureBrowserLogs', () => {
     const cap = makeCapturer({ id: 'd' })
     await expect(cap.captureBrowserLogs()).resolves.toBeUndefined()
     expect(cap.consoleLogs).toHaveLength(0)
+  })
+
+  it('scrubs a typed value out of a browser log line', async () => {
+    configureInputMasking()
+    clearTypedValues()
+    maskCommandArgs('selenium-webdriver', 'sendKeys', ['S3cret pass'])
+    const originals = getDriverOriginals()
+    const previous = originals.manage
+    originals.manage = () => ({
+      logs: () => ({
+        get: async () => [
+          { level: 'INFO', message: 'login S3cret pass', timestamp: 1 }
+        ]
+      })
+    })
+    try {
+      const cap = makeCapturer({ id: 'd' })
+      await cap.captureBrowserLogs()
+      expect(JSON.stringify(cap.consoleLogs)).not.toContain('S3cret')
+    } finally {
+      originals.manage = previous
+      clearTypedValues()
+    }
   })
 })
 

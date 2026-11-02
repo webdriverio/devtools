@@ -1,4 +1,5 @@
 import WebdriverIOReporter, {
+  type HookStats,
   type SuiteStats,
   type TestStats
 } from '@wdio/reporter'
@@ -6,7 +7,8 @@ import type { Reporters } from '@wdio/types'
 import {
   deterministicUid,
   generateStableUid as generateStableUidByFileName,
-  resetSignatureCounters
+  resetSignatureCounters,
+  scrubbedErrorCopy
 } from '@wdio/devtools-core'
 import {
   mapTestToSource,
@@ -285,32 +287,24 @@ export class TestReporter extends WebdriverIOReporter {
     this.#sendUpstream()
   }
 
+  /** A hook's error is stored as a plain scrubbed copy, as a test's is: the whole tree is resent after the next test's clear. */
+  onHookEnd(hookStats: HookStats): void {
+    super.onHookEnd(hookStats)
+    if (hookStats.error) {
+      hookStats.error = scrubbedErrorCopy(hookStats.error)
+    }
+    if (hookStats.errors?.length) {
+      hookStats.errors = hookStats.errors.map(scrubbedErrorCopy)
+    }
+  }
+
   onTestEnd(testStats: TestStats): void {
     super.onTestEnd(testStats)
-    // Normalize the error to a plain object so its fields survive JSON
-    // serialization over the WebSocket. Error instances have message/name/
-    // stack as non-enumerable, so JSON.stringify would drop them. We also
-    // explicitly capture assertion-library extras (`expected`, `actual`,
-    // `matcherResult`) — Jest/expect-webdriverio may attach these as either
-    // enumerable or non-enumerable depending on version, so we access them
-    // by name rather than relying on spread.
-    const rawErr = testStats.error as
-      | (Error & {
-          expected?: unknown
-          actual?: unknown
-          matcherResult?: unknown
-        })
-      | undefined
-    if (rawErr) {
-      testStats.error = {
-        ...rawErr,
-        message: rawErr.message,
-        name: rawErr.name,
-        stack: rawErr.stack,
-        expected: rawErr.expected,
-        actual: rawErr.actual,
-        matcherResult: rawErr.matcherResult
-      } as Error
+    if (testStats.error) {
+      testStats.error = scrubbedErrorCopy(testStats.error)
+    }
+    if (testStats.errors?.length) {
+      testStats.errors = testStats.errors.map(scrubbedErrorCopy)
     }
     // WDIO stamps the 0-based attempt on each test:start, so the final attempt's
     // stat already carries the retry count; the field is optional upstream, so

@@ -4,6 +4,7 @@
 
 import { assignRef, getRef, parseFragment, REF_ATTR } from './utils.js'
 import { log } from './logger.js'
+import { pageMask } from './masking.js'
 
 declare global {
   interface TraceMutation {
@@ -117,15 +118,36 @@ export function dropCoveredRecords(
   return records.filter((m) => !coveredByAddedSubtree(m.target, added))
 }
 
+/** A removed attribute stays `undefined`, never `''`, which would replay a cleared boolean attribute as still set. */
+function attributeValueOf(m: MutationRecord): string | undefined {
+  const target = m.target as Element
+  const value = target.getAttribute(m.attributeName!) ?? undefined
+  return value !== undefined &&
+    m.attributeName === 'value' &&
+    pageMask.masksValue(target)
+    ? pageMask.maskValue(value)
+    : value
+}
+
+/** A Text node's own data (its `textContent`), not its parent's whole text. */
+function textContentOf(text: Node): string {
+  const data = text.textContent || ''
+  return pageMask.masksTextUnder(text.parentNode)
+    ? pageMask.maskText(data)
+    : data
+}
+
 export function serializeMutation(
   m: MutationRecord,
   timestamp: number
 ): TraceMutation {
+  const textMasked =
+    m.addedNodes.length > 0 && pageMask.masksTextUnder(m.target)
   const addedNodes = Array.from(m.addedNodes).map((node) => {
     if (node.nodeType === Node.ELEMENT_NODE) {
       assignRef(node as Element)
     }
-    return parseFragment(node as Element)
+    return parseFragment(node as Element, textMasked)
   })
   const removedNodes = Array.from(m.removedNodes).map((node) => getRef(node))
   // A characterData record's target is the mutated Text node, which has no
@@ -135,22 +157,10 @@ export function serializeMutation(
   const target = address ? address.target : getRef(m.target)
   const previousSibling = m.previousSibling ? getRef(m.previousSibling) : null
   const nextSibling = m.nextSibling ? getRef(m.nextSibling) : null
-  let attributeValue: string | undefined
-  if (m.type === 'attributes') {
-    // A REMOVED attribute reads back as `null`, and the replay takes a record
-    // carrying no value as the removal — coerced to `''` it instead says the
-    // attribute is still there with an empty value, which is exactly what
-    // `<input disabled>` puts on the wire, so a boolean attribute the page just
-    // cleared replays as still set.
-    attributeValue =
-      (m.target as Element).getAttribute(m.attributeName!) ?? undefined
-  }
-  let newTextContent: string | undefined
-  if (m.type === 'characterData') {
-    // The Text node's own data — `textContent` on a Text node IS its data, so
-    // this is the mutated node's new value, not the parent's whole text.
-    newTextContent = m.target.textContent || ''
-  }
+  const attributeValue =
+    m.type === 'attributes' ? attributeValueOf(m) : undefined
+  const newTextContent =
+    m.type === 'characterData' ? textContentOf(m.target) : undefined
   log(`added mutation: ${m.type}`)
   return {
     type: m.type,

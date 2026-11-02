@@ -9,6 +9,7 @@
  * `@wdio/elements` — these are just the script bodies.
  */
 
+import { MASKED_VALUE } from './input-mask.js'
 import { locatorDialect } from './locator-dialect.js'
 import type { LocatorDialect, TextLocatorDialect } from './locator-dialect.js'
 import type { TestRunnerId } from './types.js'
@@ -86,9 +87,26 @@ const IS_VISIBLE_SCRIPT = `
     }
 `
 
+/** What the collector masks, so a snapshot names and locates an element as the DOM stream shows it; nothing without a collector. */
+const MASK_SCRIPT = `
+    function collectorAsks(method) {
+      try {
+        var c = window.wdioTraceCollector
+        return c && typeof c[method] === 'function' ? c[method]() : null
+      } catch (e) { return null }
+    }
+    var MASK_SELECTOR = collectorAsks('maskSelector')
+    var TYPING_SELECTOR = collectorAsks('typingSurfaceSelector')
+    function isMasked(el) { return MASK_SELECTOR !== null && el.closest(MASK_SELECTOR) !== null }
+    function holdsTyping(el) { return TYPING_SELECTOR !== null && el.closest(TYPING_SELECTOR) !== null }
+    var MASKED_NAME = ${JSON.stringify(MASKED_VALUE)}
+    function textName(el) { return holdsTyping(el) ? MASKED_NAME : ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200) }
+`
+
 /** Naming steps both scripts share; null means none applied, which an empty alt or label does not. */
 const EXPLICIT_NAME_SCRIPT = `
     function getExplicitName(el) {
+      if (isMasked(el)) { return MASKED_NAME }
       var ariaLabel = el.getAttribute('aria-label')
       if (ariaLabel) { return ariaLabel.trim() }
       var labelledBy = el.getAttribute('aria-labelledby')
@@ -225,6 +243,7 @@ function textLocatorExpression(dialect: TextLocatorDialect): string {
 function textSelectorScript(dialect: TextLocatorDialect): string {
   return `
     function textSelector(element, tag) {
+      if (isMasked(element) || holdsTyping(element)) { return null }
       var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
       if (!text || text.length > 120) { return null }
       var sameTagElements = document.querySelectorAll(tag)
@@ -248,6 +267,7 @@ function getSelectorScript(dialect: LocatorDialect): string {
       ? ['textSelector(element, tag)', 'semanticCssSelector(element, tag)']
       : ['semanticCssSelector(element, tag)', 'textSelector(element, tag)']
   return `
+    ${MASK_SCRIPT}
     ${XPATH_TEXT_LITERAL_SCRIPT}
     ${SEMANTIC_CSS_SELECTOR_SCRIPT}
     ${POSITIONAL_SELECTOR_SCRIPT}
@@ -334,7 +354,7 @@ export function accessibilityTreeScript(
         if (imgAlt) { return imgAlt.trim() }
       }
       if (role && CONTAINER_ROLES.has(role)) { return '' }
-      return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
+      return textName(el)
     }
 
     ${getSelectorScript(locatorDialect(runner))}
@@ -434,7 +454,7 @@ export function elementsScript(
     function getAccessibleName(el) {
       var explicitName = getExplicitName(el)
       if (explicitName !== null) { return explicitName }
-      return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
+      return textName(el)
     }
 
     ${getSelectorScript(locatorDialect(runner))}

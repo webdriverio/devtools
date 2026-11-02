@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MASKED_VALUE } from '@wdio/devtools-shared'
 
 import { checkConformance } from '../src/checker.js'
 import { LOAD_MS, REPO_ROOT, RULES } from '../src/constants.js'
@@ -25,6 +26,7 @@ const truth: GroundTruth = {
   failedNavigations: [{ url: BROKEN, message: 'net::ERR_FAILED at /broken' }],
   actions: { navigate: [110, 340, 360], click: [320], fill: [] },
   requests: [...loads(LOGIN, 100), ...loads(SECURE, 300)],
+  typed: [],
   bidi: 'off',
   scenarioFile: { paths: [SPEC], lines: 40 }
 }
@@ -608,5 +610,57 @@ describe(RULES.callSiteInScenario, () => {
       scenarioFile: { paths: [SPEC, `/private${SPEC}`], lines: 40 }
     }
     expect(checkConformance(at(`/private${SPEC}:3`), aliased)).toEqual([])
+  })
+})
+
+describe('typed text', () => {
+  const withTyping = (frames: WireFrame[], typed: string[]) =>
+    checkConformance(frames, { ...truth, typed }).filter(
+      (v) => v.rule === RULES.typedTextMasked
+    )
+  const fill = (args: unknown[]) => ({
+    scope: 'commands',
+    data: [row('sendKeys', args, 400, 410)]
+  })
+
+  it('accepts a fill row whose typed text is masked', () => {
+    const frames = [...conformingStream(), fill([MASKED_VALUE])]
+    expect(withTyping(frames, ['secret'])).toEqual([])
+  })
+
+  it('flags a fill row carrying the typed text, however short', () => {
+    const frames = [...conformingStream(), fill(['tom'])]
+    expect(withTyping(frames, ['tom'])).toHaveLength(1)
+  })
+
+  it('flags a log line carrying a typed value long enough to tell apart', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      { scope: 'consoleLogs', data: [{ type: 'log', args: ['typed secret'] }] }
+    ]
+    expect(withTyping(frames, ['secret'])).toHaveLength(1)
+  })
+
+  it('reads a typed value without the special keys sent with it', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      { scope: 'consoleLogs', data: [{ type: 'log', args: ['secret'] }] }
+    ]
+    expect(withTyping(frames, ['secret\uE007'])).toHaveLength(1)
+  })
+
+  it('leaves the test source to its author, in the Source tab and the suite tree', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      { scope: 'sources', data: { [SPEC]: "setValue('secret')" } },
+      {
+        scope: 'suites',
+        data: [{ s: { uid: 's', body: "setValue('secret')" } }]
+      }
+    ]
+    expect(withTyping(frames, ['secret'])).toEqual([])
   })
 })

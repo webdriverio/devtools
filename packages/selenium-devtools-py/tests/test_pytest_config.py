@@ -297,6 +297,8 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
             trace=True,
             trace_policy="retain-on-failure",
             trace_granularity=None,
+            mask_inputs=None,
+            mask_selectors=None,
         )
 
     def test_a_run_that_did_not_opt_in_leaves_every_hook_inert(self):
@@ -318,7 +320,8 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
             plugin.pytest_configure(_Config())
 
         enable.assert_called_once_with(
-            trace=True, trace_policy=None, trace_granularity=None
+            trace=True, trace_policy=None, trace_granularity=None,
+            mask_inputs=None, mask_selectors=None,
         )
 
     def test_a_policy_dropped_by_an_explicit_false_is_reported_once(self):
@@ -334,7 +337,8 @@ class ConfigureResolvesOnceTest(unittest.TestCase):
 
         self.assertEqual(len(logs.output), 1)
         enable.assert_called_once_with(
-            trace=False, trace_policy="retain-on-failure", trace_granularity=None
+            trace=False, trace_policy="retain-on-failure", trace_granularity=None,
+            mask_inputs=None, mask_selectors=None,
         )
 
 
@@ -527,14 +531,15 @@ class ExampleConftestTest(unittest.TestCase):
     def test_live_by_default(self):
         self.assertEqual(
             self._enable_kwargs(),
-            {"trace": None, "trace_policy": None, "trace_granularity": None},
+            {"trace": None, "trace_policy": None, "trace_granularity": None,
+             "mask_inputs": None, "mask_selectors": None},
         )
 
     def test_devtools_mode_trace_selects_per_test_failure_archives(self):
         self.assertEqual(
             self._enable_kwargs(env={"DEVTOOLS_MODE": "trace"}),
             {"trace": True, "trace_policy": "retain-on-failure",
-             "trace_granularity": "test"},
+             "trace_granularity": "test", "mask_inputs": None, "mask_selectors": None},
         )
 
     def test_what_the_command_line_chose_wins(self):
@@ -545,7 +550,8 @@ class ExampleConftestTest(unittest.TestCase):
                 "-o", "devtools_trace_granularity=session",
                 env={"DEVTOOLS_MODE": "trace"},
             ),
-            {"trace": True, "trace_policy": "on", "trace_granularity": "session"},
+            {"trace": True, "trace_policy": "on", "trace_granularity": "session",
+             "mask_inputs": None, "mask_selectors": None},
         )
 
     def test_an_exported_setting_is_left_to_enable(self):
@@ -562,7 +568,8 @@ class ExampleConftestTest(unittest.TestCase):
             "DEVTOOLS_TRACE_GRANULARITY": "session",
         })
         self.assertEqual(
-            kwargs, {"trace": True, "trace_policy": None, "trace_granularity": None}
+            kwargs, {"trace": True, "trace_policy": None, "trace_granularity": None,
+                     "mask_inputs": None, "mask_selectors": None}
         )
 
 

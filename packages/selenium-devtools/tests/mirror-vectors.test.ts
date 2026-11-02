@@ -11,15 +11,22 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
+  captureMaskPrelude,
   deviceFromCapabilities,
   isNativeAppSession,
-  RUNNER_ENV
+  resolveCaptureMask,
+  RUNNER_ENV,
+  type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
+  clearTypedValues,
+  configureInputMasking,
   formatCaptureTimingSummary,
+  maskCommandArgs,
   resolveAdapterOutputDir,
   resolveRunId,
+  scrubTypedText,
   SessionCapturerBase,
   summarizeCaptureTiming,
   type CapturedPerformancePayload,
@@ -79,7 +86,10 @@ const RUNNERS = [
   'nestedWaitIdentity',
   'performancePayload',
   'waitRowNaming',
-  'captureTimingSummary'
+  'captureTimingSummary',
+  'typedArgMasking',
+  'typedValueScrub',
+  'collectorMaskPrelude'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -427,6 +437,55 @@ describe('captureTimingSummary', () => {
         summary,
         formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
       }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('typedArgMasking', () => {
+  for (const c of section<
+    Named & {
+      command: string
+      params: unknown
+      maskInputs?: boolean
+      expect: unknown
+    }
+  >('typedArgMasking').cases) {
+    it(c.name, () => {
+      configureInputMasking({ maskInputs: c.maskInputs })
+      clearTypedValues()
+      expect(maskCommandArgs('webdriver', c.command, [c.params])).toEqual([
+        c.expect
+      ])
+    })
+  }
+})
+
+describe('typedValueScrub', () => {
+  for (const c of section<
+    Named & {
+      typed: { command: string; params: unknown }[]
+      text: string
+      maskInputs?: boolean
+      expect: string
+    }
+  >('typedValueScrub').cases) {
+    it(c.name, () => {
+      configureInputMasking({ maskInputs: c.maskInputs })
+      clearTypedValues()
+      for (const { command, params } of c.typed) {
+        maskCommandArgs('webdriver', command, [params])
+      }
+      expect(scrubTypedText(c.text)).toBe(c.expect)
+    })
+  }
+})
+
+describe('collectorMaskPrelude', () => {
+  for (const c of section<
+    Named & { options: CaptureMaskOptions; expect: string }
+  >('collectorMaskPrelude').cases) {
+    it(c.name, () => {
+      expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
     })
   }
 })

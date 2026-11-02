@@ -10,6 +10,7 @@ import {
   type LogSource
 } from '@wdio/devtools-shared'
 import { errorMessage } from './error.js'
+import { scrubTyped } from './input-masking.js'
 import { getRequestType } from './net.js'
 
 /** Generic sinks the BiDi handlers push into; {@link buildBidiSinks} wires them to a capturer. */
@@ -33,8 +34,9 @@ export function buildBidiSinks(
   onConsoleEntry?: () => void
 ): BidiHandlerSinks {
   return {
-    pushConsoleLog: (entry) => {
+    pushConsoleLog: (raw) => {
       onConsoleEntry?.()
+      const entry = { ...raw, args: scrubTyped(raw.args) }
       target.consoleLogs.push(entry)
       target.sendUpstream('consoleLogs', [entry])
     },

@@ -155,4 +155,28 @@ describe('serverLock', () => {
       serverLock({ isReuse: false, backendStarting: false })
     ).toBeUndefined()
   })
+
+  it('applies the mask options, refusing selectors that are not a list of strings', () => {
+    const target = defaults()
+    expect(
+      applyConfigureOptions(target, {
+        maskInputs: false,
+        maskSelectors: ['.iban']
+      })
+    ).toEqual([])
+    expect(target).toMatchObject({
+      maskInputs: false,
+      maskSelectors: ['.iban']
+    })
+
+    const refused = defaults()
+    const warnings = applyConfigureOptions(
+      refused,
+      untyped({ maskSelectors: '.iban' })
+    )
+    expect('maskSelectors' in refused).toBe(false)
+    expect(warnings).toEqual([
+      "configure: ignoring maskSelectors: expected an array of strings, got '.iban'"
+    ])
+  })
 })

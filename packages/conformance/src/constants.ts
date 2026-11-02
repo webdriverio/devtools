@@ -1,7 +1,11 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { WS_SCOPE, type WsMessageScope } from '@wdio/devtools-shared'
+import {
+  CAPTURE_MASK_GLOBAL,
+  WS_SCOPE,
+  type WsMessageScope
+} from '@wdio/devtools-shared'
 
 import type { ScenarioTest } from './types.js'
 
@@ -47,6 +51,7 @@ export const RULES = {
   callSiteInScenario: 'call-site-names-the-scenario',
   testHasRows: 'every-test-has-rows',
   waitParentsItsRows: 'wait-row-parents-its-commands',
+  typedTextMasked: 'typed-text-never-reaches-the-dashboard',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -82,6 +87,9 @@ export const RESPONSIBILITIES = {
 
 /** The collector's own source assigns its global; an adapter's probes and drains only read it. */
 export const COLLECTOR_SIGNATURE = /wdioTraceCollector\s*=(?!=)/
+
+/** The policy declaration that turns the collector's input masking off (shared `captureMaskPrelude`). */
+export const MASK_INPUTS_OFF = `${CAPTURE_MASK_GLOBAL} = {"inputs":false`
 
 /** The page's own Performance API read, recognised by the call that reads its navigation timings however a script phrases it. */
 export const PERFORMANCE_SIGNATURE =

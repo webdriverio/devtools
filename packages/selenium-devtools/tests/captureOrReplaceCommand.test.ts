@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { RetryTracker } from '@wdio/devtools-core'
+import { afterEach, describe, it, expect } from 'vitest'
+import { configureInputMasking, RetryTracker } from '@wdio/devtools-core'
+import { MASKED_VALUE } from '@wdio/devtools-shared'
 import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
 import { SessionCapturer } from '../src/session.js'
 import type {
@@ -454,6 +455,57 @@ describe('captureOrReplaceCommand', () => {
       expect(rows[0].parentId).toBeUndefined()
       expect(rows[1].parentId).toBe(outerRow.id)
       expect(rows[2].parentId).toBe(rows[1].id)
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})
+
+describe('typed text', () => {
+  afterEach(() => {
+    configureInputMasking()
+  })
+
+  const sendKeys = (text: string) =>
+    command({
+      command: 'sendKeys',
+      args: [text],
+      callSource: '/helpers.js:4:9'
+    })
+
+  it('masks what sendKeys typed, and keeps two fills from one helper line as two rows', async () => {
+    configureInputMasking()
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    try {
+      for (const text of ['tomsmith', 'S3cret pass']) {
+        await captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test,
+          cmd: sendKeys(text)
+        })
+      }
+      expect(capturer.commandsLog.map((row) => row.args)).toEqual([
+        [MASKED_VALUE],
+        [MASKED_VALUE]
+      ])
+    } finally {
+      capturer.cleanup()
+    }
+  })
+
+  it('captures the typed text with maskInputs: false', async () => {
+    configureInputMasking({ maskInputs: false })
+    const capturer = new SessionCapturer({})
+    try {
+      await captureOrReplaceCommand({
+        capturer,
+        retryTracker: new RetryTracker(),
+        test,
+        cmd: sendKeys('S3cret pass')
+      })
+      expect(capturer.commandsLog[0].args).toEqual(['S3cret pass'])
     } finally {
       capturer.cleanup()
     }

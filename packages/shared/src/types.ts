@@ -455,6 +455,13 @@ export interface BaseDevToolsOptions {
    *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
    *  Only applies in trace mode. */
   emitArtifactsManifest?: boolean
+  /** Replace what is typed into form fields with a fixed placeholder in
+   *  everything captured: DOM, command arguments, value reads. Default true;
+   *  `false` captures typed text verbatim. Live and trace mode alike. */
+  maskInputs?: boolean
+  /** CSS selectors whose matching elements have their text and value masked
+   *  too, typed or not. Default none. */
+  maskSelectors?: string[]
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.

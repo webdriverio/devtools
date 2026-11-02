@@ -1,5 +1,11 @@
-import { NETWORK_CAPTURE_SOURCE } from '@wdio/devtools-shared'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { MASKED_VALUE, NETWORK_CAPTURE_SOURCE } from '@wdio/devtools-shared'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
+import { buildBidiSinks } from '../src/bidi.js'
+import {
+  clearTypedValues,
+  configureInputMasking,
+  maskCommandArgs
+} from '../src/input-masking.js'
 import { SessionCapturerBase } from '../src/session-capturer.js'
 
 /**
@@ -33,6 +39,10 @@ class TestSessionCapturer extends SessionCapturerBase {
     }
   ) {
     return this.processTracePayload(payload, opts)
+  }
+
+  line(type: 'info', args: string[]) {
+    this.onLine(type, args, 'terminal')
   }
 }
 
@@ -524,5 +534,117 @@ describe('processTracePayload network ids at scale', () => {
     } finally {
       capturer.cleanup()
     }
+  })
+})
+
+describe('typed text in what the capturer sends', () => {
+  beforeEach(() => {
+    configureInputMasking()
+    clearTypedValues()
+    maskCommandArgs('webdriverio', 'setValue', ['S3cret pass'])
+  })
+  afterEach(() => {
+    clearTypedValues()
+  })
+
+  it('scrubs a row it sends and the row the trace keeps alike', () => {
+    const row = {
+      command: 'getValue',
+      args: [],
+      result: 'S3cret pass',
+      timestamp: 1
+    }
+    cap.sendCommand(row)
+    expect(row.result).toBe(MASKED_VALUE)
+    const sent = cap.upstream.find((u) => u.scope === 'commands')!
+    expect(JSON.stringify(sent.data)).not.toContain('S3cret')
+  })
+
+  it('scrubs a replaced row', () => {
+    cap.sendReplaceCommand(1, {
+      command: 'getValue',
+      args: [],
+      result: 'S3cret pass',
+      timestamp: 2
+    })
+    expect(JSON.stringify(cap.upstream)).not.toContain('S3cret')
+  })
+
+  it('scrubs the page console, a request body and a terminal line', () => {
+    cap.process({
+      consoleLogs: [{ type: 'log', args: ['typed S3cret pass'], timestamp: 1 }],
+      networkRequests: [
+        { ...patchedFetch, requestBody: 'password=S3cret+pass' }
+      ]
+    })
+    cap.line('info', ['COMMAND elementSendKeys("S3cret pass")'])
+    expect(JSON.stringify(cap.upstream)).not.toContain('S3cret')
+    expect(JSON.stringify(cap.consoleLogs)).not.toContain('S3cret')
+    expect(JSON.stringify(cap.networkRequests)).not.toContain('S3cret')
+  })
+
+  it('scrubs a failed test’s error out of the suite tree it sends', () => {
+    const sent: string[] = []
+    class WireCapturer extends SessionCapturerBase {}
+    const wire = new WireCapturer({})
+    Object.assign(wire, {
+      ws: { readyState: 1, send: (raw: string) => sent.push(raw) }
+    })
+    const test = {
+      uid: 't',
+      title: 'registers S3cret pass',
+      fullTitle: 'signup registers S3cret pass',
+      file: '/home/S3cret pass/signup.spec.ts',
+      error: { message: 'expected "S3cret pass"' }
+    }
+    wire.sendUpstream('suites', [{ s: { uid: 's', tests: [test] } }])
+    const [frame] = sent.map((raw) => JSON.parse(raw))
+    const sentTest = frame.data[0].s.tests[0]
+    expect(sentTest.error.message).toBe(`expected "${MASKED_VALUE}"`)
+    expect(sentTest.title).toBe('registers S3cret pass')
+    expect(sentTest.fullTitle).toBe('signup registers S3cret pass')
+    expect(sentTest.file).toBe('/home/S3cret pass/signup.spec.ts')
+    // The kept tree is scrubbed too, so a resend after the next test's clear cannot carry the raw error.
+    expect(test.error.message).toBe(`expected "${MASKED_VALUE}"`)
+  })
+
+  it('sends any Error it finds in the suite tree as a plain scrubbed copy, leaving the Error as it was', () => {
+    const sent: string[] = []
+    class WireCapturer extends SessionCapturerBase {}
+    const wire = new WireCapturer({})
+    Object.assign(wire, {
+      ws: { readyState: 1, send: (raw: string) => sent.push(raw) }
+    })
+    const err = Object.assign(new Error('expected value'), {
+      actual: 'S3cret pass',
+      expected: 'x'
+    })
+    wire.sendUpstream('suites', [
+      { s: { uid: 's', hooks: [{ uid: 'h', error: err, errors: [err] }] } }
+    ])
+    const [frame] = sent.map((raw) => JSON.parse(raw))
+    const hook = frame.data[0].s.hooks[0]
+    expect(sent.join('')).not.toContain('S3cret')
+    expect(hook.error).toMatchObject({
+      message: 'expected value',
+      actual: MASKED_VALUE
+    })
+    expect(hook.errors[0].actual).toBe(MASKED_VALUE)
+    expect(err.actual).toBe('S3cret pass')
+  })
+
+  it('scrubs a console entry BiDi delivers', () => {
+    const target = {
+      consoleLogs: [] as { args: unknown[] }[],
+      networkRequests: [],
+      bidiNetworkObserved: false,
+      sendUpstream: vi.fn()
+    }
+    buildBidiSinks(target).pushConsoleLog({
+      type: 'log',
+      args: ['typed S3cret pass'],
+      timestamp: 1
+    })
+    expect(target.consoleLogs[0].args).toEqual([`typed ${MASKED_VALUE}`])
   })
 })

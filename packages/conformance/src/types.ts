@@ -57,6 +57,8 @@ export interface BrowserTruth {
   /** When the browser completed each user action, in order, keyed by shared's action method. */
   actions: Record<ActionMethod, number[]>
   requests: BrowserRequest[]
+  /** The text every element received through Element Send Keys, in order. */
+  typed: string[]
   /** What the session was served over BiDi, which decides what a network row must carry: `off` when no
    *  socket was handed out, whether the mode offers none or the new-session request asked for none. */
   bidi: BidiMode

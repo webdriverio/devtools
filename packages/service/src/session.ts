@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises'
 import url from 'node:url'
 
 import logger from '@wdio/logger'
 import { parse } from 'stack-trace'
-import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
@@ -26,10 +24,14 @@ import {
   errorMessage,
   getRequestType,
   isSessionGoneError,
+  loadCollectorSource,
   loadInjectableScript,
   LOG_SOURCES,
+  maskCommandArgs,
   rememberReadValue,
   RetryTracker,
+  scrubTyped,
+  scrubTypedRow,
   SessionCapturerBase,
   type CapturedPerformancePayload
 } from '@wdio/devtools-core'
@@ -189,7 +191,7 @@ export class SessionCapturer extends SessionCapturerBase {
     }
     const commandLogEntry: CommandLog = {
       command,
-      args,
+      args: maskCommandArgs('webdriverio', String(command), args),
       result,
       // Serialized here: an Error's message is non-enumerable, so the raw object reaches the socket as `{}`.
       error: serializeCommandError(error),
@@ -244,7 +246,10 @@ export class SessionCapturer extends SessionCapturerBase {
           : (args[0] as { name?: string })?.name
     }
 
-    this.#recordRow(commandLogEntry, nesting)
+    this.#recordRow(commandLogEntry, nesting, [
+      commandLogEntry.selector,
+      ...args
+    ])
     // Capture trace + perf on commands that could trigger a page transition.
     // Skipped when there is no document to run either script in; a mobile
     // BROWSER session has one, so it keeps both.
@@ -266,10 +271,16 @@ export class SessionCapturer extends SessionCapturerBase {
    * rows. A matching signature (same command + args + call site) replaces the
    * previous entry in place — mirroring the nightwatch and selenium adapters.
    */
-  #captureOrReplace(entry: CommandLog & { _id?: number }) {
+  #captureOrReplace(
+    entry: CommandLog & { _id?: number },
+    // The typed text, not its mask: two fills from one helper line are two rows, not a retry.
+    signatureArgs: unknown[] = entry.args
+  ) {
+    // Before the retry branch copies it onto the logged row, which the trace writes.
+    scrubTypedRow(entry)
     const sig = RetryTracker.signature(
       entry.command,
-      entry.args,
+      signatureArgs,
       entry.callSource
     )
     if (this.#retryTracker.isRetry(sig)) {
@@ -301,7 +312,7 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#waitSelectors.clear()
   }
 
-  #recordRow(entry: CommandLog, nesting: CommandNesting) {
+  #recordRow(entry: CommandLog, nesting: CommandNesting, rawArgs: unknown[]) {
     if (nesting.id !== undefined) {
       this.#waitRows.close(entry, nesting.id)
       // A wait is never a retry of the command before it, nor is the command after it a retry of that one.
@@ -309,7 +320,7 @@ export class SessionCapturer extends SessionCapturerBase {
     } else if (nesting.parentId !== undefined) {
       this.#waitRows.send(entry)
     } else {
-      this.#captureOrReplace(entry)
+      this.#captureOrReplace(entry, rawArgs)
     }
   }
 
@@ -449,9 +460,7 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
     try {
-      const script = await resolve('@wdio/devtools-script', import.meta.url)
-      const source = (await fs.readFile(url.fileURLToPath(script))).toString()
-      const functionDeclaration = `async () => { ${source} }`
+      const functionDeclaration = `async () => { ${await loadCollectorSource()} }`
 
       await browser.scriptAddPreloadScript({
         functionDeclaration
@@ -630,7 +639,7 @@ export class SessionCapturer extends SessionCapturerBase {
       timestamp:
         typeof event.timestamp === 'number' ? event.timestamp : Date.now(),
       type,
-      args,
+      args: scrubTyped(args),
       source: LOG_SOURCES.BROWSER
     }
     this.consoleLogs.push(entry)

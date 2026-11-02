@@ -13,6 +13,7 @@ import {
   resolveAdapterOutputDir,
   TestAttemptTracker,
   tracePolicyModeWarning,
+  configureInputMasking,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
@@ -168,8 +169,11 @@ class NightwatchDevToolsPlugin {
       video,
       // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
       // off by default, opt-in via the option.
-      emitArtifactsManifest: options.emitArtifactsManifest ?? false
+      emitArtifactsManifest: options.emitArtifactsManifest ?? false,
+      maskInputs: options.maskInputs ?? true,
+      maskSelectors: options.maskSelectors ?? []
     }
+    configureInputMasking(this.options)
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
       log.warn(policyWarning)

@@ -34,6 +34,13 @@ import {
   stripAnsi
 } from '@wdio/devtools-shared'
 import { TerminalLineThrottle } from './terminal-throttle.js'
+import {
+  scrubSuiteErrors,
+  scrubTyped,
+  scrubTypedBodies,
+  scrubTypedRow,
+  scrubTypedText
+} from './input-masking.js'
 
 /**
  * Foundation class for adapter SessionCapturers. Owns the cross-framework
@@ -188,7 +195,9 @@ export abstract class SessionCapturerBase {
    * runner. Subclasses that want diagnostics on drop or error override
    * {@link onUpstreamDrop}.
    */
-  sendUpstream(event: string, data: unknown): void {
+  sendUpstream(event: string, payload: unknown): void {
+    // Only a test's error is scrubbed: a title or path that happens to contain a typed value is a name a rerun selects by.
+    const data = event === 'suites' ? scrubSuiteErrors(payload) : payload
     if (!this.ws) {
       this.notifyDrop(event, 'closed')
       return
@@ -339,6 +348,7 @@ export abstract class SessionCapturerBase {
       return id
     }
     this.sentCommandIds.add(id)
+    scrubTypedRow(command)
     const toSend = { ...command }
     delete toSend._id
     this.sendUpstream('commands', [toSend])
@@ -354,6 +364,7 @@ export abstract class SessionCapturerBase {
     oldTimestamp: number,
     command: CommandLog & { _id?: number }
   ): void {
+    scrubTypedRow(command)
     const toSend = { ...command }
     delete toSend._id
     this.sendUpstream(WS_SCOPE.replaceCommand, {
@@ -526,6 +537,7 @@ export abstract class SessionCapturerBase {
     }
     return (consoleLogs as ConsoleLog[]).map((entry) => ({
       ...entry,
+      args: scrubTyped(entry.args),
       source: LOG_SOURCES.BROWSER as LogSource
     }))
   }
@@ -536,6 +548,7 @@ export abstract class SessionCapturerBase {
       return
     }
     for (const req of reqs) {
+      scrubTypedBodies(req)
       this.#upsertNetworkRequest(req)
     }
     this.sendUpstream('networkRequests', reqs)
@@ -751,7 +764,7 @@ export abstract class SessionCapturerBase {
    * structure is preserved for the UI.
    */
   protected onLine(type: LogLevel, args: string[], source: LogSource): void {
-    const entry = createConsoleLogEntry(type, args, source)
+    const entry = createConsoleLogEntry(type, args.map(scrubTypedText), source)
     this.consoleLogs.push(entry)
     this.sendUpstream('consoleLogs', [entry])
   }

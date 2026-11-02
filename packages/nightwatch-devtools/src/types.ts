@@ -53,6 +53,8 @@ export interface CommandInvocation {
    *  still run after capture. */
   userCallback: ((result: unknown) => unknown) | null
   logArgs: unknown[]
+  /** `logArgs` as the row carries them, typed text masked; `logArgs` is what the command itself is called with. */
+  rowArgs: unknown[]
   /** Identifies a retry of the same call from the same source line. */
   cmdSig: string
   callSource: string | undefined

@@ -92,3 +92,10 @@ export function conformanceRules(cell: Cell): readonly RuleId[] {
     ? cell.evidence.rules
     : []
 }
+
+// appium-interceptor is an Android plugin; iOS app traffic needs a device or proxy capture outside the adapters.
+export const onAndroid = (path: string) => covered(path, 'Android')
+export const NEEDS_APPIUM_WEB = (demo: string) =>
+  `Needs an Appium device; check by hand with \`DEVTOOLS_MOBILE=web pnpm ${demo}\`.`
+export const NEEDS_IOS = (demo: string) =>
+  `Needs a booted iOS simulator; check by hand with \`DEVTOOLS_MOBILE_PLATFORM=ios pnpm ${demo}\`.`
