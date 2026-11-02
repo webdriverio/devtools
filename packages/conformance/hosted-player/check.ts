@@ -15,6 +15,11 @@ import {
 } from './constants.js'
 import { CURRENT_TRACE_TITLES, writeCurrentTrace } from './current-trace.js'
 import {
+  HOSTILE_FLAG,
+  HOSTILE_MARKER_ID,
+  writeHostileTrace
+} from './hostile-trace.js'
+import {
   diffTitles,
   failingLogEntry,
   missingCspDirectives,
@@ -26,7 +31,9 @@ import {
   EXPAND_COLLAPSED_ROWS,
   READ_PLAYER_STATE,
   cspViolationReporter,
-  type PlayerState
+  replayLastRow,
+  type PlayerState,
+  type ReplayState
 } from './page-scripts.js'
 
 type Browser = WebdriverIO.Browser
@@ -201,6 +208,43 @@ async function openTrace(
   log(`${trace.name}: ${state.rows.length} action rows, ${state.frames} frames`)
 }
 
+/** A trace is untrusted input: its replayed DOM must not run script, by any path. */
+async function openHostileTrace(
+  browser: Browser,
+  baseUrl: string,
+  workDir: string
+): Promise<void> {
+  await openLanding(browser, baseUrl)
+  await pickFile(browser, await writeHostileTrace(workDir))
+  await waitForState(
+    browser,
+    (state) => state.landing === null && state.rows.length > 0,
+    OPEN_TIMEOUT_MS,
+    'hostile trace: the player never rendered an action row'
+  )
+  const replay = await browser.execute<ReplayState, []>(
+    replayLastRow(HOSTILE_MARKER_ID, HOSTILE_FLAG)
+  )
+  const problems = [
+    ...(replay.replayed
+      ? []
+      : ['its page was never replayed, so nothing was tested']),
+    ...(replay.sandbox === 'allow-same-origin'
+      ? []
+      : [
+          `the replay frame's sandbox is ${JSON.stringify(replay.sandbox)}, not "allow-same-origin"`
+        ]),
+    ...(replay.scripts
+      ? [`${replay.scripts} <script> element(s) reached the replay frame`]
+      : []),
+    ...(replay.ran ? [`its script ran in the player (${replay.ran})`] : [])
+  ]
+  if (problems.length) {
+    throw new Error(`hostile trace:\n  ${problems.join('\n  ')}`)
+  }
+  log('hostile trace: replayed with no script run')
+}
+
 async function openNotATrace(
   browser: Browser,
   baseUrl: string,
@@ -277,6 +321,7 @@ export async function checkHostedPlayer({
     for (const trace of await tracesToOpen(workDir)) {
       await openTrace(browser, baseUrl, trace, observed)
     }
+    await openHostileTrace(browser, baseUrl, workDir)
     await openNotATrace(browser, baseUrl, workDir)
     assertObserved(observed)
   } catch (error) {

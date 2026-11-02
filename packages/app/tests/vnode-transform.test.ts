@@ -427,3 +427,43 @@ describe('transform', () => {
     })
   })
 })
+
+describe('a replayed node from an untrusted trace', () => {
+  it('renders no script, wherever it sits', () => {
+    const holder = document.createElement('div')
+    render(
+      transform({
+        type: 'div',
+        props: {
+          children: [
+            { type: 'script', props: { children: 'top.ran = 1' } },
+            { type: 'span', props: { children: 'kept' } }
+          ]
+        }
+      }),
+      holder
+    )
+
+    expect(holder.querySelector('script')).toBeNull()
+    expect(holder.querySelector('span')?.textContent).toBe('kept')
+  })
+
+  it('drops script URLs and srcdoc but keeps ordinary ones', () => {
+    const link = transform({
+      type: 'a',
+      props: { href: 'javascript:top.ran = 1', title: 'x' }
+    })
+    const frame = transform({
+      type: 'iframe',
+      props: {
+        srcdoc: '<script>top.ran = 1</script>',
+        src: 'https://example.com/'
+      }
+    })
+
+    expect(propsOf(link).href).toBeUndefined()
+    expect(propsOf(link).title).toBe('x')
+    expect(propsOf(frame).srcdoc).toBeUndefined()
+    expect(propsOf(frame).src).toBe('https://example.com/')
+  })
+})
