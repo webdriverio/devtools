@@ -1,5 +1,5 @@
 // Reads a standard-format trace.zip back into a player payload. Accepts our
-// own exporter's output (core/trace-exporter.ts) and foreign zips: every
+// own exporter's output (trace-exporter.ts) and foreign zips: every
 // entry ending in `.trace` is an action-event stream (foreign tools write
 // `test.trace` plus per-context `0-trace.trace`, ...), every `.network` entry
 // is a HAR stream, and `.stacks` sidecars carry call stacks. Commands come
@@ -8,7 +8,7 @@
 // frames + src@ resources, and DOM mutations from the `.mutations` stream when
 // present. Fields the zip never carried (suites) come back empty. Constants,
 // event types, and pure helpers live in the sibling
-// trace-reader-{constants,types,utils}.ts files.
+// trace-reader-{constants,types,utils,groups}.ts files.
 
 import fs from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'

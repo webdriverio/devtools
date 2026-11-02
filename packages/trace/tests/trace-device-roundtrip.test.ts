@@ -3,14 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { TraceType, type Metadata } from '@wdio/devtools-shared'
-import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
+import { writeTraceZip } from '../src/trace-exporter.js'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { readTraceZip } from '../src/trace-reader.js'
 
 /**
- * The writer lives in `trace` and the reader in `backend`, so no test proved
- * they agree about the device — and the device is the whole point: a native
+ * Writes a zip with the writer and reads it back with the reader, proving the
+ * two agree about the device — and the device is the whole point: a native
  * capture normalizes `browserName` to `chromium` and reports the HOST OS as
  * `platform`, so before this field the player had nothing to tell a phone from
  * a desktop Chrome, and framed a portrait capture as a desktop window (#347).
