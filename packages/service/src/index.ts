@@ -58,7 +58,11 @@ import {
 import { ScreencastLifecycle } from './screencast-lifecycle.js'
 import { attachBidiListeners } from './bidi-listeners.js'
 import { type ServiceOptions, TraceType } from './types.js'
-import type { GetSnapshotOptions, GetSnapshotResult } from '@wdio/elements'
+import type {
+  GetSnapshotOptions,
+  GetSnapshotResult,
+  SnapshotFormat
+} from '@wdio/elements'
 import {
   CONTEXT_CHANGE_COMMANDS,
   INTERNAL_COMMANDS,
@@ -305,21 +309,25 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * @wdio/elements' getSnapshot() directly — no trace-mode overhead,
      * no screenshot round-trip, no page-settling.
      *
-     * Returns { text, refs } — see @wdio/elements GetSnapshotResult.
+     * Returns { format, text, elements, refs? } — see @wdio/elements GetSnapshotResult.
      */
     browser.addCommand(
       'getSnapshot',
       async (options?: GetSnapshotOptions): Promise<GetSnapshotResult> => {
+        let format: SnapshotFormat = 'legacy'
         try {
-          const { getSnapshot } = await import('@wdio/elements')
+          const { getSnapshot, snapshotRenderer } =
+            await import('@wdio/elements')
+          format = snapshotRenderer()
           // Viewport-only keeps the tree small enough for an agent loop to call repeatedly.
           return await getSnapshot(browser, {
-            ...options,
-            viewport: options?.viewport ?? true
+            viewport: options?.viewport ?? options?.inViewportOnly ?? true
           })
         } catch (err) {
           log.warn(`getSnapshot failed: ${errorMessage(err)}`)
-          return { text: '[Snapshot unavailable]', refs: [] }
+          return format === 'snapshot'
+            ? { format, text: '[Snapshot unavailable]', elements: {}, refs: [] }
+            : { format, text: '[Snapshot unavailable]', elements: {} }
         }
       }
     )

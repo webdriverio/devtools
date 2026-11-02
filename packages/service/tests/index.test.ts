@@ -103,6 +103,12 @@ vi.mock('../src/intercepted-network.js', () => ({
   })
 }))
 
+const elementsMock = vi.hoisted(() => ({
+  getSnapshot: vi.fn(),
+  snapshotRenderer: vi.fn(() => 'legacy')
+}))
+vi.mock('@wdio/elements', () => elementsMock)
+
 vi.mock('node:fs/promises', () => ({
   default: { writeFile: vi.fn().mockResolvedValue(undefined) }
 }))
@@ -155,6 +161,61 @@ describe('DevtoolsService - Internal Command Filtering', () => {
         service.beforeCommand(cmd as any, args)
       })
       expect(true).toBe(true)
+    })
+  })
+
+  describe('getSnapshot command', () => {
+    const getSnapshotCommand = (): ((options?: object) => Promise<unknown>) => {
+      const call = mockBrowser.addCommand.mock.calls.find(
+        ([name]: [string]) => name === 'getSnapshot'
+      )
+      return call[1]
+    }
+
+    beforeEach(async () => {
+      elementsMock.getSnapshot.mockReset()
+      elementsMock.snapshotRenderer.mockReturnValue('legacy')
+      await service.before({} as any, [], mockBrowser)
+    })
+
+    it('defaults to the viewport and passes an explicit inViewportOnly through', async () => {
+      elementsMock.getSnapshot.mockResolvedValue({
+        format: 'legacy',
+        text: 'T',
+        elements: {}
+      })
+
+      await getSnapshotCommand()()
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
+        viewport: true
+      })
+
+      await getSnapshotCommand()({ inViewportOnly: false })
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
+        viewport: false
+      })
+    })
+
+    it('reports the legacy failure value without refs', async () => {
+      elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+
+      await expect(getSnapshotCommand()()).resolves.toEqual({
+        format: 'legacy',
+        text: '[Snapshot unavailable]',
+        elements: {}
+      })
+    })
+
+    it('reports the snapshot failure value with empty refs', async () => {
+      elementsMock.snapshotRenderer.mockReturnValue('snapshot')
+      elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+
+      await expect(getSnapshotCommand()()).resolves.toEqual({
+        format: 'snapshot',
+        text: '[Snapshot unavailable]',
+        elements: {},
+        refs: []
+      })
     })
   })
 
