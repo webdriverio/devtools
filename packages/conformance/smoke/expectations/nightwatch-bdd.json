@@ -2,6 +2,11 @@
   "example": "nightwatch-bdd",
   "runFails": true,
   "sourceFiles": ["examples/nightwatch/bdd/smoke-test.js"],
+  "traceBudget": {
+    "maxBytes": 330000,
+    "measuredBytes": 260322,
+    "measuredIn": "CI run 40948877371, examples-smoke log (#509, with #508's dedupe)"
+  },
   "tests": [
     {
       "test": "logs into the secure area with valid credentials",
