@@ -5,9 +5,11 @@ import { TraceType, type CommandLog } from '@wdio/devtools-shared'
 
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
+import { TraceOpenController } from './controller/trace-open.js'
 import { KeyboardController, KBD } from './controller/keyboard.js'
 import { DragController, Direction } from './utils/DragController.js'
 import {
+  HOSTED_PLAYER,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_DEFAULT_WIDTH
 } from './controller/constants.js'
@@ -23,6 +25,7 @@ import './components/header.js'
 import './components/sidebar.js'
 import './components/workbench.js'
 import './components/onboarding/start.js'
+import './components/onboarding/open-trace.js'
 import './components/workbench/compare.js'
 import './components/shortcuts-overlay.js'
 
@@ -37,6 +40,11 @@ onThemeChange(applyDarkMode)
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   dataManager = new DataManagerController(this)
+  #traceOpen = HOSTED_PLAYER
+    ? new TraceOpenController(this, (file) =>
+        this.dataManager.openTraceArchive(file)
+      )
+    : undefined
 
   @state() showShortcuts = false
 
@@ -112,6 +120,9 @@ export class WebdriverIODevtoolsApplication extends Element {
     window.addEventListener('show-command', this.#onShowCommand)
     window.addEventListener(KBD.step, this.#onKbdStep)
     window.addEventListener(KBD.jump, this.#onKbdJump)
+    if (HOSTED_PLAYER) {
+      document.title = 'WebdriverIO Trace Viewer'
+    }
     // In popout mode, the URL carries the test uid the parent window was
     // viewing. Push it into the context so the Compare component finds the
     // matching baseline as soon as the WS reconnects in this new window.
@@ -219,7 +230,35 @@ export class WebdriverIODevtoolsApplication extends Element {
     this.dataManager.clearExecutionData(detail?.uid, detail?.entryType)
   }
 
+  #traceOpenBanner() {
+    const error = this.#traceOpen?.error
+    if (!error) {
+      return nothing
+    }
+    return html`<div
+      role="alert"
+      class="absolute top-2 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-3 py-2 rounded border shadow"
+      style="background: var(--vscode-editor-background); border-color: var(--vscode-charts-red); color: var(--vscode-charts-red);"
+    >
+      <span>${error}</span>
+      <button
+        aria-label="Dismiss"
+        @click="${() => this.#traceOpen?.dismissError()}"
+      >
+        ✕
+      </button>
+    </div>`
+  }
+
   #mainContent() {
+    const traceOpen = this.#traceOpen
+    // Once a trace is loaded, a failed open keeps it and reports in a banner.
+    if (traceOpen && (traceOpen.opening || !this.dataManager.hasConnection)) {
+      return html`<wdio-devtools-open-trace
+        .busy="${traceOpen.opening}"
+        .error="${traceOpen.error}"
+      ></wdio-devtools-open-trace>`
+    }
     if (!this.dataManager.hasConnection) {
       return html`<wdio-devtools-start></wdio-devtools-start>`
     }
@@ -245,6 +284,7 @@ export class WebdriverIODevtoolsApplication extends Element {
           class="basis-auto"
           .playerMode="${this.dataManager.playerMode}"
         ></wdio-devtools-workbench>
+        ${this.#traceOpenBanner()}
       </section>
     `
   }

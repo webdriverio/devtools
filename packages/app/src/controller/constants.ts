@@ -1,6 +1,10 @@
 import type { LogSource } from '@wdio/devtools-shared'
 
 export const CACHE_ID = 'wdio-trace-cache'
+/** Built with `--mode hosted`: the static trace player, with no backend. */
+export const HOSTED_PLAYER = import.meta.env.MODE === 'hosted'
+export const TRACE_OPEN_EVENT = 'app-trace-open'
+export const TRACE_FILE_ACCEPT = '.zip,application/zip'
 export const SIDEBAR_MIN_WIDTH = 250
 export const DARK_MODE_KEY = 'darkMode'
 /**

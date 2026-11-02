@@ -1,10 +1,11 @@
 import { Element } from '@core/element'
-import { html, css } from 'lit'
-import { customElement } from 'lit/decorators.js'
+import { html, css, nothing } from 'lit'
+import { customElement, query } from 'lit/decorators.js'
 
 import '~icons/custom/logo.svg'
 import '~icons/mdi/white-balance-sunny.js'
 import '~icons/mdi/moon-waning-crescent.js'
+import '~icons/mdi/upload.js'
 
 import {
   applyDarkMode,
@@ -12,6 +13,9 @@ import {
   prefersDarkMode,
   storeDarkMode
 } from '../controller/theme.js'
+import { HOSTED_PLAYER } from '../controller/constants.js'
+import { TRACE_FILE_ACCEPT } from '../controller/constants.js'
+import { announceTraceFile, takePickedFile } from '../utils/trace-file.js'
 
 @customElement('wdio-devtools-header')
 export class DevtoolsHeader extends Element {
@@ -91,7 +95,8 @@ export class DevtoolsHeader extends Element {
     return html`
       <icon-custom-logo></icon-custom-logo>
       <h1>WebdriverIO Devtools</h1>
-      <nav class="ml-auto mr-3">
+      <nav class="ml-auto mr-3 flex items-center">
+        ${HOSTED_PLAYER ? this.#openTraceButton() : nothing}
         <button class="p-2" @click="${this.#switchMode}">
           <icon-mdi-moon-waning-crescent
             class="${this.#darkMode ? 'hidden' : 'show'}"
@@ -102,6 +107,34 @@ export class DevtoolsHeader extends Element {
         </button>
       </nav>
     `
+  }
+
+  @query('input[type="file"]') traceInput?: HTMLInputElement
+
+  #openTraceButton() {
+    return html`
+      <button
+        class="p-2"
+        title="Open another trace.zip"
+        aria-label="Open another trace.zip"
+        @click="${() => this.traceInput?.click()}"
+      >
+        <icon-mdi-upload></icon-mdi-upload>
+      </button>
+      <input
+        type="file"
+        accept="${TRACE_FILE_ACCEPT}"
+        hidden
+        @change="${this.#onTracePicked}"
+      />
+    `
+  }
+
+  #onTracePicked() {
+    const file = takePickedFile(this.traceInput)
+    if (file) {
+      announceTraceFile(this, file)
+    }
   }
 
   #switchMode() {

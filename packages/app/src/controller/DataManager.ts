@@ -29,7 +29,8 @@ import {
   transcriptContext
 } from './context.js'
 import { BASELINE_WS_SCOPE, TRACE_API, WS_SCOPE } from '@wdio/devtools-shared'
-import { CACHE_ID } from './constants.js'
+import { CACHE_ID, HOSTED_PLAYER } from './constants.js'
+import { readTraceArchive } from './trace-archive.js'
 import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
@@ -205,6 +206,10 @@ export class DataManagerController implements ReactiveController {
   // Trace-player mode (`pnpm show-trace`) serves the reconstructed trace at
   // TRACE_API.get. Probe it first; if present, load it and skip the live WS.
   async #bootstrap() {
+    // Hosted, there is no backend: the trace arrives as a file the viewer picks.
+    if (HOSTED_PLAYER) {
+      return
+    }
     try {
       const response = await fetch(TRACE_API.get)
       // 204 = live mode (the route is always registered but serves no trace);
@@ -224,9 +229,14 @@ export class DataManagerController implements ReactiveController {
     this.framesContextProvider.setValue(data.frames)
     this.actionGroupsContextProvider.setValue(data.groups)
     this.transcriptContextProvider.setValue(data.transcript)
-    this.loadTraceFile(data.trace)
+    // Hosted, a cached trace would outlive the tab; the cache only backs a live socket.
+    this.loadTraceFile(data.trace, !HOSTED_PLAYER)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()
+  }
+
+  async openTraceArchive(file: Blob) {
+    this.loadPlayerData(await readTraceArchive(file))
   }
 
   #connectWebSocket() {
@@ -541,9 +551,11 @@ export class DataManagerController implements ReactiveController {
     this.logsContextProvider.setValue(data)
   }
 
-  loadTraceFile(traceFile: TraceLog) {
+  loadTraceFile(traceFile: TraceLog, cache = true) {
     try {
-      localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+      if (cache) {
+        localStorage.setItem(CACHE_ID, JSON.stringify(traceFile))
+      }
     } catch (err) {
       console.warn(
         'Trace too large to cache in localStorage; skipping cache.',

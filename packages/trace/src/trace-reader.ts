@@ -10,7 +10,6 @@
 // event types, and pure helpers live in the sibling
 // trace-reader-{constants,types,utils,groups}.ts files.
 
-import fs from 'node:fs/promises'
 import { unzipSync, strFromU8 } from 'fflate'
 import {
   isMutationsTruncationMarker,
@@ -23,6 +22,7 @@ import {
   type TracePlayerFrame
 } from '@wdio/devtools-shared'
 
+import { bytesToBase64 } from './base64.js'
 import {
   FRAME_RESOURCE_SUFFIXES,
   MUTATIONS_STREAM_SUFFIX,
@@ -179,7 +179,7 @@ function buildFrames(
     }
     frames.push({
       timestamp: event.timestamp,
-      screenshot: Buffer.from(data).toString('base64')
+      screenshot: bytesToBase64(data)
     })
     maxTime = Math.max(maxTime, event.timestamp)
   }
@@ -436,10 +436,4 @@ export function parseTraceZip(zip: Uint8Array): TracePlayerData {
     ...(groups ? { groups } : {}),
     ...(transcript ? { transcript } : {})
   }
-}
-
-/** Read a trace.zip from disk and reconstruct the player payload. */
-export async function readTraceZip(zipPath: string): Promise<TracePlayerData> {
-  const buffer = await fs.readFile(zipPath)
-  return parseTraceZip(new Uint8Array(buffer))
 }

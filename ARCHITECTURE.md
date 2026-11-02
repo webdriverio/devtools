@@ -67,9 +67,9 @@ Contains:
 - `buildImageFrameSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots.
 - `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
 - `buildConsoleEvents`, `networkRequestToHar`, `buildSourceResources` / `sourceResourceName` / `callSourceToStack`, `generateTranscript`, `sha1Hex`.
-- `parseTraceZip` / `readTraceZip` (`trace-reader.ts` and its `trace-reader-*` siblings) — the reverse direction: a `trace.zip`, ours or a foreign one, back into the `TracePlayerData` the player renders. Imported by subpath (`@wdio/devtools-trace/trace-reader`) and kept out of the package index, so adapters that reach `trace` through `core` never inline it.
+- `parseTraceZip` (`trace-reader.ts` and its `trace-reader-*` siblings) — the reverse direction: a `trace.zip`, ours or a foreign one, back into the `TracePlayerData` the player renders. Imported by subpath (`@wdio/devtools-trace/trace-reader`) and kept out of the package index, so adapters that reach `trace` through `core` never inline it. It reaches no Node built-in, because the hosted player runs it in the browser (`tests/trace-reader-browser-safe.test.ts` walks its imports); the disk read is `readTraceZip` in `read-trace-zip.ts`, and source paths are hashed with the pure `portableSha1Hex` so the reader needs no `node:crypto`; resource bytes keep native `sha1Hex`, ~30x faster.
 
-Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged) and `backend`.
+Imports from: `shared`. Imported by: `core` (which re-exports it, so adapters reach it unchanged), `backend`, and `app`, which may import `trace-reader` alone (ESLint enforces it).
 
 ### `packages/core`
 

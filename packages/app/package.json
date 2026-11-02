@@ -14,7 +14,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "build:hosted": "tsc && vite build --mode hosted --outDir dist-hosted",
+    "preview:hosted": "vite preview --mode hosted --outDir dist-hosted"
   },
   "author": "Christian Bromann <mail@bromann.dev>",
   "license": "MIT",
@@ -28,6 +30,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@wdio/browser-runner": "^10.0.2",
     "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
     "@wdio/globals": "^10.0.2",
     "@wdio/mocha-framework": "^10.0.1",
     "@wdio/protocols": "10.0.2",

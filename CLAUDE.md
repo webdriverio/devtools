@@ -31,6 +31,7 @@ Run from repo root unless noted.
 | `pnpm dev` | Run all packages in parallel dev mode. |
 | `pnpm smoke:fixtures [--port N]` | Serve the local fixture site the desktop examples drive (a copy of the-internet's login flow: `/`, `/login`, `/secure`, `/logout`; default `http://127.0.0.1:4567`). Every desktop login example reads `DEVTOOLS_EXAMPLE_BASE_URL` (trailing slash ignored); unset, they drive the public site. |
 | `pnpm smoke:assert --expect <name> [--exit-code N] [--log file] <zip-or-dir>...` | Check trace zips against `packages/conformance/smoke/expectations/<name>.json`: the listed rows under each test's own tracing group (or the whole run for an entry with `scope: "run"` and a `reason`), an error row on each deliberately failing test, a retried test's attempt count with its other checks read from its final attempt alone (`attempts`), title fragments such as a failed wait's condition, a call site on every row of a per-test entry (at least one for a run-scoped entry) and every call site inside the example's own `sourceFiles`, the run's exit code, and no wait timeout, in any adapter's wording (`TIMEOUT_PATTERNS` in `smoke/constants.ts`), in the trace's stdout or the run log other than the lines of a test marked `allowTimeoutError`. |
+| `pnpm player:hosted` | Build the hosted trace player (the app with `--mode hosted`, no backend) and serve it at `http://localhost:4173` under the headers `vercel.json` sends from trace.webdriver.io. |
 | `pnpm docs:capabilities` | Render the per-adapter capability tables from `packages/conformance/src/features.ts` into `README.md`; `--website <webdriverio checkout>` also renders the docs-site tables, `--check` fails instead of writing, and `--parity` lists every feature some adapter lacks plus the evidence counts. |
 | `python3 packages/selenium-devtools-py/scripts/changes.py next-version` | The version a Python-adapter release would publish, from the fragments pending in `changes/`. `check --base <ref>` is the CI gate; `apply` is what the release runs. |
 
@@ -103,7 +104,7 @@ They import from `shared` and `core`, never from each other. They aren't importe
 
 ### Backend and app are framework-agnostic
 
-`backend` and `app` import from `shared` only (for contracts) and from each other via the WS/HTTP boundary. Neither imports an adapter package.
+`backend` and `app` import from `shared` (for contracts) and from each other via the WS/HTTP boundary. Neither imports an adapter package. `backend` also imports `trace`, to write and read zips; `app` imports only `trace`'s reader, which the hosted player (`trace.webdriver.io`, built with `pnpm player:hosted`, deployed by Vercel from `vercel.json`) runs in the browser to open a dropped zip with no backend at all. That build is `HOSTED_PLAYER` in `app/src/controller/constants.ts`; it never writes the trace to browser storage, and `vercel.json` is also what `vite preview` serves, so its CSP is checked locally before it ships.
 
 Framework-specific behavior in the backend is contained in two files: `runner.ts` and `framework-filters.ts`. Both branch on a typed `TestRunnerId` from shared, never on a magic string. The `framework-filters` dispatch is a `switch` over `TestRunnerId` (not a table lookup) so CodeQL's `unvalidated-dynamic-method-call` query trusts the call site.
 
