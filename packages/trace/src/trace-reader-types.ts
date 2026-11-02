@@ -134,3 +134,6 @@ export interface CategorizedEvents {
 export interface MergedEvents extends Omit<CategorizedEvents, 'ctx'> {
   ctxs: ContextOptionsEvent[]
 }
+
+/** A trace.zip's unpacked entries, keyed by their path inside the zip. */
+export type TraceZipEntries = Record<string, Uint8Array>

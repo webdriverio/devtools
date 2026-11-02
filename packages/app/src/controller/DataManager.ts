@@ -235,8 +235,8 @@ export class DataManagerController implements ReactiveController {
     this.#host.requestUpdate()
   }
 
-  async openTraceArchive(file: Blob) {
-    this.loadPlayerData(await readTraceArchive(file))
+  async openTraceArchive(...args: Parameters<typeof readTraceArchive>) {
+    this.loadPlayerData(await readTraceArchive(...args))
   }
 
   #connectWebSocket() {

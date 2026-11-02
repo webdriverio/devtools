@@ -41,8 +41,8 @@ onThemeChange(applyDarkMode)
 export class WebdriverIODevtoolsApplication extends Element {
   dataManager = new DataManagerController(this)
   #traceOpen = HOSTED_PLAYER
-    ? new TraceOpenController(this, (file) =>
-        this.dataManager.openTraceArchive(file)
+    ? new TraceOpenController(this, (file, onPhase) =>
+        this.dataManager.openTraceArchive(file, onPhase)
       )
     : undefined
 
@@ -256,6 +256,7 @@ export class WebdriverIODevtoolsApplication extends Element {
     if (traceOpen && (traceOpen.opening || !this.dataManager.hasConnection)) {
       return html`<wdio-devtools-open-trace
         .busy="${traceOpen.opening}"
+        .phase="${traceOpen.phase}"
         .error="${traceOpen.error}"
       ></wdio-devtools-open-trace>`
     }

@@ -2,13 +2,18 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property, query, state } from 'lit/decorators.js'
 
-import { TRACE_FILE_ACCEPT } from '../../controller/constants.js'
+import {
+  TRACE_FILE_ACCEPT,
+  TRACE_OPEN_PHASE_LABEL
+} from '../../controller/constants.js'
+import type { TraceOpenPhase } from '../../controller/trace-parse-protocol.js'
 import { announceTraceFile, takePickedFile } from '../../utils/trace-file.js'
 
 /** Landing screen of the hosted trace player: pick or drop a trace.zip. */
 @customElement('wdio-devtools-open-trace')
 export class DevtoolsOpenTrace extends Element {
   @property({ type: Boolean }) busy = false
+  @property() phase?: TraceOpenPhase
   @property() error?: string
 
   @state() dragging = false
@@ -61,6 +66,41 @@ export class DevtoolsOpenTrace extends Element {
         cursor: progress;
       }
 
+      /* Indeterminate: the reader cannot say how far through a step it is. */
+      .progress {
+        height: 3px;
+        margin-top: 12px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: var(--vscode-panel-border);
+      }
+
+      .progress::after {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: var(--accent);
+        animation: progress-slide 1.2s ease-in-out infinite;
+      }
+
+      @keyframes progress-slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .progress::after {
+          width: 100%;
+          animation: none;
+          opacity: 0.5;
+        }
+      }
+
       .error {
         color: var(--vscode-charts-red);
       }
@@ -106,6 +146,13 @@ export class DevtoolsOpenTrace extends Element {
     this.#open(takePickedFile(this.input))
   }
 
+  #status(): string {
+    if (!this.busy) {
+      return 'Drop a trace.zip here'
+    }
+    return this.phase ? TRACE_OPEN_PHASE_LABEL[this.phase] : 'Opening trace…'
+  }
+
   render() {
     return html`
       <div
@@ -117,9 +164,8 @@ export class DevtoolsOpenTrace extends Element {
         <img src="/robot.png" width="120" alt="" />
         <h2 class="text-3xl font-bold">WebdriverIO Trace Viewer</h2>
         <div class="drop ${this.dragging ? 'dragging' : ''}">
-          <p class="text-lg">
-            ${this.busy ? 'Opening trace…' : 'Drop a trace.zip here'}
-          </p>
+          <p class="text-lg" role="status">${this.#status()}</p>
+          ${this.busy ? html`<div class="progress"></div>` : nothing}
           <button
             ?disabled="${this.busy}"
             @click="${() => this.input?.click()}"

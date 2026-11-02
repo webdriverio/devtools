@@ -1,18 +1,26 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 
 import { TRACE_OPEN_EVENT } from './constants.js'
+import type {
+  TraceOpenPhase,
+  TraceOpenProgress
+} from './trace-parse-protocol.js'
 
 type Host = ReactiveControllerHost & HTMLElement
 
 /** The hosted player's open flow: a file picked in the UI or dropped anywhere. */
 export class TraceOpenController implements ReactiveController {
   opening = false
+  phase?: TraceOpenPhase
   error?: string
 
   readonly #host: Host
-  readonly #load: (file: File) => Promise<void>
+  readonly #load: (file: File, onPhase: TraceOpenProgress) => Promise<void>
 
-  constructor(host: Host, load: (file: File) => Promise<void>) {
+  constructor(
+    host: Host,
+    load: (file: File, onPhase: TraceOpenProgress) => Promise<void>
+  ) {
     this.#host = host
     this.#load = load
     host.addController(this)
@@ -37,22 +45,24 @@ export class TraceOpenController implements ReactiveController {
     this.opening = true
     this.error = undefined
     this.#host.requestUpdate()
-    // Lets "Opening trace…" paint before the synchronous unzip holds the thread.
-    await new Promise((resolve) =>
-      requestAnimationFrame(() => setTimeout(resolve))
-    )
     try {
-      await this.#load(file)
+      await this.#load(file, this.#onPhase)
     } catch (error) {
       this.error = `Could not open ${file.name}: ${(error as Error).message}`
     } finally {
       this.opening = false
+      this.phase = undefined
       this.#host.requestUpdate()
     }
   }
 
   dismissError() {
     this.error = undefined
+    this.#host.requestUpdate()
+  }
+
+  #onPhase = (phase: TraceOpenPhase): void => {
+    this.phase = phase
     this.#host.requestUpdate()
   }
 
