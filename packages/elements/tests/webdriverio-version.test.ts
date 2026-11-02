@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  installedWebdriverioVersion,
-  rendersWithWdioSnapshot
-} from '../src/webdriverio-version.js'
+import { installedWebdriverioVersion } from '../src/webdriverio-version.js'
+import { rendersWithWdioSnapshot } from '../src/snapshot-version.js'
 
 describe('rendersWithWdioSnapshot', () => {
   it.each(['9.32.0', '10.1.0', '10.1.9'])(

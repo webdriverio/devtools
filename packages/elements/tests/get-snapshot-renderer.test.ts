@@ -118,8 +118,9 @@ describe('getSnapshot on the @wdio/snapshot renderer', () => {
   })
 
   it.each([
-    [{}, false],
-    [{ inViewportOnly: true }, true],
+    [{}, true],
+    [{ inViewportOnly: false }, false],
+    [{ viewport: false }, false],
     [{ viewport: true, inViewportOnly: false }, true]
   ])('maps options %j to the viewport flag %s', async (options, expected) => {
     await getSnapshot(browser, options)

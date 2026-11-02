@@ -17,7 +17,7 @@ vi.mock('@wdio/snapshot', () => {
   throw new Error('module graph broken')
 })
 
-import { getSnapshot } from '../src/get-snapshot.js'
+import { getSnapshot, snapshotRenderer } from '../src/get-snapshot.js'
 
 describe('getSnapshot when @wdio/snapshot cannot load', () => {
   it('falls back to the legacy renderer and logs the failure once', async () => {
@@ -28,6 +28,7 @@ describe('getSnapshot when @wdio/snapshot cannot load', () => {
     await getSnapshot(browser)
 
     expect(first).toEqual({ format: 'legacy', text: 'LEGACY', elements: {} })
+    expect(snapshotRenderer()).toBe('legacy')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn.mock.calls[0][0]).toContain('could not load @wdio/snapshot')
     warn.mockRestore()

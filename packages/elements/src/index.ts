@@ -48,4 +48,4 @@ export type {
   SnapshotCandidate,
   SnapshotNode,
   SnapshotRef
-} from '@wdio/snapshot'
+} from './snapshot-types.js'

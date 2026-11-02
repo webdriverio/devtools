@@ -63,6 +63,7 @@ import type {
   GetSnapshotResult,
   SnapshotFormat
 } from '@wdio/elements'
+import type * as Elements from '@wdio/elements'
 import {
   CONTEXT_CHANGE_COMMANDS,
   INTERNAL_COMMANDS,
@@ -314,17 +315,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     browser.addCommand(
       'getSnapshot',
       async (options?: GetSnapshotOptions): Promise<GetSnapshotResult> => {
-        let format: SnapshotFormat = 'legacy'
+        let elements: typeof Elements | undefined
         try {
-          const { getSnapshot, snapshotRenderer } =
-            await import('@wdio/elements')
-          format = snapshotRenderer()
+          elements = await import('@wdio/elements')
           // Viewport-only keeps the tree small enough for an agent loop to call repeatedly.
-          return await getSnapshot(browser, {
+          return await elements.getSnapshot(browser, {
             viewport: options?.viewport ?? options?.inViewportOnly ?? true
           })
         } catch (err) {
           log.warn(`getSnapshot failed: ${errorMessage(err)}`)
+          const format: SnapshotFormat =
+            elements?.snapshotRenderer() ?? 'legacy'
           return format === 'snapshot'
             ? { format, text: '[Snapshot unavailable]', elements: {}, refs: [] }
             : { format, text: '[Snapshot unavailable]', elements: {} }

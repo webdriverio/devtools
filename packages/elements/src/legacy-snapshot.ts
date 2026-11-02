@@ -15,6 +15,7 @@ import {
 } from '@wdio/devtools-core/element-snapshot'
 import { getBrowserAccessibilityTree } from './accessibility-tree.js'
 import { xmlToJSON } from './locators/index.js'
+import { safeCall } from './safe-call.js'
 
 /**
  * Take a snapshot of the current page/app state.
@@ -129,14 +130,6 @@ function buildMobileHeader(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-async function safeCall<T>(fn: () => Promise<T>): Promise<T | undefined> {
-  try {
-    return await fn()
-  } catch {
-    return undefined
-  }
-}
 
 function getDeviceName(browser: WebdriverIO.Browser): string {
   try {

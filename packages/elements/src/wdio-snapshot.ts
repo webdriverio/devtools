@@ -1,9 +1,13 @@
+import { fileURLToPath } from 'node:url'
 import type * as WdioSnapshot from '@wdio/snapshot'
 import type { NativePlatform, SnapshotNode, SnapshotRef } from '@wdio/snapshot'
 import type { SnapshotElement } from '@wdio/devtools-core/element-types'
 import { deepCapString } from '@wdio/devtools-shared/device'
 import type { GetSnapshotResult } from './get-snapshot.js'
+import { packageVersionOf } from './package-version.js'
+import { safeCall } from './safe-call.js'
 import { SnapshotError } from './snapshot-error.js'
+import { rendersWithWdioSnapshot } from './snapshot-version.js'
 
 type WdioSnapshotModule = typeof WdioSnapshot
 
@@ -13,26 +17,31 @@ const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
 
 let loadFailureLogged = false
 
-let wdioSnapshotResolved: boolean | undefined
+let loadFailed = false
+
+let wdioSnapshotSupported: boolean | undefined
 
 export function resolvesWdioSnapshot(): boolean {
-  wdioSnapshotResolved ??= (() => {
+  wdioSnapshotSupported ??= (() => {
     try {
-      import.meta.resolve('@wdio/snapshot')
-      return true
+      const entry = fileURLToPath(import.meta.resolve('@wdio/snapshot'))
+      return rendersWithWdioSnapshot(packageVersionOf(entry, '@wdio/snapshot'))
     } catch {
       return false
     }
   })()
-  return wdioSnapshotResolved
+  return wdioSnapshotSupported
 }
 
-export async function loadWdioSnapshot(): Promise<
-  WdioSnapshotModule | undefined
-> {
+export function wdioSnapshotLoadFailed(): boolean {
+  return loadFailed
+}
+
+async function loadWdioSnapshot(): Promise<WdioSnapshotModule | undefined> {
   try {
     return await import('@wdio/snapshot')
   } catch (err) {
+    loadFailed = true
     if (!loadFailureLogged) {
       loadFailureLogged = true
       console.warn(
@@ -57,11 +66,16 @@ function nativePlatformName(caps: Record<string, unknown>): string | undefined {
     : undefined
 }
 
-export async function getWdioSnapshot(
-  snapshot: WdioSnapshotModule,
+// The module type stays in unexported code: the declaration bundle emits every export,
+// and a `@wdio/snapshot` type there breaks consumers that lack the optional peer.
+export async function renderWdioSnapshot(
   browser: WebdriverIO.Browser,
   viewport: boolean
-): Promise<GetSnapshotResult> {
+): Promise<GetSnapshotResult | undefined> {
+  const snapshot = await loadWdioSnapshot()
+  if (!snapshot) {
+    return undefined
+  }
   const caps = browser.capabilities as Record<string, unknown>
   const platformName = nativePlatformName(caps)
   try {
@@ -130,7 +144,7 @@ async function collectWebTree(
   const result = await snapshot.collectWeb(
     browser,
     { counter: 0, all: false, boxes: false, viewport, assignRefs: 'ephemeral' },
-    // BiDi tries classic `executeScript` until it fails once, then `execute`; same rule as collectTop in @wdio/session.
+    // 'bidi' is browser.execute, which is classic Execute Script without BiDi; 'classic-first' applies only under BiDi, until executeScript fails once.
     { transport: classic ? 'classic-first' : 'bidi' }
   )
   if (result.classicUnavailable) {
@@ -147,7 +161,7 @@ async function collectNative(
 ): Promise<{ tree: SnapshotNode; refs: SnapshotRef[] }> {
   const [xml, size] = await Promise.all([
     browser.getPageSource(),
-    viewport ? browser.getWindowSize() : undefined
+    viewport ? safeCall(() => browser.getWindowSize()) : undefined
   ])
   const parsed = snapshot.parseNativeSource(xml, platform, {
     all: false,

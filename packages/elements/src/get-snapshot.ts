@@ -1,17 +1,17 @@
 import type { SnapshotElement } from '@wdio/devtools-core/element-types'
-import type { SnapshotRef } from '@wdio/snapshot'
+import type { SnapshotRef } from './snapshot-types.js'
 import { getSnapshot as getLegacySnapshot } from './legacy-snapshot.js'
 import { usesWdioSnapshot } from './webdriverio-version.js'
 import {
-  getWdioSnapshot,
-  loadWdioSnapshot,
-  resolvesWdioSnapshot
+  renderWdioSnapshot,
+  resolvesWdioSnapshot,
+  wdioSnapshotLoadFailed
 } from './wdio-snapshot.js'
 
 export type SnapshotFormat = 'legacy' | 'snapshot'
 
 export interface GetSnapshotOptions {
-  /** Only include what intersects the viewport (legacy default true, snapshot default false). */
+  /** Only include what intersects the viewport (default true on both renderers). */
   inViewportOnly?: boolean
   /** Same as `inViewportOnly`; wins when both are set. */
   viewport?: boolean
@@ -28,32 +28,33 @@ export interface GetSnapshotResult {
 
 /**
  * The renderer `getSnapshot` picks: `snapshot` when the installed WebdriverIO is
- * 10.2 or later and `@wdio/snapshot` is installed, else `legacy`.
+ * 10.2 or later and the resolved `@wdio/snapshot` is 10.2 or later, else `legacy`.
  */
 export function snapshotRenderer(): SnapshotFormat {
-  return usesWdioSnapshot() && resolvesWdioSnapshot() ? 'snapshot' : 'legacy'
+  return usesWdioSnapshot() &&
+    resolvesWdioSnapshot() &&
+    !wdioSnapshotLoadFailed()
+    ? 'snapshot'
+    : 'legacy'
 }
 
 /**
  * Renders with `@wdio/snapshot` when `snapshotRenderer()` picks it, else the legacy
- * renderer. `format` on the result is what rendered, which can differ from
- * `snapshotRenderer()` if `@wdio/snapshot` fails to load.
+ * renderer. Viewport-only by default on both. `format` on the result is what
+ * rendered, which can differ from `snapshotRenderer()` if `@wdio/snapshot` fails to load.
  */
 export async function getSnapshot(
   browser: WebdriverIO.Browser,
   options: GetSnapshotOptions = {}
 ): Promise<GetSnapshotResult> {
-  const wdioSnapshot =
-    snapshotRenderer() === 'snapshot' ? await loadWdioSnapshot() : undefined
-  if (wdioSnapshot) {
-    return getWdioSnapshot(
-      wdioSnapshot,
-      browser,
-      options.viewport ?? options.inViewportOnly ?? false
-    )
+  const viewport = options.viewport ?? options.inViewportOnly ?? true
+  const rendered =
+    snapshotRenderer() === 'snapshot'
+      ? await renderWdioSnapshot(browser, viewport)
+      : undefined
+  if (rendered) {
+    return rendered
   }
-  const legacy = await getLegacySnapshot(browser, {
-    inViewportOnly: options.viewport ?? options.inViewportOnly ?? true
-  })
+  const legacy = await getLegacySnapshot(browser, { inViewportOnly: viewport })
   return { format: 'legacy', ...legacy }
 }

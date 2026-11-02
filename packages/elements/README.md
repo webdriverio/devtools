@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`.
+Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.0.0`, used when it is 10.2 or later (see below).
 
 ## Usage
 
@@ -26,8 +26,8 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer is opt-in:
 
 - **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
-- **10.2 and later, prereleases included** (`10.2.0-alpha.*`), with `@wdio/snapshot` installed (`npm i -D @wdio/snapshot`): `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below.
-- **10.2 and later without `@wdio/snapshot`**: the legacy renderer, silently.
+- **10.2 and later, prereleases included** (`10.2.0-alpha.*`), with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below. Install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
+- **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer, silently.
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
@@ -49,11 +49,11 @@ The result fields:
 
 On the snapshot path a ref can carry no selector: when none of its candidates resolves to its element under BiDi, its `elements` entry has `selector: ''` and its line in `text` has no `→` part.
 
-Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default differs by renderer: viewport-only on the legacy path, the full page on the snapshot path. Pass `{ viewport: true }` on long pages, where it is much smaller and faster.
+Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default is viewport-only on both renderers. Pass `{ viewport: false }` for the full page, which is much larger on long pages.
 
-`snapshotRenderer()` returns `'snapshot'` when the installed `webdriverio` is 10.2 or later and `@wdio/snapshot` resolves, else `'legacy'`. If `@wdio/snapshot` is installed but fails to load, `getSnapshot` falls back to legacy with a warning, and the result's `format` is the authoritative answer.
+`snapshotRenderer()` returns `'snapshot'` when the installed `webdriverio` is 10.2 or later and the resolved `@wdio/snapshot` is 10.2 or later, else `'legacy'`. If `@wdio/snapshot` is installed but fails to load, `getSnapshot` falls back to legacy with a warning, `snapshotRenderer()` returns `'legacy'` from then on, and the result's `format` is the authoritative answer.
 
-Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Errors on the snapshot path are `SnapshotError`s and propagate.
+Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Only collection failures `@wdio/snapshot` raises are `SnapshotError`s; they and driver errors propagate, driver errors unchanged. The one exception is the window size a native viewport snapshot reads: if the driver cannot report it, the whole tree is rendered, as on the legacy path.
 
 The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders.
 
@@ -93,6 +93,32 @@ const elements = await getMobileVisibleElements(browser, 'ios', {
 })
 ```
 
+### AI-readable snapshots
+
+```ts
+import { getBrowserAccessibilityTree, serializeWebSnapshot } from '@wdio/elements'
+
+const nodes = await getBrowserAccessibilityTree(browser, { inViewportOnly: true })
+const text = serializeWebSnapshot(
+  nodes,
+  { url: await browser.getUrl(), title: await browser.getTitle() },
+  { inViewportOnly: true }
+)
+```
+
+```ts
+import { serializeMobileSnapshot } from '@wdio/elements'
+import { xmlToJSON } from '@wdio/elements/locators'
+
+const sourceXML = await browser.getPageSource()
+const root = xmlToJSON(sourceXML)
+const text = root && serializeMobileSnapshot(
+  root,
+  { platform: 'android', sourceXML },
+  { inViewportOnly: true }
+)
+```
+
 ### Locator generation
 
 ```ts
@@ -124,7 +150,7 @@ Returns `GetSnapshotResult` — `{ format, text, elements, refs? }`; see [Access
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `viewport` | `boolean` | `true` on the legacy renderer, `false` on the snapshot renderer | Only include what intersects the viewport; `inViewportOnly` is accepted as an alias and `viewport` wins when both are set |
+| `viewport` | `boolean` | `true` | Only include what intersects the viewport; `inViewportOnly` is accepted as an alias and `viewport` wins when both are set |
 
 ### `getInteractableBrowserElements(browser, options)`
 

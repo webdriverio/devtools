@@ -39,7 +39,7 @@ beforeEach(() => {
 })
 
 describe('getSnapshot (web)', () => {
-  it('collects the full page and renders with selectors', async () => {
+  it('collects the viewport by default and renders with selectors', async () => {
     const b = browser({ isBidi: true })
     const result = await getSnapshot(b)
 
@@ -49,7 +49,7 @@ describe('getSnapshot (web)', () => {
         counter: 0,
         all: false,
         boxes: false,
-        viewport: false,
+        viewport: true,
         assignRefs: 'ephemeral'
       },
       { transport: 'classic-first' }
@@ -113,6 +113,23 @@ function nativeBrowser() {
   })
 }
 
+it('renders the full native tree when the window size cannot be read', async () => {
+  const b = browser({
+    capabilities: { platformName: 'Android' },
+    getPageSource: vi.fn().mockResolvedValue(ANDROID_XML),
+    getWindowSize: vi.fn().mockRejectedValue(new Error('no window'))
+  })
+
+  const result = await getSnapshot(b)
+
+  expect(result.format).toBe('snapshot')
+  expect(snap.inViewport).not.toHaveBeenCalled()
+  expect(snap.formatSnapshot).toHaveBeenCalledWith(
+    expect.objectContaining({ role: expect.any(String) }),
+    expect.anything()
+  )
+})
+
 it('parses a vendor-bag-only native session with the resolved platform', async () => {
   await getSnapshot(
     browser({
@@ -173,8 +190,9 @@ describe('getSnapshot web/native routing (same as wdio session)', () => {
 })
 
 describe('getSnapshot (native)', () => {
-  it('parses the page source without a viewport cut by default', async () => {
+  it('cuts the page source to the viewport by default', async () => {
     const b = nativeBrowser()
+    vi.mocked(snap.inViewport).mockReturnValue(undefined)
     await getSnapshot(b)
 
     expect(snap.parseNativeSource).toHaveBeenCalledWith(
@@ -185,6 +203,15 @@ describe('getSnapshot (native)', () => {
         counter: 0
       }
     )
+    expect(b.getWindowSize).toHaveBeenCalled()
+    expect(snap.inViewport).toHaveBeenCalledWith(expect.anything(), 1080, 2400)
+    expect(snap.collectWeb).not.toHaveBeenCalled()
+  })
+
+  it('renders the full page source when viewport is false', async () => {
+    const b = nativeBrowser()
+    await getSnapshot(b, { viewport: false })
+
     expect(b.getWindowSize).not.toHaveBeenCalled()
     expect(snap.inViewport).not.toHaveBeenCalled()
     expect(snap.collectWeb).not.toHaveBeenCalled()

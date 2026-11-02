@@ -143,6 +143,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    elementsMock.snapshotRenderer.mockReturnValue('legacy')
     mockSessionCapturerInstance.afterCommand.mockClear()
     mockSessionCapturerInstance.sendUpstream.mockClear()
     service = new DevToolsHookService()
@@ -174,7 +175,6 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
     beforeEach(async () => {
       elementsMock.getSnapshot.mockReset()
-      elementsMock.snapshotRenderer.mockReturnValue('legacy')
       await service.before({} as any, [], mockBrowser)
     })
 
@@ -198,6 +198,20 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
     it('reports the legacy failure value without refs', async () => {
       elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+
+      await expect(getSnapshotCommand()()).resolves.toEqual({
+        format: 'legacy',
+        text: '[Snapshot unavailable]',
+        elements: {}
+      })
+    })
+
+    it('reports the renderer that ran when the attempt flipped it to legacy', async () => {
+      elementsMock.snapshotRenderer.mockReturnValue('snapshot')
+      elementsMock.getSnapshot.mockImplementation(async () => {
+        elementsMock.snapshotRenderer.mockReturnValue('legacy')
+        throw new Error('@wdio/snapshot failed to load')
+      })
 
       await expect(getSnapshotCommand()()).resolves.toEqual({
         format: 'legacy',
