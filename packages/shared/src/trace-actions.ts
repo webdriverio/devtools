@@ -269,15 +269,6 @@ export function isInputDispatchingCommand(command: string): boolean {
   return action !== undefined && POINTABLE_METHODS.has(action.method)
 }
 
-/** Whether a command can alter what the page shows; reads and waits don't
- *  warrant their own capture (cost) and inherit the latest earlier one via `claimAfter`. */
-export function changesPage(command: string): boolean {
-  if (!Object.prototype.hasOwnProperty.call(ACTION_MAP, command)) {
-    return false
-  }
-  return METHOD_EFFECT[ACTION_MAP[command].method] === 'changes'
-}
-
 /** Driver lookups and reads that never change the page and have no ACTION_MAP
  *  entry; the ACTION_MAP reads are covered by METHOD_EFFECT in `skipsCapture`. */
 export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
@@ -293,11 +284,14 @@ export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   'getActiveElement',
   'getWindowHandle',
   'getWindowHandles',
+  'getAllWindowHandles',
   'getCurrentContextHandle',
   'getContextHandles',
   'getCookies',
   'getAllCookies',
   'getCookie',
+  'getCredentials',
+  'getDownloadableFiles',
   'getWindowRect',
   'getLog',
   'getAvailableLogTypes',
@@ -308,6 +302,7 @@ export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   'takeScreenshot',
   'screenshot',
   'elementScreenshot',
+  'printPage',
   'getHTML',
   'getComputedRole',
   'getComputedLabel',

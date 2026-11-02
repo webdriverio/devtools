@@ -263,8 +263,8 @@ describe('selenium action-snapshot capture gate', () => {
     resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
     await Promise.all(bag.snapshotCaptures)
 
-    expect(bag.capturer.initialFrameRetried).toBe(false)
-    expect(bag.capturer.awaitingInitialFrame).toBe(true)
+    expect(bag.capturer.testCapture.initialFrameRetried).toBe(false)
+    expect(bag.capturer.testCapture.awaitingInitialFrame).toBe(true)
   })
 
   describe('end-of-test frame', () => {

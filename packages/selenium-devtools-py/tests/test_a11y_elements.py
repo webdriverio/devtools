@@ -12,6 +12,7 @@ import unittest
 from unittest import mock
 
 from selenium_devtools import element_scripts, instrumentation, trace_export
+from selenium_devtools.per_test_capture import PerTestCapture
 from selenium_devtools._contract import (
     ELEMENT_SCRIPTS_PATH,
     MAPPED_COMMANDS,
@@ -229,8 +230,7 @@ class TestCapturingPerAction(unittest.TestCase):
                 "a11y": True,
                 "element_scripts": SCRIPTS,
                 "action_snapshots": [],
-                "awaiting_initial_frame": True,
-                "initial_frame_retried": False,
+                "test": PerTestCapture(),
             },
         ):
             yield driver or self.Driver(elements=[{"selector": "#go"}])
@@ -297,7 +297,7 @@ class TestCapturingPerAction(unittest.TestCase):
 
         with self._armed(NativeDriver(elements=[{"selector": "#go"}])) as driver:
             self._gate(driver, "getElementText")
-            self.assertTrue(instrumentation._state["awaiting_initial_frame"])
+            self.assertTrue(instrumentation._state["test"].awaiting_initial_frame)
             self.assertEqual(driver.scripts_run, [])
 
     # Deny-list: a command the set does not name is captured, so only commands
@@ -368,18 +368,13 @@ class TestTheEndOfATest(unittest.TestCase):
                 "a11y": True,
                 "element_scripts": SCRIPTS,
                 "action_snapshots": [],
-                "awaiting_initial_frame": False,
-                "initial_frame_retried": False,
-                "test_rows": [],
-                "test_started_ms": 1000,
-                "last_captured_ts": None,
-                "final_frame_taken": False,
+                "test": PerTestCapture(awaiting_initial_frame=False, started_ms=1000),
             },
         ):
             yield
 
     def _step(self, driver, command, timestamp):
-        instrumentation._state["test_rows"].append((command, timestamp))
+        instrumentation._state["test"].rows.append((command, timestamp))
         instrumentation._maybe_capture_action_snapshot(driver, command, timestamp, None)
 
     def test_the_reads_after_a_click_replace_its_stale_capture(self):
@@ -431,7 +426,7 @@ class TestTheEndOfATest(unittest.TestCase):
     def test_a_final_capture_without_a_screenshot_leaves_the_record_unchanged(self):
         driver = self.Driver()
         with self._ended():
-            instrumentation._state["test_rows"].append(("clickElement", 1200))
+            instrumentation._state["test"].rows.append(("clickElement", 1200))
             instrumentation._maybe_capture_action_snapshot(driver, "clickElement", 1200, "SHOT")
             before = dict(instrumentation.action_snapshots()[0])
             driver.tree = [{"selector": "#after"}]
@@ -444,7 +439,7 @@ class TestTheEndOfATest(unittest.TestCase):
     def test_a_screenshot_only_final_capture_supersedes_the_screenshot(self):
         driver = self.Driver()
         with self._ended():
-            instrumentation._state["test_rows"].append(("clickElement", 1200))
+            instrumentation._state["test"].rows.append(("clickElement", 1200))
             instrumentation._maybe_capture_action_snapshot(driver, "clickElement", 1200, "SHOT")
             driver.tree = []
             self._step(driver, "getElementText", 1300)
@@ -470,11 +465,11 @@ class TestTheEndOfATest(unittest.TestCase):
             self._step(owner, "clickElement", 1200)
             self._step(other, "getElementText", 1300)
             instrumentation.capture_final_frame(other)
-            self.assertFalse(instrumentation._state["final_frame_taken"])
+            self.assertFalse(instrumentation._state["test"].final_frame_taken)
             before = owner.scripts_run
             instrumentation.capture_final_frame(owner)
             self.assertEqual(owner.scripts_run, before + 2)
-            self.assertTrue(instrumentation._state["final_frame_taken"])
+            self.assertTrue(instrumentation._state["test"].final_frame_taken)
 
     def test_window_and_aria_reads_take_no_capture(self):
         driver = self.Driver()

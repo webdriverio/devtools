@@ -603,6 +603,58 @@
           "expect": { "command": "wait", "selector": null }
         }
       ]
+    },
+    "finalFrameStamp": {
+      "mirrors": {
+        "ts": "core/final-frame.ts finalFrameStamp",
+        "py": "instrumentation.py _final_frame_stamp"
+      },
+      "notes": "commands are the test's rows in completion order. expect is the stamp the end-of-test capture takes, or null when no row follows the last capture. A stamp at the last capture names the last row at or before it, and a stamp at a row names that row.",
+      "cases": [
+        {
+          "name": "no capture yet stamps the test's last row",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": null,
+          "expect": { "command": "getText", "timestamp": 1200 }
+        },
+        {
+          "name": "a capture from before the test started does not count",
+          "commands": [
+            { "command": "click", "timestamp": 500 },
+            { "command": "getText", "timestamp": 1200 },
+            { "command": "click", "timestamp": 1300 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 900,
+          "expect": { "command": "click", "timestamp": 1300 }
+        },
+        {
+          "name": "no row after the capture takes none",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 1200,
+          "expect": null
+        },
+        {
+          "name": "rows after the capture stamp it, owned by the last row at or before it",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 },
+            { "command": "click", "timestamp": 1300 },
+            { "command": "getText", "timestamp": 1400 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 1250,
+          "expect": { "command": "getText", "timestamp": 1250 }
+        }
+      ]
     }
   }
 }

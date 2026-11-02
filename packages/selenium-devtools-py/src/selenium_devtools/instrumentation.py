@@ -38,6 +38,7 @@ from .collector_source import reset_cache as reset_collector_cache
 from .device import driver_is_native_app, restore_browser_focus
 from .element_scripts import reset_cache as reset_element_scripts_cache
 from .page_scripts import reset_cache as reset_page_scripts_cache
+from .per_test_capture import PerTestCapture
 from .constants import (
     BIDI_CAPABILITY,
     DEFAULT_TEST_TITLE,
@@ -290,15 +291,7 @@ _state: dict = {
     # driver, and the filmstrip is the whole run.
     "filmstrip_frames": [],
     # Re-armed per test by reset_test_capture().
-    "awaiting_initial_frame": True,
-    "initial_frame_retried": False,
-    # The test's command rows as (command, timestamp), and the timestamp of the
-    # last capture attempted — what the end-of-test capture is decided from.
-    "test_rows": [],
-    "test_started_ms": 0,
-    "last_captured_ts": None,
-    "final_frame_driver": None,
-    "final_frame_taken": False,
+    "test": PerTestCapture(),
 }
 
 
@@ -497,22 +490,22 @@ def _maybe_capture_action_snapshot(
     """Capture on every command that is not a known read, and on a test's first
     mapped command as its initial frame. Reads and waits inherit the capture
     before them."""
-    initial = _state["awaiting_initial_frame"] and command in MAPPED_COMMANDS
+    initial = _state["test"].awaiting_initial_frame and command in MAPPED_COMMANDS
     _note_final_frame_driver(driver)
     if command in READ_ONLY_COMMANDS and not initial:
         return
     if not _action_capture_enabled(driver):
         return
     if initial:
-        _state["awaiting_initial_frame"] = False
-    _state["last_captured_ts"] = timestamp
-    _state["final_frame_driver"] = weakref.ref(driver)
+        _state["test"].awaiting_initial_frame = False
+    _state["test"].last_captured_ts = timestamp
+    _state["test"].final_frame_driver = weakref.ref(driver)
     snapshot = _capture_action_snapshot(driver, command, timestamp, shot)
-    if not initial or _state["initial_frame_retried"]:
+    if not initial or _state["test"].initial_frame_retried:
         return
     if snapshot is None or "screenshot" not in snapshot:
-        _state["initial_frame_retried"] = True
-        _state["awaiting_initial_frame"] = True
+        _state["test"].initial_frame_retried = True
+        _state["test"].awaiting_initial_frame = True
 
 
 def _capture_command(driver_command: str, params: Any) -> str:
@@ -545,20 +538,19 @@ def _final_frame_stamp(
 
 def _note_final_frame_driver(driver: Any) -> None:
     """Until a capture is taken, the test's stamp belongs to the driver that ran its latest row."""
-    if _state["last_captured_ts"] is None:
-        _state["final_frame_driver"] = weakref.ref(driver)
+    if _state["test"].last_captured_ts is None:
+        _state["test"].final_frame_driver = weakref.ref(driver)
 
 
 def _capture_final_frame(driver: Any) -> bool:
     if not _action_capture_enabled(driver):
         return False
     stamp = _final_frame_stamp(
-        _state["test_rows"], _state["test_started_ms"], _state["last_captured_ts"]
+        _state["test"].rows, _state["test"].started_ms, _state["test"].last_captured_ts
     )
     if stamp is None:
         return False
     command, timestamp = stamp
-    # Frames are screenshot-backed: panes merged over an earlier image would pair two documents.
     # Frames are screenshot-backed: panes merged over an earlier image would pair two documents.
     shot = _take_screenshot(driver)
     if not shot:
@@ -576,7 +568,7 @@ def _capture_final_frame(driver: Any) -> bool:
         kept for kept in _state["action_snapshots"] if kept["timestamp"] != timestamp
     ]
     _state["action_snapshots"].append({**superseded, **snapshot})
-    _state["last_captured_ts"] = timestamp
+    _state["test"].last_captured_ts = timestamp
     return True
 
 
@@ -590,26 +582,22 @@ def capture_final_frame(driver: Any = None) -> None:
     the driver that owns the stamp acts, so another session quitting mid-test
     neither captures from nor consumes the test's one final frame.
     """
-    if _state["final_frame_taken"]:
+    if _state["test"].final_frame_taken:
         return
-    owner_ref = _state["final_frame_driver"]
+    owner_ref = _state["test"].final_frame_driver
     owner = owner_ref() if owner_ref is not None else None
     if owner is None or (driver is not None and driver is not owner):
         return
     try:
         if _capture_final_frame(owner):
-            _state["final_frame_taken"] = True
+            _state["test"].final_frame_taken = True
     except Exception as exc:  # noqa: BLE001 — a missing end frame, not a failed run
         _log.debug("final frame capture failed: %s", exc)
 
 
 def reset_test_capture() -> None:
     """Re-arm the initial frame and start the row ledger for the test about to start."""
-    _state.update(
-        awaiting_initial_frame=True, initial_frame_retried=False,
-        test_rows=[], test_started_ms=now_ms(),
-        last_captured_ts=None, final_frame_driver=None, final_frame_taken=False,
-    )
+    _state["test"].reset(now_ms())
 
 
 def _begin_screencast_run(entry: Optional[dict], shot: Optional[str] = None) -> None:
@@ -1187,7 +1175,7 @@ def install(
             )
             wait_tracking.note_poll_row(poll, failed)
             _note_final_frame_driver(self)
-            _state["test_rows"].append(
+            _state["test"].rows.append(
                 (_capture_command(driver_command, params), failed["timestamp"])
             )
             raise
@@ -1215,7 +1203,7 @@ def install(
         wait_tracking.note_poll_row(poll, row)
         command = _capture_command(driver_command, params)
         stamp = row.get("timestamp", start)
-        _state["test_rows"].append((command, stamp))
+        _state["test"].rows.append((command, stamp))
         _maybe_capture_action_snapshot(self, command, stamp, shot)
         if driver_command in NAVIGATION_COMMANDS:
             _attach_performance(capturer, self, row, params)
@@ -1245,10 +1233,8 @@ def install(
         sessions=weakref.WeakKeyDictionary(), output_dir=None, default_suite=None,
         trace=trace, filmstrip=filmstrip, filmstrip_frames=[],
         a11y=a11y, element_scripts=None, page_scripts=None, action_snapshots=[],
-        awaiting_initial_frame=True, initial_frame_retried=False,
-        test_rows=[], test_started_ms=now_ms(), last_captured_ts=None,
-        final_frame_driver=None, final_frame_taken=False,
     )
+    _state["test"].reset(now_ms())
 
 
 def _executor_host(driver: Any) -> Optional[str]:

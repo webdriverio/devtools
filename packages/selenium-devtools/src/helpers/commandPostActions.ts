@@ -5,9 +5,7 @@ import {
   errorMessage,
   isSessionGoneError,
   mapAssertCommand,
-  mapCommandToAction,
   toError,
-  upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
@@ -375,37 +373,19 @@ function queueActionSnapshot(
   if (ctx.options.mode !== 'trace' || error || !ctx.driver) {
     return
   }
-  // Reads, waits and lookups inherit the earlier capture; only the test's first mapped command adds an initial frame.
-  const initialFrame =
-    capturer.awaitingInitialFrame && !!mapCommandToAction(command)
-  if (skipsCapture(command) && !initialFrame) {
-    return
-  }
-  if (initialFrame) {
-    capturer.awaitingInitialFrame = false
-  }
-  capturer.lastCapturedTimestamp = timestamp
-  const generation = capturer.testCaptureGeneration
-  ctx.snapshotCaptures.push(
-    captureActionSnapshot(
-      ctx.driver,
-      command,
-      timestamp,
-      capturer.isNativeAppSession
-    ).then((snap) => {
-      if (snap) {
-        upsertRichestSnapshot(ctx.actionSnapshots, snap)
-      }
-      // A capture resolving after resetTestCapture() belongs to the previous test.
-      if (
-        initialFrame &&
-        !snap?.screenshot &&
-        !capturer.initialFrameRetried &&
-        generation === capturer.testCaptureGeneration
-      ) {
-        capturer.initialFrameRetried = true
-        capturer.awaitingInitialFrame = true
-      }
-    })
+  const driver = ctx.driver
+  capturer.testCapture.queue(
+    command,
+    timestamp,
+    !skipsCapture(command),
+    ctx.actionSnapshots,
+    ctx.snapshotCaptures,
+    () =>
+      captureActionSnapshot(
+        driver,
+        command,
+        timestamp,
+        capturer.isNativeAppSession
+      )
   )
 }

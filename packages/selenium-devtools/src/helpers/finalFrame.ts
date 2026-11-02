@@ -1,10 +1,5 @@
 import logger from '@wdio/logger'
-import {
-  capturedPageState,
-  errorMessage,
-  finalFrameStamp,
-  supersedeSnapshotAt
-} from '@wdio/devtools-core'
+import { errorMessage } from '@wdio/devtools-core'
 import { captureActionSnapshot } from '../action-snapshot.js'
 import type { SessionLifecycleCtx } from '../session-lifecycle.js'
 
@@ -23,26 +18,20 @@ export async function captureFinalFrame(
   ) {
     return
   }
-  await Promise.all(ctx.snapshotCaptures)
-  const stamp = finalFrameStamp(
+  await capturer.testCapture.captureEndFrame(
     capturer.commandsLog,
-    capturer.testStartWallTime,
-    capturer.lastCapturedTimestamp
+    ctx.snapshotCaptures,
+    ctx.actionSnapshots,
+    // ctx.driver is read after the pending captures settle: a driver swap meanwhile must be honoured.
+    (stamp) =>
+      ctx.driver
+        ? captureActionSnapshot(
+            ctx.driver,
+            stamp.command,
+            stamp.timestamp,
+            capturer.isNativeAppSession
+          )
+        : Promise.resolve(null),
+    (err) => log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)
   )
-  if (!stamp) {
-    return
-  }
-  try {
-    const snap = await captureActionSnapshot(
-      ctx.driver,
-      stamp.command,
-      stamp.timestamp,
-      capturer.isNativeAppSession
-    )
-    if (snap && capturedPageState(snap)) {
-      supersedeSnapshotAt(ctx.actionSnapshots, snap)
-    }
-  } catch (err) {
-    log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)
-  }
 }

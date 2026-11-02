@@ -196,8 +196,8 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
     await Promise.all(cap.snapshotCaptures)
 
-    expect(cap.initialFrameRetried).toBe(false)
-    expect(cap.awaitingInitialFrame).toBe(true)
+    expect(cap.testCapture.initialFrameRetried).toBe(false)
+    expect(cap.testCapture.awaitingInitialFrame).toBe(true)
     cap.cleanup()
   })
 

@@ -3,18 +3,13 @@ import {
   CAPTURE_PERFORMANCE_SCRIPT,
   SessionCapturerBase,
   applyPerformanceData,
-  capturedPageState,
   collectorDrainExpression,
   drainCollectorWithRecovery,
   errorMessage,
-  finalFrameStamp,
   loadInjectableScript,
-  mapCommandToAction,
   NativeNetworkCapture,
   pollUntilReady,
-  supersedeSnapshotAt,
   serializeError,
-  upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
@@ -101,21 +96,6 @@ export class SessionCapturer extends SessionCapturerBase {
   readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
     log[level](message)
   )
-
-  /** True until the current test's first mapped command takes its capture. */
-  awaitingInitialFrame = true
-  initialFrameRetried = false
-  testCaptureGeneration = 0
-  /** Timestamp of the latest command that queued a capture; the end-of-test frame is stamped there. */
-  lastCapturedTimestamp: number | undefined = undefined
-  testStartWallTime = 0
-
-  resetTestCapture(): void {
-    this.awaitingInitialFrame = true
-    this.initialFrameRetried = false
-    this.testCaptureGeneration++
-    this.testStartWallTime = Date.now()
-  }
 
   constructor(
     devtoolsOptions: SessionCapturerOptions = {},
@@ -204,44 +184,27 @@ export class SessionCapturer extends SessionCapturerBase {
     if (this.traceMode !== 'trace' || !this.#browser) {
       return
     }
-    // Reads, waits and lookups inherit the earlier capture; only the test's first mapped command adds an initial frame.
-    const initialFrame =
-      this.awaitingInitialFrame && !!mapCommandToAction(command)
     // `url()` without a string argument is a getter; it does not navigate.
     const pageChanging =
       !skipsCapture(command) &&
       !(command === 'url' && typeof args[0] !== 'string')
-    if (!pageChanging && !initialFrame) {
-      return
-    }
-    if (initialFrame) {
-      this.awaitingInitialFrame = false
-    }
-    this.lastCapturedTimestamp = timestamp
-    const generation = this.testCaptureGeneration
-    const settled = captureActionSnapshot(
-      this.#browser,
+    const browser = this.#browser
+    const settled = this.testCapture.queue(
       command,
       timestamp,
-      this.runner,
-      this.isNativeAppSession
-    ).then((snap) => {
-      if (snap) {
-        upsertRichestSnapshot(this.actionSnapshots, snap)
-      }
-      // A capture resolving after resetTestCapture() belongs to the previous test.
-      if (
-        initialFrame &&
-        !snap?.screenshot &&
-        !this.initialFrameRetried &&
-        generation === this.testCaptureGeneration
-      ) {
-        this.initialFrameRetried = true
-        this.awaitingInitialFrame = true
-      }
-    })
-    this.snapshotCaptures.push(settled)
-    if (pageChanging) {
+      pageChanging,
+      this.actionSnapshots,
+      this.snapshotCaptures,
+      () =>
+        captureActionSnapshot(
+          browser,
+          command,
+          timestamp,
+          this.runner,
+          this.isNativeAppSession
+        )
+    )
+    if (settled && pageChanging) {
       this.#lastPageCapture = { command, timestamp, settled }
     }
   }
@@ -682,31 +645,31 @@ export class SessionCapturer extends SessionCapturerBase {
 
   /** Rows after the last capture saw a state nothing captured; one more capture, stamped at that capture, shows the test's end. */
   async captureFinalFrame(): Promise<void> {
-    await Promise.all(this.snapshotCaptures)
-    const stamp = finalFrameStamp(
-      this.commandsLog,
-      this.testStartWallTime,
-      this.lastCapturedTimestamp
-    )
-    if (this.traceMode !== 'trace' || !this.#browser || !stamp) {
+    if (this.traceMode !== 'trace') {
       return
     }
-    try {
-      const snap = await captureActionSnapshot(
-        this.#browser,
-        stamp.command,
-        stamp.timestamp,
-        this.runner,
-        this.isNativeAppSession
-      )
-      if (snap && capturedPageState(snap)) {
-        supersedeSnapshotAt(this.actionSnapshots, snap)
-      }
-    } catch (err) {
-      log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)
-    }
+    await this.testCapture.captureEndFrame(
+      this.commandsLog,
+      this.snapshotCaptures,
+      this.actionSnapshots,
+      async (stamp) => {
+        if (!this.#browser) {
+          return null
+        }
+        return captureActionSnapshot(
+          this.#browser,
+          stamp.command,
+          stamp.timestamp,
+          this.runner,
+          this.isNativeAppSession
+        )
+      },
+      (err) =>
+        log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)
+    )
   }
 
+  /** At a test or scenario end, before its slice is written: the proxy drain there is never throttled. */
   async captureTraceAtTestEnd(browser: NightwatchBrowser) {
     if (this.isNativeAppSession) {
       await this.nativeNetwork.forward()

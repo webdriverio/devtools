@@ -38,8 +38,8 @@ import {
   settleAfterLastAction
 } from './action-snapshot.js'
 import {
-  changesPage,
   isWaitCommand,
+  skipsCapture,
   type ActionSnapshot,
   type TestMetadataMap
 } from '@wdio/devtools-shared'
@@ -591,7 +591,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // action's has no successor and this is the only capture of it. A session
     // that ran no action names it FINAL_SNAPSHOT_COMMAND, which the per-test
     // screenshot reads as "post-teardown frame, do not use".
-    const lastChange = this.#lastCommandWhere(changesPage)
+    const lastChange = this.#lastCommandWhere(
+      (command) => !skipsCapture(command)
+    )
     const lastAction =
       lastChange && lastChange.timestamp >= this.#currentTestStartWallTime
         ? lastChange
@@ -798,7 +800,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#sessionCapturer.currentContext
       ) &&
       this.#isActionCommand(command) &&
-      (changesPage(command) || this.#awaitingInitialCapture)
+      (!skipsCapture(command) || this.#awaitingInitialCapture)
     ) {
       // Stamped at the previous page-changing command's end so this capture IS that command's
       // result — except across a test boundary, where that slot already holds
@@ -808,7 +810,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       // capture of a test stamps now instead, the same rule the session's first
       // capture uses to become the initial frame.
       const previousEnd =
-        this.#lastCommandWhere(changesPage)?.timestamp ?? Date.now()
+        this.#lastCommandWhere((cmd) => !skipsCapture(cmd))?.timestamp ??
+        Date.now()
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
