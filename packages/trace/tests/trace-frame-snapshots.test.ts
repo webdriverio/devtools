@@ -76,6 +76,25 @@ describe('FrameSnapshotIndex', () => {
     expect(index.claimAfter(2000, 'call@2')).toBeUndefined()
   })
 
+  it('skips a snapshot whose screenshot is a non-string object and falls back to the previous frame', () => {
+    const index = new FrameSnapshotIndex([
+      snap({ timestamp: 2000, command: 'url', screenshot: 'AAAA' }),
+      snap({
+        timestamp: 3000,
+        command: 'click',
+        screenshot: {
+          message: 'Session not started or terminated'
+        } as unknown as string
+      })
+    ])
+    expect(index.claimAfter(2000, 'call@1')).toBe('after@call@1')
+    expect(index.claimAfter(3000, 'call@2')).toBe('after@call@2')
+    expect(index.refs().map((r) => r.snapshot.screenshot)).toEqual([
+      'AAAA',
+      'AAAA'
+    ])
+  })
+
   it('keeps the richest capture for duplicate timestamps', () => {
     const index = new FrameSnapshotIndex([
       snap({ screenshot: 'AA' }),

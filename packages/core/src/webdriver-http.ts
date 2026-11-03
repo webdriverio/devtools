@@ -72,16 +72,35 @@ function authHeaders(address: WebDriverAddress): Record<string, string> {
   return { authorization: `Basic ${encoded}` }
 }
 
-/** A W3C error payload: `value` carries `error`/`message` instead of the
- *  command's result. Shape-checked rather than status-checked because
- *  chromedriver answers some failures with a 200. */
+const ERROR_ENVELOPE_KEYS = new Set([
+  'error',
+  'message',
+  'stacktrace',
+  'stackTrace',
+  'data',
+  'screen',
+  'class',
+  'hCode'
+])
+
+/** A W3C or cloud-grid error payload: `value` carries `error`/`message` instead
+ *  of the command's result. Shape-checked as well as status-checked because
+ *  chromedriver answers some failures with a 200, and cloud hubs can answer
+ *  terminated-session probes with `{ value: { message: "..." } }` and no
+ *  `error` field. */
 function isWebdriverError(value: unknown): boolean {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { error?: unknown }).error === 'string'
-  )
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.error === 'string') {
+    return true
+  }
+  if (typeof record.message === 'string') {
+    const keys = Object.keys(record)
+    return keys.every((key) => ERROR_ENVELOPE_KEYS.has(key))
+  }
+  return false
 }
 
 function requestHeaders(
@@ -120,8 +139,25 @@ function resolveFromResponse<T>(
     raw += chunk
   })
   res.on('end', () => {
+    if (
+      res.statusCode !== undefined &&
+      (res.statusCode < 200 || res.statusCode >= 300)
+    ) {
+      settle(null)
+      return
+    }
     try {
-      const value = JSON.parse(raw).value
+      const parsed: unknown = JSON.parse(raw)
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed) ||
+        !('value' in parsed)
+      ) {
+        settle(null)
+        return
+      }
+      const value = (parsed as { value: unknown }).value
       // A W3C error answers 200-shaped JSON whose `value` is
       // `{error, message, stacktrace}` — an OBJECT where the caller expects
       // its payload. Casting that through as `T` put an error object into a

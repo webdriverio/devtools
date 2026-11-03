@@ -124,6 +124,31 @@ describe('ScreencastRecorderBase — polling path', () => {
     expect(r.bufferLength).toBe(after)
     vi.useRealTimers()
   })
+
+  it('skips non-string or empty frames returned during polling without stopping', async () => {
+    vi.useFakeTimers()
+    let n = 0
+    class MalformedMid extends TestRecorder {
+      protected override async takeScreenshot() {
+        n++
+        if (n === 2) {
+          return {
+            message: 'Session not started or terminated'
+          } as unknown as string
+        }
+        if (n === 3) {
+          return ''
+        }
+        return `f-${n}`
+      }
+    }
+    const r = new MalformedMid({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    await vi.advanceTimersByTimeAsync(150) // ticks 2 (object), 3 (empty), 4 (valid)
+    await r.stop()
+    expect(r.frames.map((f) => f.data)).toEqual(['f-1', 'f-4'])
+    vi.useRealTimers()
+  })
 })
 
 describe('ScreencastRecorderBase — input-dispatch gate', () => {

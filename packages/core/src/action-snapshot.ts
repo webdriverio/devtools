@@ -224,7 +224,8 @@ export async function captureActionSnapshot(
       command: input.command,
       url,
       title,
-      screenshot: shot ?? undefined,
+      screenshot:
+        typeof shot === 'string' && shot.length > 0 ? shot : undefined,
       elements: mobile?.elements ?? elements,
       snapshotText
     }
