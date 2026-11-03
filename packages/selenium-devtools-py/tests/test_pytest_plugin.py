@@ -11,7 +11,8 @@ import types
 import unittest
 from unittest import mock
 
-from selenium_devtools import assertions
+from selenium_devtools import assertions, instrumentation
+from selenium_devtools.per_test_capture import PerTestCapture
 from selenium_devtools import pytest_plugin as plugin
 from selenium_devtools.pytest_plugin import _SuiteRegistry, reported_state
 from selenium_devtools.utils import iso
@@ -550,3 +551,45 @@ class TestEnablingThePassHook(unittest.TestCase):
         plugin._enable_assertion_pass_hook(config)
 
         self.assertIs(config.getini("enable_assertion_pass_hook"), True)
+
+
+class TestEachTestStartsWithItsOwnInitialFrame(unittest.TestCase):
+    def test_a_test_starting_re_arms_the_initial_frame(self):
+        with mock.patch.dict(
+            instrumentation._state,
+            {"test": PerTestCapture(awaiting_initial_frame=False, initial_frame_retried=True)},
+        ), mock.patch.object(plugin, "_opted_in", return_value=True), mock.patch.object(
+            plugin.devtools, "get_capturer", return_value=None
+        ):
+            plugin.pytest_runtest_logstart("tests/t.py::test_a", ("tests/t.py", 1, "test_a"))
+
+            self.assertIs(instrumentation._state["test"].awaiting_initial_frame, True)
+            self.assertIs(instrumentation._state["test"].initial_frame_retried, False)
+
+
+
+class TestTheFinalFrameIsTakenAtTheCallReport(unittest.TestCase):
+    """The call report lands while the driver is still alive, before the
+    fixture teardown that quits it. Setup and teardown reports are not the
+    test's last page."""
+
+    def _log(self, when):
+        report = _Report(when, "passed")
+        report.nodeid = "tests/t.py::test_a"
+        report.location = ("tests/t.py", 1, "test_a")
+        with mock.patch.object(plugin, "_opted_in", return_value=True), mock.patch.object(
+            plugin.devtools, "get_capturer", return_value=object()
+        ), mock.patch.object(plugin, "_publish"), mock.patch.object(
+            plugin, "_registry"
+        ), mock.patch.object(instrumentation, "drain_native_network"), mock.patch.object(
+            instrumentation, "capture_final_frame"
+        ) as final:
+            plugin.pytest_runtest_logreport(report)
+        return final
+
+    def test_the_call_report_takes_the_final_frame(self):
+        self._log("call").assert_called_once_with()
+
+    def test_the_setup_and_teardown_reports_do_not(self):
+        self._log("setup").assert_not_called()
+        self._log("teardown").assert_not_called()

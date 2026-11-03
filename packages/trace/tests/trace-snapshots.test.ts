@@ -6,6 +6,7 @@ import {
   buildFilmstripEvents,
   buildSnapshotResources,
   screenshotResourceName,
+  supersedeSnapshotAt,
   upsertRichestSnapshot,
   writeTraceZip,
   type TraceCapturer
@@ -224,5 +225,49 @@ describe('snapshot binding contract (capture → export)', () => {
     expect(frame.toString('base64')).toBe(RESULT)
 
     await fs.rm(outputDir, { recursive: true, force: true })
+  })
+})
+
+describe('supersedeSnapshotAt', () => {
+  it('takes the later capture’s defined fields and keeps the rest', () => {
+    const list = [
+      snap(50, REAL),
+      snap(100, REAL, { elements: [{ selector: '#old' }] })
+    ]
+    supersedeSnapshotAt(list, snap(100, BLANK, { snapshotText: 'tree' }))
+    expect(list.filter((s) => s.timestamp === 100)).toEqual([
+      {
+        timestamp: 100,
+        command: 'click',
+        screenshot: BLANK,
+        elements: [{ selector: '#old' }],
+        snapshotText: 'tree'
+      }
+    ])
+    expect(list).toHaveLength(2)
+  })
+
+  it('keeps the earlier screenshot when a partial final capture has none', () => {
+    const list = [snap(100, REAL, { elements: [{ selector: '#old' }] })]
+    supersedeSnapshotAt(list, {
+      timestamp: 100,
+      command: 'click',
+      screenshot: undefined,
+      elements: [{ selector: '#new' }]
+    })
+    expect(list).toEqual([
+      {
+        timestamp: 100,
+        command: 'click',
+        screenshot: REAL,
+        elements: [{ selector: '#new' }]
+      }
+    ])
+  })
+
+  it('appends when no record holds the timestamp', () => {
+    const list = [snap(50, REAL)]
+    supersedeSnapshotAt(list, snap(100, BLANK))
+    expect(list.map((s) => s.timestamp)).toEqual([50, 100])
   })
 })

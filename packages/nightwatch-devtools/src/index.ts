@@ -572,6 +572,7 @@ class NightwatchDevToolsPlugin {
           )
         }
         await this.sessionCapturer.captureTraceAtTestEnd(browser)
+        await this.sessionCapturer.captureFinalFrame()
         // Flush this test's slice before the next test overwrites its outcome.
         flushTestSlice(this.#getInternals())
         const results = (browser.currentTest as NightwatchCurrentTest)?.results

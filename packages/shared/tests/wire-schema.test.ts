@@ -39,6 +39,17 @@ describe('wire schema', () => {
     })
   })
 
+  it('lists the read-only commands the capture gate skips', () => {
+    expect(schema.actionCommands.readOnly).toEqual(
+      expect.arrayContaining([
+        'findElement',
+        'getElementText',
+        'waitForDisplayed'
+      ])
+    )
+    expect(schema.actionCommands.readOnly).not.toContain('click')
+  })
+
   it('describes a Date as the ISO string it serializes to', () => {
     const props = (schema.$defs.TestStats.properties ?? {}) as Record<
       string,

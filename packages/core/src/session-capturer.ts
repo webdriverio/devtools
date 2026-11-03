@@ -24,6 +24,7 @@ import {
 } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
+import { TestCapture } from './test-capture.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -137,6 +138,13 @@ export abstract class SessionCapturerBase {
    *  captured as if it had no DOM. */
   get hasDocument(): boolean {
     return sessionHasDocument(this.metadata?.capabilities, this.currentContext)
+  }
+
+  /** Per-test capture state for adapters that capture after each command. */
+  readonly testCapture = new TestCapture()
+
+  resetTestCapture(): void {
+    this.testCapture.reset()
   }
 
   // ── Construction ────────────────────────────────────────────────────────

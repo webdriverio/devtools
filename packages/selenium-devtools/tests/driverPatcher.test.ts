@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   isWebElementLike,
   safeSerialize,
@@ -6,6 +6,8 @@ import {
   getDriverOriginals,
   getElementOriginals
 } from '../src/driverPatcher.js'
+import { patchActions } from '../src/helpers/actions-patcher.js'
+import type { DriverPatcherHooks } from '../src/types.js'
 
 describe('isWebElementLike', () => {
   it('detects an object with getId + click as a WebElement', () => {
@@ -120,5 +122,78 @@ describe('getDriverOriginals / getElementOriginals', () => {
     expect(typeof e).toBe('object')
     expect(d).not.toBeNull()
     expect(e).not.toBeNull()
+  })
+})
+
+describe('patchActions', () => {
+  // A fresh class per test: patching marks the prototype, so a shared one would
+  // keep the first test's hooks.
+  function fakeDriverClass() {
+    class FakeActions {
+      constructor(
+        private readonly executor_: unknown,
+        private readonly fails = false
+      ) {}
+      async perform() {
+        if (this.fails) {
+          throw new Error('stale element')
+        }
+        return this.executor_
+      }
+    }
+    return class FakeDriver {
+      actions(options?: { fails?: boolean }) {
+        return new FakeActions(this, options?.fails)
+      }
+    }
+  }
+
+  function hooksWith(
+    afterActions = vi.fn(),
+    onCommand = vi.fn()
+  ): DriverPatcherHooks {
+    return {
+      onDriverCreated: () => {},
+      onCommand,
+      afterActions
+    } as unknown as DriverPatcherHooks
+  }
+
+  it('reports the owning driver once a sequence performs, with no command row', async () => {
+    const FakeDriver = fakeDriverClass()
+    const afterActions = vi.fn()
+    const onCommand = vi.fn()
+    patchActions(FakeDriver, hooksWith(afterActions, onCommand))
+    const driver = new FakeDriver()
+
+    await driver.actions().perform()
+
+    expect(afterActions).toHaveBeenCalledTimes(1)
+    expect(afterActions.mock.calls[0]![0]).toBe(driver)
+    expect(onCommand).not.toHaveBeenCalled()
+  })
+
+  it('still reports a sequence that moved the page before it failed, and rethrows its error', async () => {
+    const FakeDriver = fakeDriverClass()
+    const afterActions = vi.fn()
+    patchActions(FakeDriver, hooksWith(afterActions))
+    const driver = new FakeDriver()
+
+    await expect(driver.actions({ fails: true }).perform()).rejects.toThrow(
+      'stale element'
+    )
+    expect(afterActions).toHaveBeenCalledTimes(1)
+    expect(afterActions.mock.calls[0]![0]).toBe(driver)
+  })
+
+  it('wraps perform once however often it is patched', async () => {
+    const FakeDriver = fakeDriverClass()
+    const afterActions = vi.fn()
+    patchActions(FakeDriver, hooksWith(afterActions))
+    patchActions(FakeDriver, hooksWith(afterActions))
+
+    await new FakeDriver().actions().perform()
+
+    expect(afterActions).toHaveBeenCalledTimes(1)
   })
 })

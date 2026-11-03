@@ -5,12 +5,11 @@ import {
   errorMessage,
   isSessionGoneError,
   mapAssertCommand,
-  mapCommandToAction,
   toError,
-  upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
+import { skipsCapture, type CaptureTrigger } from '@wdio/devtools-shared'
 import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
@@ -347,8 +346,31 @@ export async function handleOnCommand(
   }
   maybeDrainAfterDomCommand(ctx, capturer, cmd)
   maybeDrainAfterLiveCommand(ctx, capturer, cmd)
-  queueActionSnapshot(ctx, capturer, cmd, entry.timestamp, error)
+  queueActionSnapshot(
+    ctx,
+    capturer,
+    cmd.command,
+    entry.timestamp,
+    error,
+    cmd.waitScope ? 'wait-poll' : 'action'
+  )
   void capturer.nativeNetwork.forward({ throttle: true })
+}
+
+/** A driver-level action sequence's page change, stamped at completion for later reads to inherit. */
+export function handleActionsPerformed(ctx: OnCommandCtx): void {
+  const capturer = ctx.sessionCapturer
+  if (!capturer) {
+    return
+  }
+  queueActionSnapshot(
+    ctx,
+    capturer,
+    'performActions',
+    Date.now(),
+    undefined,
+    'action'
+  )
 }
 
 /** Fire-and-forget post-action snapshot, drained at finalize. Stamped with the
@@ -358,29 +380,28 @@ export async function handleOnCommand(
 function queueActionSnapshot(
   ctx: OnCommandCtx,
   capturer: SessionCapturer,
-  cmd: CapturedCommand,
+  command: string,
   timestamp: number,
-  error: unknown
+  error: unknown,
+  trigger: CaptureTrigger
 ): void {
-  if (
-    ctx.options.mode !== 'trace' ||
-    error ||
-    !ctx.driver ||
-    !mapCommandToAction(cmd.command)
-  ) {
+  if (ctx.options.mode !== 'trace' || error || !ctx.driver) {
     return
   }
-  ctx.snapshotCaptures.push(
-    captureActionSnapshot(
-      ctx.driver,
-      cmd.command,
-      timestamp,
-      capturer.isNativeAppSession,
-      cmd.waitScope ? 'wait-poll' : 'action'
-    ).then((snap) => {
-      if (snap) {
-        upsertRichestSnapshot(ctx.actionSnapshots, snap)
-      }
-    })
+  const driver = ctx.driver
+  capturer.testCapture.queue(
+    command,
+    timestamp,
+    !skipsCapture(command),
+    ctx.actionSnapshots,
+    ctx.snapshotCaptures,
+    () =>
+      captureActionSnapshot(
+        driver,
+        command,
+        timestamp,
+        capturer.isNativeAppSession,
+        trigger
+      )
   )
 }

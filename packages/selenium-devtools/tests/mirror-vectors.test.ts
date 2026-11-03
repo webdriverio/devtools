@@ -17,6 +17,7 @@ import {
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
+  finalFrameStamp,
   formatCaptureTimingSummary,
   resolveAdapterOutputDir,
   resolveRunId,
@@ -79,6 +80,7 @@ const RUNNERS = [
   'nestedWaitIdentity',
   'performancePayload',
   'waitRowNaming',
+  'finalFrameStamp',
   'captureTimingSummary'
 ]
 
@@ -408,6 +410,27 @@ describe('waitRowNaming', () => {
     it.skipIf(c.condition.negated)(c.name, () => {
       const { command, selector } = waitRowName(conditionOf(c.condition))
       expect({ command, selector: selector ?? null }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('finalFrameStamp', () => {
+  type Row = { command: string; timestamp: number }
+  for (const c of section<
+    Named & {
+      commands: Row[]
+      testStartMs: number
+      lastCapturedTimestamp: number | null
+      expect: Row | null
+    }
+  >('finalFrameStamp').cases) {
+    it(c.name, () => {
+      const stamp = finalFrameStamp(
+        c.commands,
+        c.testStartMs,
+        c.lastCapturedTimestamp ?? undefined
+      )
+      expect(stamp).toEqual(c.expect)
     })
   }
 })
