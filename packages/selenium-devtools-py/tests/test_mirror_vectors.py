@@ -22,6 +22,7 @@ from selenium_devtools import (
     capture_timing,
     capturer,
     device,
+    instrumentation,
     output_dir,
     performance,
     read_value_locators,
@@ -51,6 +52,7 @@ RUNNERS = {
     "nestedWaitIdentity",
     "performancePayload",
     "waitRowNaming",
+    "finalFrameStamp",
     "captureTimingSummary",
 }
 
@@ -348,6 +350,18 @@ class TestWaitRowNaming(unittest.TestCase):
                     self._condition(given), given.get("negated", False)
                 )
                 self.assertEqual({"command": command, "selector": selector}, case["expect"])
+
+
+class TestFinalFrameStamp(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("finalFrameStamp"):
+            with self.subTest(case["name"]):
+                rows = [(row["command"], row["timestamp"]) for row in case["commands"]]
+                stamp = instrumentation._final_frame_stamp(
+                    rows, case["testStartMs"], case["lastCapturedTimestamp"]
+                )
+                expect = None if case["expect"] is None else (case["expect"]["command"], case["expect"]["timestamp"])
+                self.assertEqual(stamp, expect)
 
 
 class TestCaptureTimingSummary(unittest.TestCase):

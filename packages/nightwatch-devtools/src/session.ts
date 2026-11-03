@@ -7,19 +7,22 @@ import {
   drainCollectorWithRecovery,
   errorMessage,
   loadInjectableScript,
-  mapCommandToAction,
   NativeNetworkCapture,
   pollUntilReady,
   serializeError,
-  upsertRichestSnapshot,
   type CapturedPerformancePayload,
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import {
   COLLECTOR_INJECT_SCRIPT,
-  COLLECTOR_READY_SCRIPT
+  COLLECTOR_READY_SCRIPT,
+  skipsCapture
 } from '@wdio/devtools-shared'
 import { captureActionSnapshot } from './action-snapshot.js'
+import {
+  recaptureAfterNavigation,
+  type QueuedPageCapture
+} from './navigation-recapture.js'
 import { nightwatchRunnerId } from './helpers/utils.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import {
@@ -49,6 +52,10 @@ const log = logger('@wdio/nightwatch-devtools:SessionCapturer')
 
 export class SessionCapturer extends SessionCapturerBase {
   #browser: NightwatchBrowser | undefined
+  /** The most recent page-changing capture; read synchronously when a navigation is detected for its command. */
+  #lastPageCapture: QueuedPageCapture | undefined
+  /** Capture timestamps already re-captured or re-capturing; overlapping polls see the same replacement. */
+  #lastRecapturedAt?: number
 
   // True once BiDi inspectors are attached — the per-command perf-log network
   // capture path skips when set, so we don't double-emit network requests.
@@ -149,6 +156,7 @@ export class SessionCapturer extends SessionCapturerBase {
     if (!error) {
       this.#queueActionSnapshot(
         command,
+        args,
         commandLogEntry.timestamp,
         meta.parentId
       )
@@ -163,30 +171,37 @@ export class SessionCapturer extends SessionCapturerBase {
    *  with the command timestamp (FrameSnapshotIndex.claimAfter / elementsAt). */
   #queueActionSnapshot(
     command: string,
+    args: unknown[],
     timestamp: number,
     parentId: number | undefined
   ): void {
-    if (
-      this.traceMode !== 'trace' ||
-      !this.#browser ||
-      !mapCommandToAction(command)
-    ) {
+    if (this.traceMode !== 'trace' || !this.#browser) {
       return
     }
-    this.snapshotCaptures.push(
-      captureActionSnapshot(
-        this.#browser,
-        command,
-        timestamp,
-        this.runner,
-        this.isNativeAppSession,
-        parentId === undefined ? 'action' : 'wait-poll'
-      ).then((snap) => {
-        if (snap) {
-          upsertRichestSnapshot(this.actionSnapshots, snap)
-        }
-      })
+    // `url()` without a string argument is a getter; it does not navigate.
+    const pageChanging =
+      !skipsCapture(command) &&
+      !(command === 'url' && typeof args[0] !== 'string')
+    const browser = this.#browser
+    const settled = this.testCapture.queue(
+      command,
+      timestamp,
+      pageChanging,
+      this.actionSnapshots,
+      this.snapshotCaptures,
+      () =>
+        captureActionSnapshot(
+          browser,
+          command,
+          timestamp,
+          this.runner,
+          this.isNativeAppSession,
+          parentId === undefined ? 'action' : 'wait-poll'
+        )
     )
+    if (settled && pageChanging) {
+      this.#lastPageCapture = { command, timestamp, settled }
+    }
   }
 
   async #capturePerformanceData(
@@ -370,7 +385,12 @@ export class SessionCapturer extends SessionCapturerBase {
     entry.error = serializeError(error)
     entry.timestamp = timestamp
     if (!error) {
-      this.#queueActionSnapshot(entry.command, timestamp, entry.parentId)
+      this.#queueActionSnapshot(
+        entry.command,
+        entry.args,
+        timestamp,
+        entry.parentId
+      )
     }
     this.sendReplaceCommand(oldTimestamp, entry)
   }
@@ -417,13 +437,17 @@ export class SessionCapturer extends SessionCapturerBase {
    * of a run anchors unconditionally rather than guessing — `captureCurrentDom`
    * is idempotent per document, so an already-anchored page costs one drain.
    */
-  async anchorAfterNavigation(browser: NightwatchBrowser): Promise<void> {
+  async anchorAfterNavigation(
+    browser: NightwatchBrowser,
+    timestamp?: number
+  ): Promise<void> {
     // Polls the page for its own document identity, so there is nothing to
     // poll and nothing to anchor without one.
     if (this.isNativeAppSession) {
       return
     }
     const before = this.lastDocumentOrigin
+    let born: number | undefined
     const replaced = await pollUntilReady(
       async () => {
         const now = await this.documentOrigin(browser)
@@ -431,12 +455,39 @@ export class SessionCapturer extends SessionCapturerBase {
           return false
         }
         this.lastDocumentOrigin = now
+        born = now
         return before === undefined || now !== before
       },
       { attempts: 5, intervalMs: 150 }
     )
     if (!replaced) {
       return
+    }
+    // Only a change from an origin this capturer already saw is a navigation; the
+    // first observation has no baseline to have changed from. The newest page
+    // capture is read here, after the poll: the click that caused the navigation
+    // may have queued its capture while this poll was running, and the fill that
+    // started the poll must never be re-stamped with the destination.
+    const queued = this.#lastPageCapture
+    let recapture: Promise<void> = Promise.resolve()
+    if (
+      timestamp !== undefined &&
+      queued &&
+      before !== undefined &&
+      born !== undefined &&
+      queued.timestamp >= timestamp &&
+      queued.timestamp < born &&
+      queued.timestamp !== this.#lastRecapturedAt
+    ) {
+      this.#lastRecapturedAt = queued.timestamp
+      recapture = recaptureAfterNavigation({
+        browser,
+        runner: this.runner,
+        native: this.isNativeAppSession,
+        snapshots: this.actionSnapshots,
+        queued,
+        isLatest: () => this.#lastPageCapture === queued
+      })
     }
     // captureTrace's own recovery injects into the fresh document and re-drains,
     // and it gates that on the url being worth instrumenting — so a torn-down
@@ -455,7 +506,13 @@ export class SessionCapturer extends SessionCapturerBase {
     // the one that caused it. The guard exists for the case where that is a guess.
     // A wait sent running is newest from its start, but it has not ended, so it
     // did not cause the navigation.
-    await this.captureTrace(browser, true, this.#newestEndedTimestamp())
+    const [drain] = await Promise.allSettled([
+      this.captureTrace(browser, true, this.#newestEndedTimestamp()),
+      recapture
+    ])
+    if (drain.status === 'rejected') {
+      log.debug(`Post-navigation drain failed: ${errorMessage(drain.reason)}`)
+    }
   }
 
   /**
@@ -602,6 +659,33 @@ export class SessionCapturer extends SessionCapturerBase {
     // the drain is racing the page it reads from (`drainOutgoingPage`).
     await this.drainCollector(browser, forceAnchor, anchorTimestamp)
     await this.captureNetworkFromPerformanceLogs(browser)
+  }
+
+  /** Rows after the last capture saw a state nothing captured; one more capture, stamped at that capture, shows the test's end. */
+  async captureFinalFrame(): Promise<void> {
+    if (this.traceMode !== 'trace') {
+      return
+    }
+    await this.testCapture.captureEndFrame(
+      this.commandsLog,
+      this.snapshotCaptures,
+      this.actionSnapshots,
+      async (stamp) => {
+        if (!this.#browser) {
+          return null
+        }
+        return captureActionSnapshot(
+          this.#browser,
+          stamp.command,
+          stamp.timestamp,
+          this.runner,
+          this.isNativeAppSession,
+          'final'
+        )
+      },
+      (err) =>
+        log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)
+    )
   }
 
   /** At a test or scenario end, before its slice is written: the proxy drain there is never throttled. */

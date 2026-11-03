@@ -1,6 +1,16 @@
+import type * as DevtoolsCore from '@wdio/devtools-core'
 import { describe, it, expect, vi } from 'vitest'
+import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
 import { SessionCapturer } from '../src/session.js'
 import type { CommandLog, NightwatchBrowser } from '../src/types.js'
+
+vi.mock('@wdio/devtools-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof DevtoolsCore>()
+  return {
+    ...actual,
+    captureActionSnapshot: vi.fn(actual.captureActionSnapshot)
+  }
+})
 
 function makeMockBrowser(): NightwatchBrowser {
   return {
@@ -59,6 +69,138 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     cap.cleanup()
   })
 
+  it('captures a click, but not a read or wait that follows it', async () => {
+    const cap = makeCapturer()
+    const at = (command: string, timestamp: number) =>
+      cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
+    await at('click', 1)
+    await at('getText', 2)
+    await at('waitForElementVisible', 3)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+    expect(cap.commandsLog).toHaveLength(3)
+    cap.cleanup()
+  })
+
+  it('captures a leading read as the initial frame, once per test', async () => {
+    const cap = makeCapturer()
+    const at = (command: string, timestamp: number) =>
+      cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
+    await at('getText', 1)
+    await at('getText', 2)
+    await Promise.all(cap.snapshotCaptures)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+
+    cap.resetTestCapture()
+    await at('getText', 3)
+    await Promise.all(cap.snapshotCaptures)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 3])
+    cap.cleanup()
+  })
+
+  it('attempts the initial frame at most twice when no capture has a screenshot', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValue({ timestamp: 1, command: 'getText' })
+    const cap = makeCapturer()
+    for (let t = 1; t <= 4; t++) {
+      await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+        timestamp: t
+      })
+    }
+    await Promise.all(cap.snapshotCaptures)
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    vi.mocked(coreCapture).mockReset()
+    cap.cleanup()
+  })
+
+  it('retries the initial frame when the first capture resolves null', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        timestamp: 2,
+        command: 'getText',
+        screenshot: 'AA'
+      })
+    const cap = makeCapturer()
+    for (let t = 1; t <= 3; t++) {
+      await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+        timestamp: t
+      })
+    }
+    await Promise.all(cap.snapshotCaptures)
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([2])
+    cap.cleanup()
+  })
+
+  it('retries the initial frame when the first read captures no screenshot', async () => {
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+      .mockResolvedValueOnce({
+        timestamp: 2,
+        command: 'getText',
+        screenshot: 'AA'
+      })
+    const cap = makeCapturer()
+    const at = (command: string, timestamp: number) =>
+      cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
+    await at('getText', 1)
+    await Promise.all(cap.snapshotCaptures)
+    await at('getText', 2)
+    await at('getText', 3)
+    await Promise.all(cap.snapshotCaptures)
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(2)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 2])
+    expect(cap.actionSnapshots.map((s) => !!s.screenshot)).toEqual([
+      false,
+      true
+    ])
+    cap.cleanup()
+  })
+
+  it('takes no snapshot for a url() read, but one for a url() navigation', async () => {
+    vi.mocked(coreCapture).mockClear()
+    const cap = makeCapturer()
+    const at = (command: string, args: unknown[], timestamp: number) =>
+      cap.captureCommand(command, args, undefined, undefined, { timestamp })
+    await at('click', ['#btn'], 1)
+    await at('url', [() => undefined], 2)
+    await at('url', [], 3)
+    await at('url', ['http://example.test/next'], 4)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 4])
+    cap.cleanup()
+  })
+
+  it('does not re-arm the initial frame from a capture that resolves after the next test starts', async () => {
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    let resolveFirst!: (snap: Snap) => void
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snap>((resolve) => {
+            resolveFirst = resolve
+          })
+      )
+    const cap = makeCapturer()
+    await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+      timestamp: 1
+    })
+    cap.resetTestCapture()
+    resolveFirst({ timestamp: 1, command: 'getText' } as Snap)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.testCapture.initialFrameRetried).toBe(false)
+    expect(cap.testCapture.awaitingInitialFrame).toBe(true)
+    cap.cleanup()
+  })
+
   it('does not capture outside trace mode', async () => {
     const cap = new SessionCapturer({}, makeMockBrowser())
     await cap.captureCommand('click', [], undefined, undefined, {
@@ -66,6 +208,96 @@ describe('nightwatch action-snapshot timestamp binding', () => {
     })
     await Promise.all(cap.snapshotCaptures)
     expect(cap.actionSnapshots).toHaveLength(0)
+    cap.cleanup()
+  })
+
+  it('captures an unmapped command that can change the page, but not a lookup', async () => {
+    const cap = makeCapturer()
+    const at = (command: string, args: unknown[], timestamp: number) =>
+      cap.captureCommand(command, args, undefined, undefined, { timestamp })
+    await at('submitForm', ['#form'], 1)
+    await at('findElement', ['#el'], 2)
+    await Promise.all(cap.snapshotCaptures)
+
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+    cap.cleanup()
+  })
+
+  it('takes an end-of-test frame that replaces the last capture when reads follow it', async () => {
+    const cap = makeCapturer()
+    const at = (command: string, timestamp: number) =>
+      cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
+    await at('click', 1)
+    await at('getText', 2)
+    await Promise.all(cap.snapshotCaptures)
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1])
+
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce({
+        timestamp: 1,
+        command: 'click',
+        screenshot: 'FINAL'
+      } as Snap)
+    await cap.captureFinalFrame()
+
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(coreCapture).mock.calls[0]?.[0]).toMatchObject({
+      trigger: 'final'
+    })
+    expect(cap.actionSnapshots).toHaveLength(1)
+    expect(cap.actionSnapshots[0]!.screenshot).toBe('FINAL')
+    cap.cleanup()
+  })
+
+  it('keeps the earlier capture when the end-of-test frame saw no page', async () => {
+    type Snap = Awaited<ReturnType<typeof coreCapture>>
+    vi.mocked(coreCapture).mockResolvedValueOnce({
+      timestamp: 1,
+      command: 'click',
+      screenshot: 'GOOD',
+      elements: [{ selector: '#good' }]
+    } as Snap)
+    const cap = makeCapturer()
+    const at = (command: string, timestamp: number) =>
+      cap.captureCommand(command, ['#el'], undefined, undefined, { timestamp })
+    await at('click', 1)
+    await at('getText', 2)
+    await Promise.all(cap.snapshotCaptures)
+    const before = { ...cap.actionSnapshots[0]! }
+    expect(before.screenshot).toBe('GOOD')
+
+    vi.mocked(coreCapture)
+      .mockClear()
+      .mockResolvedValueOnce({
+        timestamp: 1,
+        command: 'click',
+        snapshotText: '[Page]',
+        elements: []
+      } as Snap)
+    await cap.captureFinalFrame()
+
+    expect(vi.mocked(coreCapture)).toHaveBeenCalledTimes(1)
+    expect(cap.actionSnapshots).toEqual([before])
+    cap.cleanup()
+  })
+
+  it('takes no end-of-test frame when the test ends on a capturing command', async () => {
+    const cap = makeCapturer()
+    await cap.captureCommand('getText', ['#el'], undefined, undefined, {
+      timestamp: 1
+    })
+    await cap.captureCommand('click', ['#el'], undefined, undefined, {
+      timestamp: 2
+    })
+    await Promise.all(cap.snapshotCaptures)
+
+    vi.mocked(coreCapture).mockClear()
+    await cap.captureFinalFrame()
+
+    expect(vi.mocked(coreCapture)).not.toHaveBeenCalled()
+    expect(cap.actionSnapshots.map((s) => s.timestamp)).toEqual([1, 2])
     cap.cleanup()
   })
 })

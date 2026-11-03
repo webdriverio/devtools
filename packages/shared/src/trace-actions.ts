@@ -47,7 +47,58 @@ export function mapAssertCommand(command: string): TraceAction | null {
   return match ? { class: ASSERT_ACTION_CLASS, method: match[1] } : null
 }
 
-export const ACTION_MAP: Record<string, TraceAction> = {
+export type ActionEffect = 'changes' | 'reads'
+
+export const METHOD_EFFECT = {
+  navigate: 'changes',
+  goBack: 'changes',
+  goForward: 'changes',
+  reload: 'changes',
+  goto: 'changes',
+  click: 'changes',
+  dblclick: 'changes',
+  fill: 'changes',
+  selectOption: 'changes',
+  hover: 'changes',
+  scrollIntoViewIfNeeded: 'changes',
+  dragTo: 'changes',
+  clear: 'changes',
+  submit: 'changes',
+  press: 'changes',
+  evaluate: 'changes',
+  tap: 'changes',
+  switchToWindow: 'changes',
+  getText: 'reads',
+  getValue: 'reads',
+  getAttribute: 'reads',
+  getProperty: 'reads',
+  getCSSProperty: 'reads',
+  getTagName: 'reads',
+  getLocation: 'reads',
+  getSize: 'reads',
+  getRect: 'reads',
+  isDisplayed: 'reads',
+  isExisting: 'reads',
+  isEnabled: 'reads',
+  isSelected: 'reads',
+  isClickable: 'reads',
+  isFocused: 'reads',
+  waitForDisplayed: 'reads',
+  waitForHidden: 'reads',
+  waitForExist: 'reads',
+  waitForNotExist: 'reads',
+  waitForEnabled: 'reads',
+  waitForClickable: 'reads',
+  waitForFunction: 'reads',
+  getTitle: 'reads',
+  getUrl: 'reads',
+  getPageSource: 'reads'
+} as const satisfies Record<string, ActionEffect>
+
+export const ACTION_MAP: Record<
+  string,
+  TraceAction & { method: keyof typeof METHOD_EFFECT }
+> = {
   // WDIO browser-level
   url: { class: 'Page', method: 'navigate' },
   navigateTo: { class: 'Page', method: 'navigate' },
@@ -216,4 +267,88 @@ export function isInputDispatchingCommand(command: string): boolean {
   }
   const action = ACTION_MAP[command]
   return action !== undefined && POINTABLE_METHODS.has(action.method)
+}
+
+/** Driver lookups and reads that never change the page and have no ACTION_MAP
+ *  entry; the ACTION_MAP reads are covered by METHOD_EFFECT in `skipsCapture`. */
+export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  'findElement',
+  'findElements',
+  'findChildElement',
+  'findChildElements',
+  '$',
+  '$$',
+  'findElementFromShadowRoot',
+  'findElementsFromShadowRoot',
+  'getElementShadowRoot',
+  'getActiveElement',
+  'getWindowHandle',
+  'getWindowHandles',
+  'getAllWindowHandles',
+  'getCurrentContextHandle',
+  'getContextHandles',
+  'getCookies',
+  'getAllCookies',
+  'getCookie',
+  'getCredentials',
+  'getDownloadableFiles',
+  'getWindowRect',
+  'getLog',
+  'getAvailableLogTypes',
+  'getAlertText',
+  'getTimeouts',
+  'getScreenOrientation',
+  'status',
+  'takeScreenshot',
+  'screenshot',
+  'elementScreenshot',
+  'printPage',
+  'getHTML',
+  'getComputedRole',
+  'getComputedLabel',
+  'getElementAriaLabel',
+  'getElementAriaRole',
+  'getShadowRoot',
+  'w3cGetActiveElement',
+  'w3cGetAlertText',
+  'w3cGetCurrentWindowHandle',
+  'w3cGetWindowHandles',
+  'getNetworkConnection',
+  'isVisible',
+  'isPresent',
+  'title',
+  'source',
+  'getCssProperty',
+  'getElementSize',
+  'getAriaRole',
+  'getAccessibleName',
+  'getFirstElementChild',
+  'getLastElementChild',
+  'getNextSibling',
+  'getPreviousSibling',
+  'hasDescendants',
+  'element',
+  'elements',
+  'windowHandle',
+  'windowHandles',
+  'getWindowSize',
+  'getWindowPosition',
+  'getLogTypes',
+  'isLogAvailable',
+  'getDomAttribute',
+  'getId',
+  'getCapabilities',
+  'getSession'
+])
+
+/** Whether a command is known not to change the page, so its capture can be
+ *  skipped. Deny-list by design: an unlisted command still captures. */
+export function skipsCapture(command: string): boolean {
+  if (READ_ONLY_COMMANDS.has(command) || mapAssertCommand(command) !== null) {
+    return true
+  }
+  if (!Object.prototype.hasOwnProperty.call(ACTION_MAP, command)) {
+    return false
+  }
+  return METHOD_EFFECT[ACTION_MAP[command].method] === 'reads'
 }

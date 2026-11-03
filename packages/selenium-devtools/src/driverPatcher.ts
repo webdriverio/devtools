@@ -12,6 +12,7 @@ import {
   TRACKED_ELEMENT_METHODS,
   NAVIGATION_COMMANDS
 } from './constants.js'
+import { patchActions } from './helpers/actions-patcher.js'
 import {
   rememberElementLocator,
   selectorForElement
@@ -524,6 +525,7 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
   )
   log.info(`Wrapped ${wrappedDriver.length} WebDriver method(s)`)
 
+  patchActions(WebDriver, hooks)
   patchDriverQuit(WebDriver.prototype as Patchable, hooks)
   if (WebElement) {
     patchWebElement(WebElement, hooks)

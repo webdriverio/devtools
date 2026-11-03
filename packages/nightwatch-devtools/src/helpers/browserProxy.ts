@@ -280,7 +280,7 @@ export class BrowserProxy {
       log.info(`[command] ${methodName}`)
       this.attachScreenshot(browser, lastCommand, methodName)
     }
-    this.anchorDestination(browser, methodName)
+    this.anchorDestination(browser, methodName, lastCommand?.timestamp)
     // A DOM-mutating command already drains it through `captureTrace`.
     if (!this.isDomMutating(methodName)) {
       void this.sessionCapturer.nativeNetwork.forward({ throttle: true })
@@ -409,7 +409,8 @@ export class BrowserProxy {
    */
   private anchorDestination(
     browser: NightwatchBrowser,
-    methodName: string
+    methodName: string,
+    timestamp: number | undefined
   ): void {
     if (!this.isDomMutating(methodName)) {
       return
@@ -417,7 +418,9 @@ export class BrowserProxy {
     // Tracked so finalize awaits it — an untracked anchor drain can still be in
     // flight when the trace is written, which loses the document entirely.
     this.sessionCapturer.snapshotCaptures.push(
-      this.sessionCapturer.anchorAfterNavigation(browser).catch(() => {})
+      this.sessionCapturer
+        .anchorAfterNavigation(browser, timestamp)
+        .catch(() => {})
     )
   }
 

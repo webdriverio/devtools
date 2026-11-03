@@ -19,7 +19,7 @@ vi.mock('stack-trace', () => ({
 
 /**
  * The command has to be in the log by the time `afterCommand` returns:
- * `#lastActionTimestamp()` reads it to stamp the NEXT action's capture, and that
+ * `#lastPageChange()` reads it to stamp the NEXT action's capture, and that
  * stamp is what makes an action's result the following action's "before".
  */
 const commandsLog: { command: string; timestamp: number }[] = []
@@ -46,6 +46,7 @@ const capturer = {
   isReportingUpstream: false,
   metadata: {},
   setBrowser: vi.fn(),
+  openWait: vi.fn(() => 0),
   /** Set by a test to stand in for the drain having brought a document the
    *  session had not anchored before. */
   replacedDocumentInLastDrain: false
@@ -200,6 +201,107 @@ describe('trace mode: one capture per action, taken before it', () => {
     // second action's before, which is the whole design.
     expect(stampedAt(0)).toBeGreaterThan(0)
     expect(stampedAt(1)).toBe(commandsLog[0]!.timestamp)
+  })
+
+  describe('reads and waits do not capture', () => {
+    const run = async (
+      service: DevToolsHookService,
+      commands: string[]
+    ): Promise<void> => {
+      for (const command of commands) {
+        await service.beforeCommand(command as never, [])
+        await service.afterCommand(command as never, [], undefined)
+      }
+    }
+    const started = async () => {
+      const browser = nativeBrowser()
+      const service = new DevToolsHookService({ mode: 'trace' })
+      await service.before({} as never, [], browser)
+      vi.mocked(captureActionSnapshot).mockClear()
+      return service
+    }
+
+    it('captures only the page-changing commands of click, getText x3, click', async () => {
+      const service = await started()
+      await run(service, ['click', 'getText', 'getText', 'getText', 'click'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+      expect(namedAt(0)).toBe('click')
+      expect(namedAt(1)).toBe('click')
+    })
+
+    it('stamps the capture after a wait at the preceding click end', async () => {
+      const service = await started()
+      await run(service, ['click', 'waitForDisplayed', 'click'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+      expect(stampedAt(1)).toBe(commandsLog[0]!.timestamp)
+    })
+
+    it('takes an initial capture on a leading read, then one on the click', async () => {
+      const service = await started()
+      await run(service, ['getText', 'click'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+      expect(namedAt(0)).toBe('getText')
+      expect(namedAt(1)).toBe('click')
+    })
+
+    it('retries the initial capture when the first read captures no screenshot', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
+      await run(service, ['getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('attempts the initial capture at most twice when no screenshot lands', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'getText' })
+        .mockResolvedValueOnce({ timestamp: 2, command: 'getText' })
+      await run(service, ['getText', 'getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries the initial capture when the first capture resolves null', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
+      await run(service, ['getText', 'getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('retries when a page-changing first command loses its screenshot', async () => {
+      const service = await started()
+      vi.mocked(captureActionSnapshot)
+        .mockResolvedValueOnce({ timestamp: 1, command: 'click' })
+        .mockResolvedValueOnce({
+          timestamp: 2,
+          command: 'getText',
+          screenshot: 'AA'
+        })
+      await run(service, ['click', 'getText', 'getText'])
+      expect(namedAt(1)).toBe('getText')
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
+
+    it('takes the initial capture again for a new test', async () => {
+      const service = await started()
+      service.beforeTest({ file: '/spec/a.ts', title: 'one' } as never)
+      await run(service, ['getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+      service.beforeTest({ file: '/spec/a.ts', title: 'two' } as never)
+      await run(service, ['getText', 'getText'])
+      expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('captures the final state when the session ends', async () => {
@@ -386,6 +488,51 @@ describe('trace mode: one capture per action, taken before it', () => {
       ['click', undefined],
       ['getTitle', 'user']
     ])
+  })
+
+  it('stamps the final capture at the test last page change, past later reads', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const test = { file: '/spec/a.ts', title: 'submit' }
+    service.beforeTest(test as never)
+    clock = Date.now() + 1000
+    for (const command of ['click', 'getText', 'getText']) {
+      await service.beforeCommand(command as never, [])
+      await service.afterCommand(command as never, [], undefined)
+    }
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    await service.afterTest(test as never, {} as never, {} as never)
+
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+    expect(namedAt(0)).toBe('click')
+    expect(stampedAt(0)).toBe(commandsLog[0]!.timestamp)
+  })
+
+  it('stamps the final capture at the last read when the test changed no page', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+
+    const second = { file: '/spec/a.ts', title: 'second' }
+    service.beforeTest(second as never)
+    clock = Date.now() + 1000
+    for (const command of ['getText', 'getText']) {
+      await service.beforeCommand(command as never, [])
+      await service.afterCommand(command as never, [], undefined)
+    }
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    await service.afterTest(second as never, {} as never, {} as never)
+
+    expect(namedAt(0)).toBe('getText')
+    expect(stampedAt(0)).toBe(commandsLog.at(-1)!.timestamp)
   })
 
   it('does not merge the next test first capture into the previous test slot', async () => {

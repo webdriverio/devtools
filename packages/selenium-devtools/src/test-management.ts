@@ -150,6 +150,7 @@ export function startTest(
   }
   ctx.testManager!.startMarkedTest(name, resolvedMeta)
   ctx.retryTracker.reset()
+  ctx.sessionCapturer?.resetTestCapture()
   if (file) {
     ctx.sessionCapturer?.captureSource(file).catch(() => {})
   }
@@ -202,6 +203,7 @@ export function startScenario(
   const file = meta.file ?? root?.file ?? process.cwd()
   ctx.suiteManager.startScenarioSuite(name, file, meta.callSource, meta.file)
   ctx.retryTracker.reset()
+  ctx.sessionCapturer?.resetTestCapture()
   if (meta.file) {
     ctx.sessionCapturer?.captureSource(meta.file).catch(() => {})
   }
