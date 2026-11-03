@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Dict, List, Optional, Sequence
 
 from .constants import ENV_MASK_INPUTS, ENV_MASK_SELECTORS
@@ -18,6 +19,7 @@ from .constants import ENV_MASK_INPUTS, ENV_MASK_SELECTORS
 CAPTURE_MASK_GLOBAL = "__wdioCaptureMask"
 
 _FALSY = ("0", "false", "no", "off")
+_UNSAFE_IN_SCRIPT = re.compile("[<>/\u2028\u2029]")
 
 _state: Dict[str, Any] = {"inputs": True, "selectors": []}
 
@@ -50,4 +52,6 @@ def capture_mask_prelude() -> str:
         separators=(",", ":"),
         ensure_ascii=False,
     )
+    # A selector must never end the script or a comment it is written into; JSON reads \uXXXX back as the same text.
+    body = _UNSAFE_IN_SCRIPT.sub(lambda m: f"\\u{ord(m.group(0)):04x}", body)
     return f"var {CAPTURE_MASK_GLOBAL} = {body};\n"

@@ -764,7 +764,7 @@
         "ts": "shared/input-mask.ts resolveCaptureMask + captureMaskPrelude",
         "py": "input_masking.py configure + capture_mask_prelude"
       },
-      "notes": "The declaration each adapter puts ahead of the collector source; the bundle reads it as a free variable. JSON with no spaces and raw non-ASCII, which JSON.stringify and json.dumps(separators=(',', ':'), ensure_ascii=False) agree on. Blank selectors are dropped and the rest trimmed.",
+      "notes": "The declaration each adapter puts ahead of the collector source; the bundle reads it as a free variable. JSON with no spaces and raw non-ASCII, which JSON.stringify and json.dumps(separators=(',', ':'), ensure_ascii=False) agree on. Blank selectors are dropped and the rest trimmed. `<`, `>`, `/`, U+2028 and U+2029 are written as \\uXXXX escapes, so a selector can never end the script or a comment around it.",
       "cases": [
         {
           "name": "the default masks password fields and names no selectors",
@@ -797,6 +797,13 @@
             ]
           },
           "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[\"[aria-label=\\\"Kontonummer ü\\\"]\"]};\n"
+        },
+        {
+          "name": "a selector cannot end the script or a comment it is written into",
+          "options": {
+            "maskSelectors": ["a[title=\"</script><!--*/\"]", "p\u2028b"]
+          },
+          "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[\"a[title=\\\"\\u003c\\u002fscript\\u003e\\u003c!--*\\u002f\\\"]\",\"p\\u2028b\"]};\n"
         }
       ]
     }
