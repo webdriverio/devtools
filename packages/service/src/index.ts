@@ -944,6 +944,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
+    this.#announceTraces()
+  }
+
+  /** WDIO configs usually run at `logLevel: 'warn'`, hiding core's info line; printed after cleanup so it never lands in a trace's console. */
+  #announceTraces() {
+    for (const { kind, path, retained } of this.#artifacts) {
+      if (kind === 'trace' && retained && path) {
+        process.stdout.write(`DevTools trace saved to ${path}\n`)
+      }
+    }
   }
 
   /**

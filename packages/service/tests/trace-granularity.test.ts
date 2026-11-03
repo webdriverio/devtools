@@ -214,4 +214,43 @@ describe('DevtoolsService - trace granularity slicing', () => {
 
     expect(flushRangeTrace).not.toHaveBeenCalled()
   })
+
+  it('prints every written trace once capture is torn down, so a warn-level config still learns where its traces went', async () => {
+    const service = await newService('test')
+    finalizeTraceExport.mockImplementation(
+      (ctx: { onArtifact: (artifact: unknown) => void }) => {
+        const artifact = (kind: string, path: string, retained = true) => ({
+          kind,
+          path,
+          retained,
+          scope: 'session',
+          testUids: []
+        })
+        ctx.onArtifact(artifact('trace', '/proj/test-results/trace-sess-1.zip'))
+        ctx.onArtifact(artifact('trace', '', false))
+        ctx.onArtifact(artifact('video', '/proj/test-results/video.webm'))
+        return Promise.resolve([])
+      }
+    )
+    const order: string[] = []
+    mockSessionCapturerInstance.cleanup.mockImplementation(() => {
+      order.push('cleanup')
+    })
+    const write = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: unknown) => {
+        order.push(String(chunk))
+        return true
+      })
+    try {
+      await service.after()
+    } finally {
+      write.mockRestore()
+    }
+
+    expect(order).toEqual([
+      'cleanup',
+      'DevTools trace saved to /proj/test-results/trace-sess-1.zip\n'
+    ])
+  })
 })
