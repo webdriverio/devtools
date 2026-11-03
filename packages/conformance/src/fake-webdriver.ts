@@ -6,8 +6,6 @@ import {
 } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
-import { MASKED_VALUE } from '@wdio/devtools-shared'
-
 import {
   BIDI_PATH,
   BIDI_RESULTS,
@@ -17,7 +15,6 @@ import {
   DOCUMENT_MIME,
   ELEMENT_KEY,
   ELEMENT_TEXT,
-  MASK_INPUTS_OFF,
   NAVIGATION_HALF_MS,
   PAGE_TITLES,
   PAGES,
@@ -31,6 +28,7 @@ import {
   remoteValue,
   type FakeBidi
 } from './fake-bidi.js'
+import { FakeMaskPolicy } from './fake-mask-policy.js'
 import {
   anchorOf,
   rendered,
@@ -85,9 +83,7 @@ export class FakeWebDriver {
     fill: []
   }
   #elements = new Map<string, Element>()
-  #typed: string[] = []
-  /** The collector masks typed input unless the source it was handed declares otherwise, as `packages/script` does. */
-  #maskInputs = true
+  #mask = new FakeMaskPolicy()
   #lastFailedNavigation: string | undefined
 
   private constructor(server: Server, bidi: BidiMode) {
@@ -126,7 +122,8 @@ export class FakeWebDriver {
         fill: [...this.#actions.fill]
       },
       requests: [...this.#requests],
-      typed: [...this.#typed],
+      typed: [...this.#mask.typed],
+      undeclaredMaskPolicies: this.#mask.undeclared,
       bidi: this.#bidiServed ? this.#bidi : 'off'
     }
   }
@@ -346,16 +343,16 @@ export class FakeWebDriver {
         value: { error: 'stale element reference', message: id, stacktrace: '' }
       }
     }
-    const text = String(params.text ?? '')
-    if (action === 'value') {
-      this.#typed.push(text)
-    }
+    const value =
+      action === 'value'
+        ? this.#mask.type(el.selector, String(params.text ?? ''))
+        : ''
     if (action === 'value' && el.document.collector) {
       el.document.buffer.push({
         type: 'attributes',
         target: el.selector,
         attributeName: 'value',
-        attributeValue: this.#maskInputs && text ? MASKED_VALUE : text,
+        attributeValue: value,
         addedNodes: [],
         removedNodes: [],
         timestamp: Date.now()
@@ -397,10 +394,6 @@ export class FakeWebDriver {
     }
   }
 
-  #noteMaskPolicy(source: string): void {
-    this.#maskInputs = !source.includes(MASK_INPUTS_OFF)
-  }
-
   // Recognised by the collector's own API, not by how any one adapter phrases its scripts.
   #execute(script: string, args: string, form: ScriptForm = 'body'): unknown {
     const doc = this.#current
@@ -408,7 +401,7 @@ export class FakeWebDriver {
       return null
     }
     if (COLLECTOR_SIGNATURE.test(script) || COLLECTOR_SIGNATURE.test(args)) {
-      this.#noteMaskPolicy(`${script}${args}`)
+      this.#mask.noteSource(script, args)
       // A fresh collector starts unanchored, as the real one does, so injecting twice can anchor twice.
       doc.collector = true
       doc.anchored = false
@@ -460,7 +453,7 @@ export class FakeWebDriver {
       // Only the collector's own source counts; an unrelated preload instruments nothing.
       const declaration = String(params.functionDeclaration ?? '')
       if (COLLECTOR_SIGNATURE.test(declaration)) {
-        this.#noteMaskPolicy(declaration)
+        this.#mask.noteSource(declaration)
         this.#preloaded = true
       }
       return { result: { script: `preload-${++this.#preloads}` } }

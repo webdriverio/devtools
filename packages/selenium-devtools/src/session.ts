@@ -8,12 +8,10 @@ import {
   errorMessage,
   isSessionGoneError,
   loadInjectableScript,
-  maskCommandArgs,
   NativeNetworkCapture,
   mapChromeBrowserLogs,
   pollUntilReady,
   PENDING_SETTLE_TIMEOUT_MS,
-  scrubTyped,
   serializeError,
   settlePending
 } from '@wdio/devtools-core'
@@ -129,16 +127,6 @@ export class SessionCapturer extends SessionCapturerBase {
     void work.then(done, done)
   }
 
-  /** Runs `fn` once the work in flight now has settled (bounded as at quit), or at once with none. */
-  afterInFlight(fn: () => void): void {
-    const pending = [...this.#inFlight]
-    if (pending.length === 0) {
-      fn()
-      return
-    }
-    void settlePending(pending, PENDING_SETTLE_TIMEOUT_MS).then(fn, fn)
-  }
-
   /** Before quit, while the session is alive: lets tracked work finish, including what it queues meanwhile. */
   async settleBeforeQuit(): Promise<void> {
     const deadline = Date.now() + PENDING_SETTLE_TIMEOUT_MS
@@ -200,7 +188,7 @@ export class SessionCapturer extends SessionCapturerBase {
       _id: commandId,
       id: commandId,
       command,
-      args: maskCommandArgs('selenium-webdriver', command, args),
+      args,
       result,
       error: serializeError(error),
       timestamp: timestamp || Date.now(),
@@ -233,7 +221,7 @@ export class SessionCapturer extends SessionCapturerBase {
         _id: newId,
         id: newId,
         command,
-        args: maskCommandArgs('selenium-webdriver', command, args),
+        args,
         result,
         error: serializeError(error),
         timestamp: timestamp || Date.now(),
@@ -248,7 +236,7 @@ export class SessionCapturer extends SessionCapturerBase {
       id?: number
     }
     previous.command = command
-    previous.args = maskCommandArgs('selenium-webdriver', command, args)
+    previous.args = args
     previous.result = result
     previous.error = serializeError(error)
     previous.timestamp = timestamp || Date.now()
@@ -410,10 +398,7 @@ export class SessionCapturer extends SessionCapturerBase {
       if (!Array.isArray(entries) || entries.length === 0) {
         return
       }
-      const tagged = mapChromeBrowserLogs(entries).map((entry) => ({
-        ...entry,
-        args: scrubTyped(entry.args)
-      }))
+      const tagged = mapChromeBrowserLogs(entries)
       this.consoleLogs.push(...tagged)
       this.sendUpstream('consoleLogs', tagged)
     } catch {

@@ -12,7 +12,7 @@ import type {
   TestRunnerId
 } from '../src/types.js'
 import { locatorsMatch } from '../src/locator-dialect.js'
-import { MASKED_VALUE, TYPING_SURFACE_SELECTOR } from '../src/input-mask.js'
+import { MASKED_VALUE } from '../src/input-mask.js'
 
 /** The scripts are injectable source, so they are run the way the adapters run
  *  them — `@wdio/elements` builds the same `new Function` wrapper. */
@@ -477,14 +477,11 @@ describe('accessible names', () => {
 })
 
 describe('masked elements', () => {
-  const withCollector = (
-    selector: string | null,
-    typing: string | null = null
-  ) => {
-    window.wdioTraceCollector = {
-      maskSelector: () => selector,
-      typingSurfaceSelector: () => typing
-    } as unknown as typeof window.wdioTraceCollector
+  const withCollector = (selector: string | null) => {
+    // The element scripts read only `maskSelector`, so a stub stands in for the whole collector.
+    Object.assign(window, {
+      wdioTraceCollector: { maskSelector: () => selector }
+    })
   }
 
   it('names an element under a mask selector by the placeholder, and locates it by CSS', () => {
@@ -502,38 +499,28 @@ describe('masked elements', () => {
     }
   })
 
+  it('leaves a masked descendant out of its ancestor’s name and text locator', () => {
+    withCollector('.acct')
+    try {
+      const html =
+        '<button id="pay">Pay <span class="acct">DE89 3704</span></button>' +
+        '<div id="owner">Owner <span class="acct">Jane Roe</span></div>'
+      for (const nodes of [a11yNodes(html), interactables(html)]) {
+        expect(JSON.stringify(nodes)).not.toMatch(/DE89|Jane Roe/)
+      }
+      const a11y = a11yNodes(html)
+      expect(locatorFor(a11y, `Pay ${MASKED_VALUE}`)).toBe('#pay')
+      expect(locatorFor(a11y, `Owner ${MASKED_VALUE}`)).toBe('#owner')
+      expect(a11y.find((n) => n.name === `Owner ${MASKED_VALUE}`)?.role).toBe(
+        'statictext'
+      )
+    } finally {
+      delete window.wdioTraceCollector
+    }
+  })
+
   it('masks nothing without a collector to ask', () => {
     const nodes = a11yNodes('<a href="/acct" class="account">DE89 3704</a>')
     expect(locatorFor(nodes, 'DE89 3704')).toBe('//a[contains(., "DE89 3704")]')
-  })
-
-  it('names an editable region by the placeholder and never locates it by what was typed', () => {
-    withCollector(null, TYPING_SURFACE_SELECTOR)
-    try {
-      const html =
-        '<div role="textbox" tabindex="0">Dear Bob</div><button>Send</button>'
-      for (const nodes of [a11yNodes(html), interactables(html)]) {
-        expect(JSON.stringify(nodes)).not.toContain('Dear Bob')
-        expect(locatorFor(nodes, MASKED_VALUE)).not.toContain('Dear')
-        expect(locatorFor(nodes, 'Send')).toBe('//button[contains(., "Send")]')
-      }
-    } finally {
-      delete window.wdioTraceCollector
-    }
-  })
-
-  it('masks the editable region itself, not an ancestor that holds one', () => {
-    withCollector(null, TYPING_SURFACE_SELECTOR)
-    try {
-      const nodes = interactables(
-        '<div tabindex="0" id="panel">Compose <div contenteditable="true" tabindex="0">Dear Bob</div></div>'
-      )
-      expect(nodes.find((n) => n.selector === '#panel')?.name).not.toBe(
-        MASKED_VALUE
-      )
-      expect(nodes.filter((n) => n.name === MASKED_VALUE)).toHaveLength(1)
-    } finally {
-      delete window.wdioTraceCollector
-    }
   })
 })

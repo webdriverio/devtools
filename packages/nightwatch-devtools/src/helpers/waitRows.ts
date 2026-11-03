@@ -25,7 +25,7 @@ export class WaitRows {
 
   /** Send the wait's row running, before the queue runs it, so its condition's commands have a row to name. */
   open(cmd: PendingCommand): OpenWait {
-    const row = this.capturer.openCommand(cmd.methodName, cmd.rowArgs, {
+    const row = this.capturer.openCommand(cmd.methodName, cmd.logArgs, {
       testUid: cmd.testUid,
       callSource: cmd.callSource,
       startTime: cmd.invokedAt,

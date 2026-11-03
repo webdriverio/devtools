@@ -15,7 +15,7 @@ import sys
 from typing import Dict, List, Optional
 
 import selenium_devtools as devtools
-from . import assertions, frames, input_masking, read_value_locators, rerun
+from . import assertions, frames, read_value_locators, rerun
 from .constants import ENV_OPT_IN, ENV_PORT, LOGGER_NAME
 from .utils import now_ms
 
@@ -71,23 +71,23 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         "--devtools-no-mask-inputs",
         action="store_true",
         default=None,
-        help="Capture typed text verbatim instead of masking it.",
+        help="Leave password fields unmasked in the replayed page.",
     )
     group.addoption(
         "--devtools-mask-selector",
         action="append",
         default=None,
-        help="Also mask the text and value of elements matching this CSS selector. Repeatable.",
+        help="Also mask the text and value of elements matching this CSS selector in the replayed page. Repeatable.",
     )
     parser.addini(
         "devtools_mask_inputs",
-        "Mask typed text in everything captured (default true).",
+        "Mask password fields in the replayed page (default true).",
         type="bool",
         default=None,
     )
     parser.addini(
         "devtools_mask_selectors",
-        "CSS selectors whose elements have their text and value masked, one per line.",
+        "CSS selectors whose elements have their text and value masked in the replayed page, one per line.",
         type="linelist",
         default=None,
     )
@@ -121,7 +121,8 @@ def _ini_raw(config, name: str):  # noqa: ANN001, ANN201
         value = config.getini(name)
     except (ValueError, KeyError):  # option not registered (another plugin's parser)
         return None
-    return None if value is None or value == "" else value
+    # pytest 7 and early 8 answer an unset bool or linelist ini with [] rather than its None default.
+    return None if value is None or value == "" or value == [] else value
 
 
 def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
@@ -157,7 +158,7 @@ def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
 
 
 def _resolve_mask_inputs(config) -> Optional[bool]:  # noqa: ANN001
-    """Whether typed text is masked: CLI, else ini, else undecided (``enable()`` reads the environment)."""
+    """Whether password fields are masked: CLI, else ini, else undecided (``enable()`` reads the environment)."""
     if config.getoption("--devtools-no-mask-inputs", None):
         return False
     return _ini(config, "devtools_mask_inputs")
@@ -631,7 +632,6 @@ def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
         return
     _registry.mark_start(nodeid)
     read_value_locators.reset()
-    input_masking.clear_typed()
     capturer = devtools.get_capturer()
     if capturer is None:
         return

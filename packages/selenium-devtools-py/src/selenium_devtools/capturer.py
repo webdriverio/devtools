@@ -12,7 +12,7 @@ import secrets
 import threading
 from typing import Any, List, Optional, Protocol
 
-from . import frames, input_masking, rerun
+from . import frames, rerun
 from ._contract import (
     SCOPE_COMMANDS,
     SCOPE_CONSOLE_LOGS,
@@ -121,7 +121,6 @@ class SessionCapturer:
         if replaces is not None:
             self.send_replace_command(replaces["timestamp"], entry)
         else:
-            input_masking.scrub_row(entry)
             self._tx.send_json(SCOPE_COMMANDS, [entry])
         # Returned so a caller that learns more about the command AFTER it was
         # reported — a navigation's timings, which only the page can answer for
@@ -134,7 +133,6 @@ class SessionCapturer:
         The dashboard matches the row's `id` first and falls back to this
         timestamp, so the row being replaced must keep its id.
         """
-        input_masking.scrub_row(entry)
         self._tx.send_json(
             SCOPE_REPLACE_COMMAND, {"oldTimestamp": old_timestamp, "command": entry}
         )
@@ -144,14 +142,12 @@ class SessionCapturer:
     def capture_console(self, level: str, args: List[Any], source: str = "browser") -> None:
         self._tx.send_json(
             SCOPE_CONSOLE_LOGS,
-            [frames.console_log(level=level, args=input_masking.scrub(to_jsonable(args)),
+            [frames.console_log(level=level, args=to_jsonable(args),
                                 timestamp=now_ms(), source=source)],
         )
 
     def capture_network(self, **kwargs: Any) -> None:
-        request = frames.network_request(**kwargs)
-        input_masking.scrub_request(request)
-        self._tx.send_json(SCOPE_NETWORK_REQUESTS, [request])
+        self._tx.send_json(SCOPE_NETWORK_REQUESTS, [frames.network_request(**kwargs)])
 
     # ── screencast ─────────────────────────────────────────────────────────────
 
@@ -202,9 +198,6 @@ class SessionCapturer:
         patched fetch/XHR calls and the document's Resource Timing), already in
         the wire shape, so they go as built rather than through `frames`."""
         if requests:
-            for request in requests:
-                if isinstance(request, dict):
-                    input_masking.scrub_request(request)
             self._tx.send_json(SCOPE_NETWORK_REQUESTS, requests)
 
     # ── suites ───────────────────────────────────────────────────────────────────

@@ -129,6 +129,7 @@ const report = (adapter: AdapterId, frames: WireFrame[]): RunReport => ({
     actions: { navigate: [], click: [], fill: [] },
     requests: [],
     typed: [],
+    undeclaredMaskPolicies: 0,
     bidi: 'live',
     scenarioFile: { paths: [], lines: 0 }
   },

@@ -55,9 +55,6 @@ if (!alreadyInstalled) {
       const checkable =
         tag === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')
       const masked = !checkable && pageMask.masksValue(el)
-      if (masked) {
-        pageMask.noteTyped(el, el.value)
-      }
       collector.captureMutation([
         {
           type: 'attributes',

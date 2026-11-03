@@ -17,12 +17,7 @@ import type { SessionCapturer } from './session.js'
 import type { TestReporter } from './reporter.js'
 import type { SuiteManager } from './helpers/suiteManager.js'
 import type { DetectedRunner, TestStats } from './types.js'
-import {
-  clearReadValues,
-  forgetTypedValuesBefore,
-  typedValuesMark,
-  type RetryTracker
-} from '@wdio/devtools-core'
+import { clearReadValues, type RetryTracker } from '@wdio/devtools-core'
 
 const log = logger('@wdio/selenium-devtools:test-management')
 
@@ -118,24 +113,12 @@ function resolveStartMeta(
   return resolved
 }
 
-/** The previous test's captures settle after its end (the patcher does not await them), so its values are forgotten only then, and only those. */
-function forgetPreviousTyping(ctx: TestManagementCtx): void {
-  const mark = typedValuesMark()
-  const forget = () => forgetTypedValuesBefore(mark)
-  if (ctx.sessionCapturer) {
-    ctx.sessionCapturer.afterInFlight(forget)
-  } else {
-    forget()
-  }
-}
-
 export function startTest(
   ctx: TestManagementCtx,
   name: string,
   meta: StartTestMeta = {}
 ): void {
   clearReadValues()
-  forgetPreviousTyping(ctx)
   if (!ctx.testFilePath && meta.file) {
     ctx.testFilePath = meta.file
   }
@@ -190,7 +173,6 @@ export function startScenario(
   meta: StartScenarioMeta = {}
 ): void {
   clearReadValues()
-  forgetPreviousTyping(ctx)
   if (!ctx.suiteManager || !ctx.testReporter) {
     ctx.pendingScenario = { name, ...meta }
     return

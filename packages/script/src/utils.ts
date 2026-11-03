@@ -93,15 +93,17 @@ export function parseNode(
     const maskedValue = inSelector || pageMask.masksFieldKind(element)
     const props: Record<string, unknown> = {}
     for (const attr of Array.from(element.attributes ?? [])) {
-      props[attr.name] =
-        maskedValue && attr.name === 'value'
-          ? pageMask.maskValue(attr.value)
-          : attr.value
+      props[attr.name] = pageMask.masksAttributeOf(
+        attr.name,
+        maskedValue,
+        inSelector
+      )
+        ? pageMask.maskValue(attr.value)
+        : attr.value
     }
     recordFieldState(element, props, maskedValue)
-    const childMask = inSelector || pageMask.isTypingSurface(element)
     const children = Array.from(node.childNodes).map((child) =>
-      parseNode(child, childMask)
+      parseNode(child, inSelector)
     )
     return vnode(element.localName, props, children)
   } catch (err) {

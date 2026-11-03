@@ -53,8 +53,6 @@ RUNNERS = {
     "performancePayload",
     "waitRowNaming",
     "captureTimingSummary",
-    "typedArgMasking",
-    "typedValueScrub",
     "collectorMaskPrelude",
 }
 
@@ -376,34 +374,6 @@ def _fresh_mask(options: Dict[str, Any]) -> None:
         mask_inputs=options.get("maskInputs", True),
         mask_selectors=options.get("maskSelectors", []),
     )
-    input_masking.clear_typed()
-
-
-class TestTypedArgMasking(unittest.TestCase):
-    def tearDown(self):
-        _fresh_mask({})
-
-    def test_cases(self):
-        for case in _cases("typedArgMasking"):
-            with self.subTest(case["name"]):
-                _fresh_mask(case)
-                params = json.loads(json.dumps(case["params"]))
-                masked = input_masking.mask_command_params(case["command"], params)
-                self.assertEqual(masked, case["expect"])
-                self.assertEqual(params, case["params"], "the driver's params stay untouched")
-
-
-class TestTypedValueScrub(unittest.TestCase):
-    def tearDown(self):
-        _fresh_mask({})
-
-    def test_cases(self):
-        for case in _cases("typedValueScrub"):
-            with self.subTest(case["name"]):
-                _fresh_mask(case)
-                for typed in case["typed"]:
-                    input_masking.mask_command_params(typed["command"], typed["params"])
-                self.assertEqual(input_masking.scrub_text(case["text"]), case["expect"])
 
 
 class TestCollectorMaskPrelude(unittest.TestCase):

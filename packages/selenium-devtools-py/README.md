@@ -332,41 +332,30 @@ same. In a plain script, an assertion whose observed value could not be read
 names no element, since guessing from the expected value alone could box an
 element that once read the same text.
 
-### Masking typed text
+### Masking password fields
 
-On by default: what a test types into a form field never enters the dashboard
-or the archive. The `send_keys` row carries `••••` in place of the text (one
-placeholder per run of characters, so the length does not leak; special keys
-such as `Keys.ENTER` stay), and the page collector masks the field's value in
+On by default: the page the dashboard and the archive replay never shows what
+was typed into a password field. The page collector replaces the value of every
+`<input type="password">` with `••••` (fixed, so the length does not leak) in
 the DOM it records: the anchor, every `input`/`change` record and every `value`
-attribute mutation, for text-like inputs and textareas, and the text of an
-editable region (`contenteditable`, `role="textbox"`). Text sent to a prompt
-(`alert.send_keys`) and keys typed through `ActionChains` are masked too, a run
-of keys collapsing to one masked press. Checkboxes, radios,
-buttons and selects keep their state. A typed value that turns up anywhere else
-the adapter sends, such as a `get_property("value")` result, an assertion
-operand, a log line, or a fetch/XHR body the page sent, is replaced by the same
-placeholder (exactly, whatever its length; inside longer text, from 4
-characters). A single character is never remembered, and what was typed is
-forgotten when the next test starts.
+attribute mutation. A field a show-password toggle turned into a text input
+stays masked. Every other field is recorded as typed. The `send_keys` row keeps
+the real text, password included, so the Actions list and `transcript.md` show
+what the test typed.
 
 | Setting | `enable()` | pytest | ini | env |
 |---|---|---|---|---|
-| Turn masking off (full capture) | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
+| Turn password masking off | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
 | Also mask elements by CSS selector (text and value) | `mask_selectors=[".account-number"]` | `--devtools-mask-selector .account-number` (repeatable) | `devtools_mask_selectors` (one per line) | `DEVTOOLS_MASK_SELECTORS=.a,.b` |
 
 Precedence is the command line, then the ini file, then the environment.
 
-Not covered: screenshots and screencast frames are pixels and show whatever the
-page rendered; a literal credential in your test source reaches the Source tab;
-text set through `execute_script`, or already in a field when the page loaded,
-is masked in the field but not scrubbed elsewhere; a value typed in an earlier
-test or a fixture is not scrubbed once the next test has started; keys typed through
-`ActionChains` with Shift held over a digit or symbol are remembered unshifted
-(Shift+1 types `!` on a US layout), so such a value read back is not scrubbed; `get_attribute("value")`
-runs selenium's atom script, so its result is only scrubbed when it equals or
-contains a value typed in this run; and a native app's intercepted traffic is
-scrubbed the same way, by value.
+Masking only changes the replayed page. The typed password is still in the
+`send_keys` row, the trace's action events and `transcript.md`; a literal
+credential in your test source reaches the Source tab; console lines, request
+bodies and errors carry whatever the page or the test put there;
+screenshots and screencast frames are pixels; and a password field the page
+turns into a text field before the collector sees it is recorded as typed.
 
 ### Parallel runs (`pytest -n`)
 

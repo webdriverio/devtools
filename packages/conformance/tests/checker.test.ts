@@ -27,6 +27,7 @@ const truth: GroundTruth = {
   actions: { navigate: [110, 340, 360], click: [320], fill: [] },
   requests: [...loads(LOGIN, 100), ...loads(SECURE, 300)],
   typed: [],
+  undeclaredMaskPolicies: 0,
   bidi: 'off',
   scenarioFile: { paths: [SPEC], lines: 40 }
 }
@@ -613,54 +614,68 @@ describe(RULES.callSiteInScenario, () => {
   })
 })
 
-describe('typed text', () => {
-  const withTyping = (frames: WireFrame[], typed: string[]) =>
-    checkConformance(frames, { ...truth, typed }).filter(
-      (v) => v.rule === RULES.typedTextMasked
-    )
+describe(RULES.passwordMaskedInPage, () => {
+  const check = (
+    frames: WireFrame[],
+    typed: GroundTruth['typed'],
+    undeclaredMaskPolicies = 0
+  ) =>
+    checkConformance(frames, {
+      ...truth,
+      typed,
+      undeclaredMaskPolicies
+    }).filter((v) => v.rule === RULES.passwordMaskedInPage)
   const fill = (args: unknown[]) => ({
     scope: 'commands',
     data: [row('sendKeys', args, 400, 410)]
   })
-
-  it('accepts a fill row whose typed text is masked', () => {
-    const frames = [...conformingStream(), fill([MASKED_VALUE])]
-    expect(withTyping(frames, ['secret'])).toEqual([])
+  const valueMutation = (target: string, attributeValue: string) => ({
+    scope: 'mutations',
+    data: [
+      { type: 'attributes', target, attributeName: 'value', attributeValue }
+    ]
   })
+  const typed = [
+    { selector: '#username', text: 'tom' },
+    { selector: '#password', text: 'secret' }
+  ]
 
-  it('flags a fill row carrying the typed text, however short', () => {
-    const frames = [...conformingStream(), fill(['tom'])]
-    expect(withTyping(frames, ['tom'])).toHaveLength(1)
-  })
-
-  it('flags a log line carrying a typed value long enough to tell apart', () => {
+  it('accepts rows carrying what was typed and a page masking only the password', () => {
     const frames = [
       ...conformingStream(),
-      fill([MASKED_VALUE]),
-      { scope: 'consoleLogs', data: [{ type: 'log', args: ['typed secret'] }] }
+      fill(['tom']),
+      fill(['secret']),
+      valueMutation('#username', 'tom'),
+      valueMutation('#password', MASKED_VALUE)
     ]
-    expect(withTyping(frames, ['secret'])).toHaveLength(1)
+    expect(check(frames, typed)).toEqual([])
   })
 
-  it('reads a typed value without the special keys sent with it', () => {
+  it('reads a W3C payload and a value sent with special keys', () => {
     const frames = [
       ...conformingStream(),
-      fill([MASKED_VALUE]),
-      { scope: 'consoleLogs', data: [{ type: 'log', args: ['secret'] }] }
+      fill([{ text: 'tom', value: ['t', 'o', 'm'] }]),
+      fill(['secret\uE007'])
     ]
-    expect(withTyping(frames, ['secret\uE007'])).toHaveLength(1)
+    expect(check(frames, typed)).toEqual([])
   })
 
-  it('leaves the test source to its author, in the Source tab and the suite tree', () => {
+  it('flags a password the replayed page carries', () => {
     const frames = [
       ...conformingStream(),
-      fill([MASKED_VALUE]),
-      { scope: 'sources', data: { [SPEC]: "setValue('secret')" } },
-      {
-        scope: 'suites',
-        data: [{ s: { uid: 's', body: "setValue('secret')" } }]
-      }
+      fill(['tom']),
+      fill(['secret']),
+      valueMutation('#password', 'secret')
     ]
-    expect(withTyping(frames, ['secret'])).toEqual([])
+    expect(check(frames, typed)).toHaveLength(1)
+  })
+
+  it('flags a row that masked what it typed', () => {
+    const frames = [...conformingStream(), fill(['tom']), fill([MASKED_VALUE])]
+    expect(check(frames, typed)).toHaveLength(1)
+  })
+
+  it('flags a collector loaded without the run’s mask policy', () => {
+    expect(check(conformingStream(), [], 1)).toHaveLength(1)
   })
 })

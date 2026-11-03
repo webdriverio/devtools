@@ -339,7 +339,7 @@ describe('transform', () => {
   describe('a captured page', () => {
     const PAGE =
       '<head><meta charset="utf-8"><title>Login</title></head>' +
-      '<body><form id="login"><input id="username" placeholder="tomsmith"></form></body>'
+      '<body><form id="login"><input id="username" value="tomsmith"></form></body>'
 
     it('rebuilds html > [head, body] as the document anchor carries it', () => {
       const captured = captureDocument(PAGE)
@@ -361,7 +361,7 @@ describe('transform', () => {
 
       expect(propsOf(form).id).toBe('login')
       expect(username.type).toBe('input')
-      expect(propsOf(username).placeholder).toBe('tomsmith')
+      expect(propsOf(username).value).toBe('tomsmith')
     })
 
     it('keeps the ref of an element nested inside the page', () => {

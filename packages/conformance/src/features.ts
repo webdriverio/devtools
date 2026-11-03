@@ -237,9 +237,9 @@ export const FEATURES = [
   },
   {
     id: 'input-masking',
-    name: 'Typed input masked (`maskInputs`, `maskSelectors`)',
+    name: 'Password fields masked in the replayed page (`maskInputs`, `maskSelectors`)',
     tables: ['readme-trace', 'cross-framework'],
-    cells: allTested([RULES.typedTextMasked])
+    cells: allTested([RULES.passwordMaskedInPage])
   },
   {
     id: 'actions-list',

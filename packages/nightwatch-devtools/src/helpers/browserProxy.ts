@@ -19,8 +19,6 @@ import {
   RetryTracker,
   beginInputDispatch,
   clearReadValues,
-  clearTypedValues,
-  maskCommandArgs,
   rememberReadValue,
   toError
 } from '@wdio/devtools-core'
@@ -146,7 +144,6 @@ export class BrowserProxy {
     this.resetCommandTracking()
     this.assertRecorder.clear()
     clearReadValues()
-    clearTypedValues()
     this.readValueTestUid = undefined
   }
 
@@ -304,7 +301,7 @@ export class BrowserProxy {
     serializedResult: unknown,
     commandError: Error | undefined
   ): void {
-    const { methodName, rowArgs, cmdSig, parent } = cmd
+    const { methodName, logArgs, cmdSig, parent } = cmd
     const foldInto = parent
       ? parent.children.get(cmdSig)
       : this.retryTracker.isRetry(cmdSig)
@@ -315,7 +312,7 @@ export class BrowserProxy {
         ? this.captureFreshCommand(
             browser,
             methodName,
-            rowArgs,
+            logArgs,
             serializedResult,
             meta,
             commandError
@@ -324,7 +321,7 @@ export class BrowserProxy {
             browser,
             foldInto,
             methodName,
-            rowArgs,
+            logArgs,
             serializedResult,
             meta,
             commandError
@@ -547,7 +544,6 @@ export class BrowserProxy {
         ? (lastArg as (result: unknown) => unknown)
         : null,
       logArgs,
-      rowArgs: maskCommandArgs('nightwatch', methodName, logArgs),
       cmdSig,
       callSource: callInfo.callSource,
       hasUserSource: callInfo.filePath !== undefined
@@ -592,7 +588,7 @@ export class BrowserProxy {
       if (cmd.wait) {
         this.closeWait(browser, cmd.wait, undefined, toError(error), Date.now())
       } else {
-        this.captureCommandError(methodName, cmd.rowArgs, error, cmd.callSource)
+        this.captureCommandError(methodName, cmd.logArgs, error, cmd.callSource)
       }
       throw error
     }

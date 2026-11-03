@@ -89,18 +89,26 @@ const IS_VISIBLE_SCRIPT = `
 
 /** What the collector masks, so a snapshot names and locates an element as the DOM stream shows it; nothing without a collector. */
 const MASK_SCRIPT = `
-    function collectorAsks(method) {
+    var MASK_SELECTOR = (function () {
       try {
         var c = window.wdioTraceCollector
-        return c && typeof c[method] === 'function' ? c[method]() : null
+        return c && typeof c.maskSelector === 'function' ? c.maskSelector() : null
       } catch (e) { return null }
-    }
-    var MASK_SELECTOR = collectorAsks('maskSelector')
-    var TYPING_SELECTOR = collectorAsks('typingSurfaceSelector')
+    })()
     function isMasked(el) { return MASK_SELECTOR !== null && el.closest(MASK_SELECTOR) !== null }
-    function holdsTyping(el) { return TYPING_SELECTOR !== null && el.closest(TYPING_SELECTOR) !== null }
+    function holdsMasked(el) { return MASK_SELECTOR !== null && el.querySelector(MASK_SELECTOR) !== null }
     var MASKED_NAME = ${JSON.stringify(MASKED_VALUE)}
-    function textName(el) { return holdsTyping(el) ? MASKED_NAME : ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200) }
+    // textContent would read a masked descendant's text into its ancestor's name.
+    function unmaskedText(node) {
+      if (MASK_SELECTOR === null) { return node.textContent || '' }
+      if (node.nodeType === 3) { return node.data }
+      if (node.nodeType !== 1) { return '' }
+      if (node.matches(MASK_SELECTOR)) { return MASKED_NAME }
+      var text = ''
+      for (var i = 0; i < node.childNodes.length; i++) { text += unmaskedText(node.childNodes[i]) }
+      return text
+    }
+    function textName(el) { return isMasked(el) ? MASKED_NAME : (unmaskedText(el).trim().replace(/\\s+/g, ' ') || '').slice(0, 200) }
 `
 
 /** Naming steps both scripts share; null means none applied, which an empty alt or label does not. */
@@ -111,7 +119,7 @@ const EXPLICIT_NAME_SCRIPT = `
       if (ariaLabel) { return ariaLabel.trim() }
       var labelledBy = el.getAttribute('aria-labelledby')
       if (labelledBy) {
-        var texts = labelledBy.split(/\\s+/).map(function(id) { return (document.getElementById(id)?.textContent || '').trim() }).filter(Boolean)
+        var texts = labelledBy.split(/\\s+/).map(function(id) { var ref = document.getElementById(id); return ref ? unmaskedText(ref).trim() : '' }).filter(Boolean)
         if (texts.length > 0) { return texts.join(' ').slice(0, 200) }
       }
       var tag = el.tagName.toLowerCase()
@@ -123,13 +131,13 @@ const EXPLICIT_NAME_SCRIPT = `
         var id = el.getAttribute('id')
         if (id) {
           var label = document.querySelector('label[for="' + CSS.escape(id) + '"]')
-          if (label) { return (label.textContent || '').trim() }
+          if (label) { return unmaskedText(label).trim() }
         }
         var parentLabel = el.closest('label')
         if (parentLabel) {
           var clone = parentLabel.cloneNode(true)
           clone.querySelectorAll('input,select,textarea').forEach(function(n) { n.remove() })
-          var lt = (clone.textContent || '').trim()
+          var lt = unmaskedText(clone).trim()
           if (lt) { return lt }
         }
       }
@@ -243,7 +251,7 @@ function textLocatorExpression(dialect: TextLocatorDialect): string {
 function textSelectorScript(dialect: TextLocatorDialect): string {
   return `
     function textSelector(element, tag) {
-      if (isMasked(element) || holdsTyping(element)) { return null }
+      if (isMasked(element) || holdsMasked(element)) { return null }
       var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
       if (!text || text.length > 120) { return null }
       var sameTagElements = document.querySelectorAll(tag)

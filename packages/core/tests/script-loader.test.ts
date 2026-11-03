@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { configureInputMasking } from '../src/input-masking.js'
+import { configureInputMasking } from '../src/capture-mask.js'
 import {
   collectorSourceCandidates,
   drainCollectorWithRecovery,

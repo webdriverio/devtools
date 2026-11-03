@@ -15,8 +15,8 @@ import {
 
 import { ACTION_METHODS, LOAD_MS, RULES, SCOPES } from './constants.js'
 import { checkCallSites } from './call-site.js'
+import { checkPasswordMasking } from './password-masking.js'
 import { checkPageLevelAssertions, checkTestRows } from './scenario-tests.js'
-import { checkTypedText } from './typed-text.js'
 import { checkWaitNesting } from './wait-nesting.js'
 import type {
   ActionMethod,
@@ -48,7 +48,7 @@ export function checkConformance(
     ...checkTestRows(stream),
     ...checkPageLevelAssertions(stream),
     ...checkWaitNesting(stream),
-    ...checkTypedText(stream, truth)
+    ...checkPasswordMasking(stream, truth)
   ]
 }
 

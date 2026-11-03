@@ -5,14 +5,12 @@ import {
   beginInputDispatch,
   captureAndAttachScreenshot,
   clearReadValues,
-  clearTypedValues,
-  errorMessage,
   configureInputMasking,
+  errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
   lastRenderedScreenshot,
   mapCommandToAction,
-  maskCommandArgs,
   resolveAdapterOutputDir,
   stepMetadataUid,
   TestAttemptTracker,
@@ -669,7 +667,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
     clearReadValues()
-    clearTypedValues()
   }
 
   /** Sends a wait whose frame was just pushed onto `frames` as its running row, so the commands it issues nest under it. */
@@ -760,10 +757,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       args,
       issuedByService
     )
-    // Before it runs, so the client's own log of it is scrubbed; never a nested `performActions` a `keys()` issued.
-    if (topLevelUserCommand) {
-      maskCommandArgs('webdriverio', command, args)
-    }
     // Flush the outgoing page's buffered mutations (e.g. field edits from prior
     // fills — value/checked changes fire no page transition) BEFORE a navigating
     // command discards its collector, else the replay shows empty inputs. Runs

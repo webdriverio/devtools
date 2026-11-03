@@ -147,6 +147,7 @@ function unrunReport(
       actions: { navigate: [], click: [], fill: [] },
       requests: [],
       typed: [],
+      undeclaredMaskPolicies: 0,
       bidi,
       scenarioFile
     },

@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  clearTypedValues,
-  configureInputMasking,
-  scrubTypedText
-} from '@wdio/devtools-core'
-import { MASKED_VALUE } from '@wdio/devtools-shared'
+import { captureMask, configureInputMasking } from '@wdio/devtools-core'
 import type { CommandLog, NightwatchBrowser } from '../src/types.js'
 import type * as Utils from '../src/helpers/utils.js'
 
@@ -16,6 +11,7 @@ vi.mock('../src/helpers/utils.js', async (importOriginal) => ({
   getCallSourceFromStack
 }))
 
+import { NightwatchDevToolsPlugin } from '../src/index.js'
 import { BrowserProxy } from '../src/helpers/browserProxy.js'
 import type { TestManager } from '../src/helpers/testManager.js'
 import { SessionCapturer } from '../src/session.js'
@@ -51,10 +47,10 @@ function setup() {
     (
       browser as unknown as { setValue: (s: string, v: string) => void }
     ).setValue(selector, value)
-  return { capturer, sent, typed, setValue, proxy }
+  return { capturer, sent, typed, setValue }
 }
 
-describe('Nightwatch typed text', () => {
+describe('Nightwatch page mask policy', () => {
   beforeEach(() => {
     getCallSourceFromStack.mockReturnValue({
       filePath: '/tests/spec.js',
@@ -66,8 +62,17 @@ describe('Nightwatch typed text', () => {
     vi.restoreAllMocks()
   })
 
-  it('types the real text and records it masked, after its selector', () => {
-    configureInputMasking()
+  it('sets the run’s policy from the plugin options', () => {
+    new NightwatchDevToolsPlugin({
+      maskInputs: false,
+      maskSelectors: ['.iban']
+    })
+    expect(captureMask()).toEqual({ inputs: false, selectors: ['.iban'] })
+    new NightwatchDevToolsPlugin({})
+    expect(captureMask()).toEqual({ inputs: true, selectors: [] })
+  })
+
+  it('keeps what setValue typed on its row, password included', () => {
     const { capturer, sent, typed, setValue } = setup()
     setValue('#username', 'tomsmith')
     setValue('#password', 'S3cret pass')
@@ -77,41 +82,12 @@ describe('Nightwatch typed text', () => {
       ['#password', 'S3cret pass']
     ])
     expect(capturer.commandsLog.map((row) => row.args)).toEqual([
-      ['#username', MASKED_VALUE],
-      ['#password', MASKED_VALUE]
+      ['#username', 'tomsmith'],
+      ['#password', 'S3cret pass']
     ])
-    expect(JSON.stringify(sent)).not.toMatch(/tomsmith|S3cret/)
-  })
-
-  it('records the typed text with maskInputs: false', () => {
-    configureInputMasking({ maskInputs: false })
-    const { capturer, setValue } = setup()
-    setValue('#password', 'S3cret pass')
-    expect(capturer.commandsLog[0].args).toEqual(['#password', 'S3cret pass'])
-  })
-
-  it('forgets what was typed when the next test unit starts', () => {
-    configureInputMasking()
-    clearTypedValues()
-    const { proxy, setValue } = setup()
-    setValue('#password', 'S3cret pass')
-    expect(scrubTypedText('S3cret pass')).not.toBe('S3cret pass')
-    proxy.resetTestTracking()
-    expect(scrubTypedText('S3cret pass')).toBe('S3cret pass')
-  })
-
-  it('masks text typed into a prompt', () => {
-    configureInputMasking()
-    const { capturer, proxy } = setup()
-    const browser = {
-      setAlertText: (...args: unknown[]) => {
-        ;(args[args.length - 1] as (r: unknown) => void)({ value: null })
-      }
-    } as unknown as NightwatchBrowser
-    proxy.wrapBrowserCommands(browser)
-    ;(browser as unknown as { setAlertText: (v: string) => void }).setAlertText(
-      'S3cret pass'
-    )
-    expect(capturer.commandsLog.at(-1)?.args).toEqual([MASKED_VALUE])
+    expect(sent.map((row) => row.args)).toEqual([
+      ['#username', 'tomsmith'],
+      ['#password', 'S3cret pass']
+    ])
   })
 })

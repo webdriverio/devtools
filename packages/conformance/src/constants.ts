@@ -51,7 +51,7 @@ export const RULES = {
   callSiteInScenario: 'call-site-names-the-scenario',
   testHasRows: 'every-test-has-rows',
   waitParentsItsRows: 'wait-row-parents-its-commands',
-  typedTextMasked: 'typed-text-never-reaches-the-dashboard',
+  passwordMaskedInPage: 'password-masked-only-in-the-page',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -88,8 +88,11 @@ export const RESPONSIBILITIES = {
 /** The collector's own source assigns its global; an adapter's probes and drains only read it. */
 export const COLLECTOR_SIGNATURE = /wdioTraceCollector\s*=(?!=)/
 
-/** The policy declaration that turns the collector's input masking off (shared `captureMaskPrelude`). */
-export const MASK_INPUTS_OFF = `${CAPTURE_MASK_GLOBAL} = {"inputs":false`
+/** The declaration of the run's mask policy every collector source starts with (shared `captureMaskPrelude`). */
+export const MASK_DECLARATION = `var ${CAPTURE_MASK_GLOBAL} = `
+
+/** The declaration that turns the collector's password masking off. */
+export const MASK_INPUTS_OFF = `${MASK_DECLARATION}{"inputs":false`
 
 /** The page's own Performance API read, recognised by the call that reads its navigation timings however a script phrases it. */
 export const PERFORMANCE_SIGNATURE =
@@ -168,6 +171,9 @@ export const PAGES: Record<string, Record<string, string | null>> = {
   },
   '/secure': { h2: null, '#flash': null, '#logout': '/login' }
 }
+
+/** The scenario's password fields, whose value the collector masks by default. */
+export const PASSWORD_FIELDS: ReadonlySet<string> = new Set(['#password'])
 
 /** Per page, the text an element reads back; an element not listed reads as empty. */
 export const ELEMENT_TEXT: Record<string, Record<string, string>> = {

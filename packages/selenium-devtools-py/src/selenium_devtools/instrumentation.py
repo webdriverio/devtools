@@ -26,7 +26,6 @@ from . import (
     capture_timing,
     element_locators,
     frames,
-    input_masking,
     interceptor_network,
     performance,
     read_value_locators,
@@ -1047,14 +1046,12 @@ def install(
         _capture_source(capturer, src)  # Source tab: send the test file once
         target = element_locators.selector_for_command(driver_command, params)
         poll = wait_tracking.poll_of(driver_command, params, target)
-        # Before the command runs, so the typed text is known by the time selenium logs it.
-        row_args = input_masking.mask_command_params(driver_command, params)
         try:
             result = orig_execute(self, driver_command, params)
         except BaseException as exc:  # capture then re-raise unchanged
             failed = capturer.capture_command(
                 command=driver_command,
-                args=row_args,
+                args=params,
                 error=exc,
                 start_time=start,
                 call_source=src,
@@ -1077,7 +1074,7 @@ def install(
         _remember_read_value(driver_command, params, value, selector)
         row = capturer.capture_command(
             command=driver_command,
-            args=row_args,
+            args=params,
             result=value,
             start_time=start,
             call_source=src,
@@ -1152,7 +1149,6 @@ def uninstall() -> None:
     # entry could only ever attribute the wrong selector to a new run's row.
     element_locators.reset()
     read_value_locators.reset()
-    input_masking.clear_typed()
     # Never leave a recorder running past teardown, for any session still live.
     # Keep the buffer first: `disable()` uninstalls BEFORE its fallback export,
     # and `sessions` is replaced below, so a session that never quit would

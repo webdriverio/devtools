@@ -364,9 +364,10 @@ def enable(
     the dashboard can't be reached/launched — a missing dashboard must never
     break the user's test run.
 
-    ``mask_inputs`` (default on, ``DEVTOOLS_MASK_INPUTS``) replaces typed text
-    with a fixed placeholder in everything captured; ``mask_selectors``
-    (``DEVTOOLS_MASK_SELECTORS``) masks the text and value of matching elements.
+    ``mask_inputs`` (default on, ``DEVTOOLS_MASK_INPUTS``) masks the value of
+    password fields in the replayed page; ``mask_selectors``
+    (``DEVTOOLS_MASK_SELECTORS``) masks the text and value of matching elements
+    there too. Command rows always carry what the test typed.
     """
     if _active["capturer"] is not None:
         return _active["capturer"]

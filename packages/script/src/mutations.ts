@@ -123,8 +123,7 @@ function attributeValueOf(m: MutationRecord): string | undefined {
   const target = m.target as Element
   const value = target.getAttribute(m.attributeName!) ?? undefined
   return value !== undefined &&
-    m.attributeName === 'value' &&
-    pageMask.masksValue(target)
+    pageMask.masksAttribute(target, m.attributeName!)
     ? pageMask.maskValue(value)
     : value
 }

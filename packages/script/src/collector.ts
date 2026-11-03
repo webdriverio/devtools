@@ -4,8 +4,6 @@ import { NetworkRequestCollector } from './collectors/networkRequests.js'
 import { ResourceTimingCollector } from './collectors/resourceTiming.js'
 import { assignRef, hasRef, parseDocument } from './utils.js'
 import { pageMask } from './masking.js'
-import type { ConsoleLogs } from './collectors/consoleLogs.js'
-import type { NetworkRequest } from '../types.js'
 
 /**
  * When THIS document came into existence, as epoch ms.
@@ -25,28 +23,6 @@ function documentAnchorTime(): number {
   return typeof origin === 'number' && Number.isFinite(origin) && origin > 0
     ? Math.round(origin)
     : Date.now()
-}
-
-/** Typed values are scrubbed at the drain, once per batch, so a keystroke costs a map write and nothing more. */
-function scrubRequestBodies(requests: NetworkRequest[]): NetworkRequest[] {
-  for (const request of requests) {
-    if (request.requestBody) {
-      request.requestBody = pageMask.scrub(request.requestBody)
-    }
-    if (request.responseBody) {
-      request.responseBody = pageMask.scrub(request.responseBody)
-    }
-  }
-  return requests
-}
-
-function scrubConsoleLogs(logs: ConsoleLogs[]): ConsoleLogs[] {
-  for (const entry of logs) {
-    entry.args = entry.args.map((arg) =>
-      typeof arg === 'string' ? pageMask.scrub(arg) : arg
-    )
-  }
-  return logs
 }
 
 export class DataCollector {
@@ -137,20 +113,15 @@ export class DataCollector {
     return pageMask.selector
   }
 
-  /** Where the element scripts mask a name or locator drawn from typed text. */
-  typingSurfaceSelector(): string | null {
-    return pageMask.typingSurfaceSelector()
-  }
-
   getTraceData() {
     const data = {
       errors: this.#errors,
       mutations: this.#mutations,
-      consoleLogs: scrubConsoleLogs(this.#consoleLogs.getArtifacts()),
-      networkRequests: scrubRequestBodies([
+      consoleLogs: this.#consoleLogs.getArtifacts(),
+      networkRequests: [
         ...this.#networkRequests.getArtifacts(),
         ...this.#resourceTiming.getArtifacts()
-      ]).sort((a, b) => a.startTime - b.startTime),
+      ].sort((a, b) => a.startTime - b.startTime),
       traceLogs: getLogs(),
       metadata: this.getMetadata()
     } as const

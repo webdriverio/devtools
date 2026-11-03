@@ -1,4 +1,4 @@
-// What a run keeps of typed text: masked by default before it leaves the browser or the adapter process.
+// What the replayed page keeps of form values: the collector masks password fields, and anything the run names, before they leave the browser.
 
 import type { BaseDevToolsOptions } from './types.js'
 
@@ -21,22 +21,6 @@ export const DEFAULT_CAPTURE_MASK: CaptureMaskConfig = {
   inputs: true,
   selectors: []
 }
-
-/** Input types whose value is a label or a choice the page already shows, never typed text. */
-export const UNMASKED_INPUT_TYPES: ReadonlySet<string> = new Set([
-  'checkbox',
-  'radio',
-  'submit',
-  'button',
-  'reset',
-  'image',
-  'range',
-  'color',
-  'file'
-])
-
-/** Typed values shorter than this are not scrubbed out of free text, where a short one would rewrite unrelated words. */
-export const SCRUB_MIN_LENGTH = 4
 
 export function resolveCaptureMask(
   options: CaptureMaskOptions = {}
@@ -64,41 +48,3 @@ export function withCaptureMask(
 ): string {
   return `${captureMaskPrelude(config)}${source}`
 }
-
-/** The forms a typed value takes inside a request body or a log line. */
-export function typedValueForms(value: string): string[] {
-  if (value.length < SCRUB_MIN_LENGTH) {
-    return []
-  }
-  const uri = encodeURIComponent(value)
-  const json = JSON.stringify(value).slice(1, -1)
-  return [...new Set([value, uri, uri.replace(/%20/g, '+'), json])]
-}
-
-/** One pattern for every form of every value, longest first so a value inside another is not split; null for none. */
-export function typedValuePattern(values: Iterable<string>): RegExp | null {
-  const forms = [...new Set([...values].flatMap(typedValueForms))].sort(
-    (a, b) => b.length - a.length
-  )
-  if (forms.length === 0) {
-    return null
-  }
-  const escaped = forms.map((form) =>
-    form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  )
-  // eslint-disable-next-line security/detect-non-literal-regexp -- every alternative is an escaped literal
-  return new RegExp(escaped.join('|'), 'g')
-}
-
-/** `text` with every form of every value replaced by {@link MASKED_VALUE} in one pass. */
-export function scrubTypedValues(
-  text: string,
-  values: Iterable<string>
-): string {
-  const pattern = typedValuePattern(values)
-  return pattern ? text.replace(pattern, MASKED_VALUE) : text
-}
-
-/** The CSS for elements whose own text is what a test types into: an editable region or an ARIA textbox. */
-export const TYPING_SURFACE_SELECTOR =
-  '[contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"], [role="textbox"]'

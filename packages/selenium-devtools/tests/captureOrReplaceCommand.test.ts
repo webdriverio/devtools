@@ -1,6 +1,5 @@
-import { afterEach, describe, it, expect } from 'vitest'
-import { configureInputMasking, RetryTracker } from '@wdio/devtools-core'
-import { MASKED_VALUE } from '@wdio/devtools-shared'
+import { describe, it, expect } from 'vitest'
+import { RetryTracker } from '@wdio/devtools-core'
 import { captureOrReplaceCommand } from '../src/helpers/captureOrReplaceCommand.js'
 import { SessionCapturer } from '../src/session.js'
 import type {
@@ -462,19 +461,7 @@ describe('captureOrReplaceCommand', () => {
 })
 
 describe('typed text', () => {
-  afterEach(() => {
-    configureInputMasking()
-  })
-
-  const sendKeys = (text: string) =>
-    command({
-      command: 'sendKeys',
-      args: [text],
-      callSource: '/helpers.js:4:9'
-    })
-
-  it('masks what sendKeys typed, and keeps two fills from one helper line as two rows', async () => {
-    configureInputMasking()
+  it('keeps what sendKeys typed on its row, and two fills from one helper line as two rows', async () => {
     const capturer = new SessionCapturer({})
     const retryTracker = new RetryTracker()
     try {
@@ -483,29 +470,17 @@ describe('typed text', () => {
           capturer,
           retryTracker,
           test,
-          cmd: sendKeys(text)
+          cmd: command({
+            command: 'sendKeys',
+            args: [text],
+            callSource: '/helpers.js:4:9'
+          })
         })
       }
       expect(capturer.commandsLog.map((row) => row.args)).toEqual([
-        [MASKED_VALUE],
-        [MASKED_VALUE]
+        ['tomsmith'],
+        ['S3cret pass']
       ])
-    } finally {
-      capturer.cleanup()
-    }
-  })
-
-  it('captures the typed text with maskInputs: false', async () => {
-    configureInputMasking({ maskInputs: false })
-    const capturer = new SessionCapturer({})
-    try {
-      await captureOrReplaceCommand({
-        capturer,
-        retryTracker: new RetryTracker(),
-        test,
-        cmd: sendKeys('S3cret pass')
-      })
-      expect(capturer.commandsLog[0].args).toEqual(['S3cret pass'])
     } finally {
       capturer.cleanup()
     }

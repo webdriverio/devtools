@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   CAPTURE_PERFORMANCE_SCRIPT,
-  clearTypedValues,
-  configureInputMasking,
-  maskCommandArgs
+  configureInputMasking
 } from '@wdio/devtools-core'
-import { MASKED_VALUE, type CommandLog } from '@wdio/devtools-shared'
+import type { CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
@@ -564,6 +562,23 @@ describe('SessionCapturer', () => {
       expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
     })
 
+    it('declares the run’s mask policy ahead of the preloaded collector', async () => {
+      configureInputMasking({ maskInputs: false, maskSelectors: ['.iban'] })
+      try {
+        const capturer = new SessionCapturer()
+        const browser = bidiBrowser()
+        await capturer.injectScript(browser)
+        const [{ functionDeclaration }] = vi.mocked(
+          browser.scriptAddPreloadScript
+        ).mock.calls[0] as [{ functionDeclaration: string }]
+        expect(functionDeclaration).toBe(
+          'async () => { var __wdioCaptureMask = {"inputs":false,"selectors":[".iban"]};\n// preload }'
+        )
+      } finally {
+        configureInputMasking()
+      }
+    })
+
     it('re-adds the preload script for the new session after a reload reset', async () => {
       const capturer = new SessionCapturer()
       const browser = bidiBrowser()
@@ -831,20 +846,6 @@ describe('SessionCapturer', () => {
   })
 
   describe('handleLogEntryAdded', () => {
-    it('scrubs a typed value the page logged', () => {
-      configureInputMasking()
-      clearTypedValues()
-      const capturer = new SessionCapturer()
-      maskCommandArgs('webdriverio', 'setValue', ['S3cret pass'])
-      capturer.handleLogEntryAdded({
-        type: 'console',
-        method: 'log',
-        args: [{ type: 'string', value: 'login S3cret pass' }]
-      })
-      expect(capturer.consoleLogs[0].args).toEqual([`login ${MASKED_VALUE}`])
-      clearTypedValues()
-    })
-
     it('records a console-method entry with browser source', () => {
       const capturer = new SessionCapturer()
       capturer.handleLogEntryAdded({
@@ -991,23 +992,7 @@ describe('SessionCapturer', () => {
   })
 
   describe('afterCommand: typed text', () => {
-    afterEach(() => {
-      configureInputMasking()
-    })
-
-    const fill = (capturer: SessionCapturer, value: string) =>
-      capturer.afterCommand(
-        mockBrowser,
-        'setValue' as any,
-        [value],
-        undefined,
-        undefined,
-        '/test/helpers.ts:3:5',
-        Date.now()
-      )
-
-    it('masks what a fill typed, after the element it typed into', async () => {
-      configureInputMasking()
+    it('keeps what a fill typed on its row, after the element it typed into', async () => {
       const capturer = new SessionCapturer()
       await capturer.afterCommand(
         mockBrowser,
@@ -1016,26 +1001,17 @@ describe('SessionCapturer', () => {
         {},
         undefined
       )
-      await fill(capturer, 'S3cret pass')
+      await capturer.afterCommand(
+        mockBrowser,
+        'setValue' as any,
+        ['S3cret pass'],
+        undefined,
+        undefined,
+        '/test/login.ts:3:5',
+        Date.now()
+      )
       const row = capturer.commandsLog.find((c) => c.command === 'setValue')!
-      expect(row.args).toEqual(['#password', MASKED_VALUE])
-    })
-
-    it('keeps two fills from one helper line as two rows', async () => {
-      configureInputMasking()
-      const capturer = new SessionCapturer()
-      await fill(capturer, 'tomsmith')
-      await fill(capturer, 'S3cret pass')
-      expect(
-        capturer.commandsLog.filter((c) => c.command === 'setValue')
-      ).toHaveLength(2)
-    })
-
-    it('captures the typed text with maskInputs: false', async () => {
-      configureInputMasking({ maskInputs: false })
-      const capturer = new SessionCapturer()
-      await fill(capturer, 'S3cret pass')
-      expect(capturer.commandsLog[0].args).toEqual(['S3cret pass'])
+      expect(row.args).toEqual(['#password', 'S3cret pass'])
     })
   })
 

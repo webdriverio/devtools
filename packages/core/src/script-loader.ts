@@ -9,7 +9,7 @@ import {
 } from '@wdio/devtools-shared'
 
 import { errorMessage } from './error.js'
-import { captureMask } from './input-masking.js'
+import { captureMask } from './capture-mask.js'
 
 const require = createRequire(import.meta.url)
 
