@@ -6,7 +6,10 @@ import logger from '@wdio/logger'
 import { startDetachedBackend } from './helpers/detachedBackend.js'
 import { openDashboard } from './helpers/dashboardLauncher.js'
 import { getDriverOriginals } from './driverPatcher.js'
-import { handleOnCommand } from './helpers/commandPostActions.js'
+import {
+  handleActionsPerformed,
+  handleOnCommand
+} from './helpers/commandPostActions.js'
 import { logConfigSummary } from './helpers/configSummary.js'
 import { registerProcessHooks } from './helpers/processHooks.js'
 import { patchSelenium } from './driverPatcher.js'
@@ -25,6 +28,7 @@ import {
   recordTraceBoundary,
   flushCurrentTestTrace
 } from './session-lifecycle.js'
+import { captureFinalFrame } from './helpers/finalFrame.js'
 import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
 import {
   startTest as tmStartTest,
@@ -486,6 +490,7 @@ class SeleniumDevToolsPlugin {
   async endTest(state: TestStats['state'] = 'passed') {
     const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndTest(this.#getInternals(), state)
+    await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
     await this.#emitTestArtifacts(ended, state === 'failed', flushed)
   }
@@ -499,6 +504,7 @@ class SeleniumDevToolsPlugin {
   async endScenario(state: TestStats['state'] = 'passed') {
     const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndScenario(this.#getInternals(), state)
+    await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
     await this.#emitTestArtifacts(ended, state === 'failed', flushed)
   }
@@ -552,6 +558,10 @@ class SeleniumDevToolsPlugin {
     )
     this.#sessionCapturer?.track(handled)
     return handled
+  }
+
+  onActionsPerformed(driver: SeleniumDriverLike): void {
+    handleActionsPerformed({ ...this.#getInternals(), driver })
   }
 
   /** Fallback path only: under the preload the destination instrumented itself. */
@@ -693,6 +703,7 @@ const patched = patchSelenium({
   onCommand: (cmd) => plugin.onCommand(cmd),
   afterNavigation: () => plugin.instrumentNavigationTarget(),
   beforeInput: () => plugin.focusForInput(),
+  afterActions: (driver) => plugin.onActionsPerformed(driver),
   // Per-scenario cleanup ONLY here (finalizes that driver's screencast,
   // clears per-driver state). The session-wide teardown — set-finalized,
   // session summary, capturer cleanup, interactive shutdown — lives in

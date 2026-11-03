@@ -10,7 +10,11 @@ import unittest
 from unittest import mock
 
 from selenium_devtools import capture_timing, instrumentation
+from selenium_devtools.capturer import SessionCapturer
 from selenium_devtools.constants import ENV_CAPTURE_TIMING
+from selenium_devtools.per_test_capture import PerTestCapture
+
+from wire_contract import RecordingTransport
 
 SCRIPTS = {"accessibilityTree": "(function(){})", "elements": "(function(){})"}
 
@@ -152,6 +156,47 @@ class TestTheAdapterCapture(Base):
         records, _ = _drain(self.out)
         self.assertEqual(
             [p["probe"] for p in records[0]["probes"]],
+            ["screenshot", "elements", "accessibilityTree"],
+        )
+
+    class ReadDriver:
+        session_id = "s"
+        caps = {"browserName": "chrome"}
+
+        def execute(self, command, params=None):
+            return {"value": "Logout"}
+
+        def get_screenshot_as_base64(self):
+            return "AA"
+
+        def execute_script(self, script, *args):
+            return [{"selector": "#go"}]
+
+    def test_a_read_is_timed_with_its_screenshot_alone_and_the_end_frame_as_final(self):
+        self.env("1")
+        instrumentation.uninstall()
+        self.addCleanup(instrumentation.uninstall)
+        instrumentation.install(SessionCapturer(RecordingTransport()), self.ReadDriver)
+        driver = self.ReadDriver()
+        with mock.patch.dict(
+            instrumentation._state,
+            {
+                "trace": True,
+                "a11y": True,
+                "element_scripts": SCRIPTS,
+                "action_snapshots": [],
+                "test": PerTestCapture(awaiting_initial_frame=False, started_ms=0),
+            },
+        ):
+            driver.execute("getElementText", {"value": "x"})
+            instrumentation._capture_final_frame(driver)
+        records, _ = _drain(self.out)
+        read, final = records
+        self.assertEqual((read["command"], read["trigger"]), ("getElementText", "action"))
+        self.assertEqual([p["probe"] for p in read["probes"]], ["screenshot"])
+        self.assertEqual((final["command"], final["trigger"]), ("getElementText", "final"))
+        self.assertEqual(
+            [p["probe"] for p in final["probes"]],
             ["screenshot", "elements", "accessibilityTree"],
         )
 
