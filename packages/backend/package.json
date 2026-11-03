@@ -61,8 +61,8 @@
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/devtools-trace": "workspace:^",
     "nodemon": "^3.1.14",
-    "tsup": "^8.5.1",
-    "typescript": "6.0.3"
+    "tsup": "^9.0.0",
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@wdio/cli": ">=9"
