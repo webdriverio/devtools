@@ -579,10 +579,19 @@ describe('exported trace stream — dense filmstrip', () => {
     const frameSnaps = lines.filter((l) => l.type === 'frame-snapshot')
     expect(frameSnaps).toHaveLength(2)
     for (const event of frameSnaps) {
-      const snapshot = event.snapshot as { html: unknown }
+      const snapshot = event.snapshot as {
+        html: unknown
+        resourceOverrides: unknown
+      }
       expect(JSON.stringify(snapshot.html)).toContain(
-        'data:image/jpeg;base64,AAAA'
+        'https://screenshot.wdio-devtools.invalid/action.jpeg'
       )
+      expect(snapshot.resourceOverrides).toEqual([
+        {
+          url: 'https://screenshot.wdio-devtools.invalid/action.jpeg',
+          sha1: 'page@abc12345-1200.jpeg'
+        }
+      ])
     }
     await fs.rm(outputDir, { recursive: true, force: true })
   })
