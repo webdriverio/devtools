@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   EXPAND_COLLAPSED_ROWS,
   READ_PLAYER_STATE,
+  READ_TRACE_POSITION,
+  clickRow,
   cspViolationReporter,
-  type PlayerState
+  type PlayerState,
+  type TracePosition
 } from '../hosted-player/page-scripts.js'
 
 /** Runs a page script the way `browser.execute` runs source text: as a function body. */
@@ -82,6 +85,59 @@ describe('READ_PLAYER_STATE', () => {
     expect(state.frames).toBe(1)
     expect(state.alerts).toEqual([])
     expect(Array.isArray(state.resources)).toBe(true)
+  })
+})
+
+describe('READ_TRACE_POSITION', () => {
+  it('reads the active row, the dock’s open tab and the hash', () => {
+    const root = app()
+    const actions = host('wdio-devtools-actions', root)
+    commandRow(actions.shadowRoot as ShadowRoot, 'Page.navigate("x")')
+    commandRow(
+      actions.shadowRoot as ShadowRoot,
+      'Element.click()'
+    ).setAttribute('active', '')
+    const panes = host('wdio-devtools-tabs', root)
+    panes.setAttribute('cacheId', 'activeActionsTab')
+    panes.innerHTML =
+      '<wdio-devtools-tab label="Actions" active></wdio-devtools-tab>'
+    const dock = host('wdio-devtools-tabs', root)
+    dock.setAttribute('cacheId', 'activeWorkbenchTab')
+    dock.innerHTML =
+      '<wdio-devtools-tab label="Source"></wdio-devtools-tab><wdio-devtools-tab label="Network" active></wdio-devtools-tab>'
+    const page = location.href
+    history.replaceState(null, '', '#action=call@4')
+
+    const position = run<TracePosition>(READ_TRACE_POSITION)
+
+    history.replaceState(null, '', page)
+    expect(position).toEqual({
+      activeRow: 'Element.click()',
+      dockTab: 'Network',
+      hash: '#action=call@4'
+    })
+  })
+
+  it('reads nulls before a trace is open', () => {
+    expect(run<TracePosition>(READ_TRACE_POSITION)).toMatchObject({
+      activeRow: null,
+      dockTab: null
+    })
+  })
+})
+
+describe('clickRow', () => {
+  it('clicks the label of the row it names, and says when there is none', () => {
+    const actions = host('wdio-devtools-actions', app())
+    const row = commandRow(actions.shadowRoot as ShadowRoot, 'Element.click()')
+    let clicked = 0
+    row.shadowRoot
+      ?.querySelector('code.label')
+      ?.addEventListener('click', () => clicked++)
+
+    expect(run<boolean>(clickRow('Element.click()'))).toBe(true)
+    expect(run<boolean>(clickRow('Page.getTitle()'))).toBe(false)
+    expect(clicked).toBe(1)
   })
 })
 

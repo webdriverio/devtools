@@ -217,6 +217,8 @@ export interface CommandLog {
    *  `locator` action param — kept distinct from the `selector` param so it
    *  never feeds `paramsToArgs`. */
   selector?: string
+  /** The trace action's `callId` this row was read from; set by the trace reader, and what a player deep link names. */
+  callId?: string
 }
 
 /**

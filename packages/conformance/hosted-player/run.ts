@@ -14,7 +14,11 @@ async function main(): Promise<number> {
     }
     const baseUrl = args.url ?? preview?.url ?? ''
     console.log(`hosted-player: checking ${baseUrl}`)
-    await checkHostedPlayer({ baseUrl, headed: args.headed })
+    await checkHostedPlayer({
+      baseUrl,
+      headed: args.headed,
+      ...(preview ? { serveZip: preview.serveZip } : {})
+    })
     console.log('hosted-player: PASS')
     return 0
   } catch (error) {

@@ -3,11 +3,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { TraceFormatManifest } from '../../trace/tests/fixtures/trace-formats/fixture-manifest.js'
-import {
-  CSP_VIOLATION_PREFIX,
-  REQUIRED_CSP_DIRECTIVES,
-  WORKER_SCRIPT_RE
-} from './constants.js'
+import { hostedPlayerCsp } from '@wdio/devtools-shared'
+
+import { CSP_VIOLATION_PREFIX, WORKER_SCRIPT_RE } from './constants.js'
 
 /** The committed zips from older writers; their manifests say which action rows each one holds. */
 export const TRACE_FORMAT_FIXTURES = path.resolve(
@@ -84,14 +82,29 @@ export function diffTitles(
   return { missing, unexpected }
 }
 
-/** The CSP directives the response is missing; empty when it carries all of them. */
-export function missingCspDirectives(header: string | null): string[] {
-  const directives = (header ?? '')
-    .split(';')
-    .map((directive) => directive.trim().replace(/\s+/g, ' '))
-  return REQUIRED_CSP_DIRECTIVES.filter(
-    (required) => !directives.includes(required)
+/** Directives as a set of normalized strings, so spacing and order do not count. */
+function cspDirectives(policy: string): Set<string> {
+  return new Set(
+    policy
+      .split(';')
+      .map((directive) => directive.trim().replace(/\s+/g, ' '))
+      .filter(Boolean)
   )
+}
+
+/** How the served policy differs from `hostedPlayerCsp()`, or undefined when it is that policy. */
+export function cspDrift(header: string | null): string | undefined {
+  const expected = cspDirectives(hostedPlayerCsp())
+  const served = cspDirectives(header ?? '')
+  const missing = [...expected].filter((d) => !served.has(d))
+  const extra = [...served].filter((d) => !expected.has(d))
+  if (!missing.length && !extra.length) {
+    return undefined
+  }
+  return [
+    ...missing.map((d) => `missing "${d}"`),
+    ...extra.map((d) => `unexpected "${d}"`)
+  ].join(', ')
 }
 
 /** The fields of a BiDi `log.entryAdded` event the check reads. */

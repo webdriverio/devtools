@@ -41,6 +41,7 @@ import {
   metadataBySessionContext,
   commandContext
 } from '../../controller/context.js'
+import { OPEN_DOCK_TAB_EVENT } from '../../controller/constants.js'
 import type {
   DeviceInfo,
   Metadata,
@@ -835,7 +836,7 @@ export class DevtoolsBrowser extends Element {
   #pickElement(selector: string, label: string) {
     this.#copyLocator(selector)
     window.dispatchEvent(
-      new CustomEvent('open-dock-tab', { detail: { label: 'A11y' } })
+      new CustomEvent(OPEN_DOCK_TAB_EVENT, { detail: { label: 'A11y' } })
     )
     this.#revealA11yRow(selector, label, true)
   }

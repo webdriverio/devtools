@@ -3,6 +3,8 @@ import type { CommandLog } from '@wdio/devtools-shared'
 import { commandCategory } from '@components/workbench/actionItems/category.js'
 import { formatDuration } from '@components/workbench/actionItems/duration.js'
 import '@components/workbench/logs.js'
+import '@components/tabs.js'
+import type { DevtoolsTabs } from '@components/tabs.js'
 import type { DevtoolsCommandLogs } from '@components/workbench/logs.js'
 
 import { commandLog } from '../../support/builders.js'
@@ -95,10 +97,13 @@ async function waitFor(cond: () => boolean, what: string): Promise<void> {
 async function showCommand(
   panel: DevtoolsCommandLogs,
   command: CommandLog,
-  elapsedTime?: number
+  elapsedTime?: number,
+  keepTab?: boolean
 ): Promise<void> {
   window.dispatchEvent(
-    new CustomEvent('show-command', { detail: { command, elapsedTime } })
+    new CustomEvent('show-command', {
+      detail: { command, elapsedTime, ...(keepTab ? { keepTab } : {}) }
+    })
   )
   await waitFor(
     () => text(shadow(panel, NAME)) === command.command,
@@ -515,6 +520,48 @@ describe('wdio-devtools-logs', () => {
 
       expect(text(shadow(panel, NAME))).toBe('navigateTo')
       expect(shadowAll(panel, HEAD)).toHaveLength(1)
+    })
+  })
+
+  describe('the dock tab it opens', () => {
+    /** The panel in the dock's Log tab, with the Network tab open. */
+    async function docked(): Promise<{
+      dock: DevtoolsTabs
+      panel: DevtoolsCommandLogs
+    }> {
+      const dock = await mount<DevtoolsTabs>('wdio-devtools-tabs', {
+        innerHTML:
+          '<wdio-devtools-tab label="Network" active></wdio-devtools-tab>' +
+          `<wdio-devtools-tab label="Log"><${PANEL}></${PANEL}></wdio-devtools-tab>`
+      })
+      await flush()
+      await settle(dock)
+      const panel = dock.querySelector<DevtoolsCommandLogs>(PANEL)!
+      await settle(panel)
+      return { dock, panel }
+    }
+    const openTab = (dock: DevtoolsTabs) =>
+      dock.querySelector('wdio-devtools-tab[active]')?.getAttribute('label')
+
+    it('opens Log for an action the viewer picked', async () => {
+      const { dock, panel } = await docked()
+
+      await showCommand(panel, commandLog({ command: 'getTitle' }))
+
+      expect(openTab(dock)).toBe('Log')
+    })
+
+    it('leaves the dock on its tab for an action the player placed itself', async () => {
+      const { dock, panel } = await docked()
+
+      await showCommand(
+        panel,
+        commandLog({ command: 'getTitle' }),
+        undefined,
+        true
+      )
+
+      expect(openTab(dock)).toBe('Network')
     })
   })
 })

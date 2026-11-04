@@ -15,6 +15,7 @@ import { activeSpanAt } from '../workbench/active-entry.js'
 import { KBD } from '../../controller/keyboard.js'
 import {
   PLAYER_RESTART_EVENT,
+  PLAYER_SEEK_ACTION_EVENT,
   PLAYER_SPEED_EVENT,
   PLAYER_STATE_EVENT,
   SPEEDS,
@@ -49,6 +50,8 @@ export class TraceTimeline extends Element {
   #rafLast = 0
   #activeCommand?: CommandLog
   #started = false
+  // Another action's span can cover the linked one's instant, so the link holds until the clock moves.
+  #linkedAtMs?: number
 
   @query('[data-scrub]') scrubEl?: HTMLElement
 
@@ -65,6 +68,7 @@ export class TraceTimeline extends Element {
     window.addEventListener(KBD.speed, this.#onKbdSpeed)
     window.addEventListener(PLAYER_RESTART_EVENT, this.#onRestartEvent)
     window.addEventListener(PLAYER_SPEED_EVENT, this.#onSpeedEvent)
+    window.addEventListener(PLAYER_SEEK_ACTION_EVENT, this.#onSeekAction)
   }
 
   disconnectedCallback(): void {
@@ -78,6 +82,15 @@ export class TraceTimeline extends Element {
     window.removeEventListener(KBD.speed, this.#onKbdSpeed)
     window.removeEventListener(PLAYER_RESTART_EVENT, this.#onRestartEvent)
     window.removeEventListener(PLAYER_SPEED_EVENT, this.#onSpeedEvent)
+    window.removeEventListener(PLAYER_SEEK_ACTION_EVENT, this.#onSeekAction)
+  }
+
+  #onSeekAction = (event: CustomEvent<string>): void => {
+    const sorted = this.#sortedCommands
+    const command = sorted.find(({ callId }) => callId === event.detail)
+    if (command) {
+      this.#jumpTo(command, sorted)
+    }
   }
 
   #onRestartEvent = (): void => this.#restart()
@@ -177,6 +190,7 @@ export class TraceTimeline extends Element {
     if (this.currentMs >= this.#duration) {
       this.currentMs = 0
     }
+    this.#linkedAtMs = undefined
     this.playing = true
     this.#rafLast = performance.now()
     this.#rafId = requestAnimationFrame(this.#tick)
@@ -199,6 +213,7 @@ export class TraceTimeline extends Element {
   }
 
   #seekToMs(ms: number): void {
+    this.#linkedAtMs = undefined
     this.currentMs = Math.min(this.#duration, Math.max(0, ms))
     this.#syncActiveCommand()
   }
@@ -234,11 +249,30 @@ export class TraceTimeline extends Element {
     if (!sorted.length) {
       return
     }
+    if (this.#linkedAtMs === this.currentMs) {
+      return
+    }
     const clock = this.#start + this.currentMs
     const command = activeSpanAt(sorted, clock) ?? sorted[0]
     if (this.#started && command === this.#activeCommand) {
       return
     }
+    this.#announce(command, sorted, !this.#started)
+  }
+
+  /** Puts the clock on `command`, as a link asks. */
+  #jumpTo(command: CommandLog, sorted: CommandLog[]): void {
+    this.playing = false
+    this.#stopRaf()
+    this.currentMs = Math.min(
+      this.#duration,
+      Math.max(0, command.timestamp - this.#start)
+    )
+    this.#linkedAtMs = this.currentMs
+    this.#announce(command, sorted, true)
+  }
+
+  #announce(command: CommandLog, sorted: CommandLog[], keepTab: boolean) {
     this.#started = true
     this.#activeCommand = command
     // Timed against the commands, NOT against `#start`: the strip's window origin
@@ -246,7 +280,11 @@ export class TraceTimeline extends Element {
     // measuring from it would badge the same action differently in the two panes.
     window.dispatchEvent(
       new CustomEvent<CommandEventProps>('show-command', {
-        detail: { command, elapsedTime: elapsedSince(sorted, command) }
+        detail: {
+          command,
+          elapsedTime: elapsedSince(sorted, command),
+          ...(keepTab ? { keepTab } : {})
+        }
       })
     )
   }
