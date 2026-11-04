@@ -251,11 +251,20 @@ describe('exportActiveRunTrace', () => {
           }
         ],
         networkRequests: [
-          { id: 'load', url: css, method: 'GET', timestamp: 1010 },
+          {
+            id: 'load',
+            url: css,
+            method: 'GET',
+            type: 'stylesheet',
+            startTime: 1000,
+            timestamp: 1010
+          },
           {
             id: 'read',
             url: css,
             method: 'GET',
+            type: 'fetch',
+            startTime: 1300,
             timestamp: 1301,
             wallTime: 1301
           }

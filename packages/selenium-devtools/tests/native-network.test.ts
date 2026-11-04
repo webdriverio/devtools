@@ -128,15 +128,8 @@ describe('selenium native network capture', () => {
     expect(ctx.sessionCapturer?.pageResourceStore.mode).toBe('styles')
     ctx.sessionCapturer?.cleanup()
 
-    ctx = {
-      ...makeCtx(false),
-      options: {
-        hostname: 'localhost',
-        port: 0,
-        mode: 'trace',
-        traceResources: 'none'
-      }
-    }
+    const base = makeCtx(false)
+    ctx = { ...base, options: { ...base.options, traceResources: 'none' } }
     await onDriverCreated(ctx, driver('d2'))
     expect(ctx.sessionCapturer?.pageResourceStore.mode).toBe('none')
   })
