@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import {
+  FIXTURE_FONT_PATH,
   FIXTURE_MAX_BODY_BYTES,
+  FIXTURE_STYLESHEET_PATH,
   FIXTURE_PASSWORD,
   FIXTURE_USERNAME
 } from '../smoke/constants.js'
@@ -59,6 +61,24 @@ function browserLike() {
 }
 
 describe('fixture site', () => {
+  it('links a cacheable stylesheet whose font face resolves against the stylesheet', async () => {
+    const { html } = await browserLike().follow('/login')
+    expect(html).toContain(`href="${FIXTURE_STYLESHEET_PATH}"`)
+
+    const css = await fetch(`${site.url}${FIXTURE_STYLESHEET_PATH}`)
+    expect(css.headers.get('content-type')).toContain('text/css')
+    expect(css.headers.get('cache-control')).toContain('max-age')
+    const face = new URL(
+      '../fonts/fixture-icons.woff2',
+      `${site.url}${FIXTURE_STYLESHEET_PATH}`
+    )
+    expect(await css.text()).toContain("url('../fonts/fixture-icons.woff2')")
+    expect(face.pathname).toBe(FIXTURE_FONT_PATH)
+
+    const font = await fetch(`${site.url}${FIXTURE_FONT_PATH}`)
+    expect(font.headers.get('content-type')).toBe('font/woff2')
+  })
+
   it('serves a home page with the-internet title and a heading', async () => {
     const { html, status } = await browserLike().follow('/')
     expect(status).toBe(200)

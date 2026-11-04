@@ -1,8 +1,14 @@
 import logger from '@wdio/logger'
-import { WS_SCOPE } from '@wdio/devtools-shared'
+import { WS_SCOPE, type TraceScope } from '@wdio/devtools-shared'
 import type { baselineStore as BaselineStore } from './baselineStore.js'
 import type { testRunner as TestRunner } from './runner.js'
 import { tryHandleTraceExportMessage } from './trace-export-message.js'
+
+/** Scopes the backend keeps for the trace writer and never forwards to dashboard clients. */
+const ARCHIVE_ONLY_SCOPES: ReadonlySet<string> = new Set<TraceScope>([
+  'pageResources',
+  'resourceReReads'
+])
 
 const log = logger('@wdio/devtools-backend')
 
@@ -106,6 +112,10 @@ export function createWorkerMessageHandler(
       // partitioning at preserve time. After special-case handling so we
       // don't accumulate control frames (clearCommands, screencast).
       ctx.baselineStore.recordEvent(parsed.scope, parsed.data)
+      // Bodies only the trace writer reads: a dashboard client has no use for them, and the replay buffer would hold them for the run.
+      if (ARCHIVE_ONLY_SCOPES.has(parsed.scope)) {
+        return
+      }
     } catch {
       // Not JSON or parsing failed — forward as-is.
     }

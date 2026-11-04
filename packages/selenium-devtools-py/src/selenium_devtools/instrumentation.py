@@ -27,6 +27,7 @@ from . import (
     element_locators,
     frames,
     interceptor_network,
+    page_resources,
     performance,
     read_value_locators,
     wait_tracking,
@@ -632,6 +633,12 @@ def capture_final_frame(driver: Any = None) -> None:
         _log.debug("final frame capture failed: %s", exc)
 
 
+def settle_page_resources(capturer: SessionCapturer) -> None:
+    """Finish every live session's stylesheet and font reads before a test's archive is cut."""
+    for entry in list(_state["sessions"].values()):
+        page_resources.settle(lambda entry=entry: _flush_page_collector(capturer, entry))
+
+
 def reset_test_capture() -> None:
     """Re-arm the initial frame and start the row ledger for the test about to start."""
     _state["test"].reset(now_ms())
@@ -722,6 +729,7 @@ def _flush_page_collector(capturer: SessionCapturer, entry: dict) -> None:
         _log.debug("captured %d DOM mutation(s)", len(payload.mutations))
     if payload.network_requests and not bidi.network_serving(entry.get("network")):
         capturer.send_network_requests(payload.network_requests)
+    capturer.send_page_resources(payload.page_resources, payload.resource_re_reads)
 
 
 def _enable_bidi_capability(params: Any) -> None:
@@ -751,6 +759,7 @@ def _close_entry(capturer: SessionCapturer, entry: dict, replaced: bool = False)
     # read, and the browser keeps sending until it is told to stop.
     _stop_push_screencast(entry)
     _flush_page_collector(capturer, entry)
+    page_resources.settle(lambda: _flush_page_collector(capturer, entry))
     poller = entry.pop("interceptor", None)
     # A replaced session's driver now addresses the new one, which knows nothing of the old listener.
     if not replaced:

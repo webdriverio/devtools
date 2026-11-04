@@ -4,9 +4,10 @@ const PLAYER_CSP_DIRECTIVES: readonly (readonly [string, string])[] = [
   ['default-src', "'self'"],
   ['script-src', "'self'"],
   ['connect-src', "'self'"],
-  ['style-src', "'self' 'unsafe-inline' https: http:"],
+  // blob: is where the replay serves the stylesheets and fonts a trace stored.
+  ['style-src', "'self' 'unsafe-inline' https: http: blob:"],
   ['img-src', '* data: blob:'],
-  ['font-src', '* data:'],
+  ['font-src', '* data: blob:'],
   ['media-src', "'self' data: blob:"],
   ['object-src', "'none'"],
   ['base-uri', "'self' https: http:"],

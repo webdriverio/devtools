@@ -5,6 +5,11 @@
 // See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
 import type { DeviceInfo } from './device.js'
+import type {
+  PageResource,
+  ResourceReRead,
+  TraceResourcesMode
+} from './page-resources.js'
 
 export const LOG_LEVELS = [
   'trace',
@@ -344,6 +349,8 @@ export interface NetworkRequest {
   size?: number
   timings?: NetworkTimings
   source?: NetworkCaptureSource
+  /** When the browser reported the request starting, epoch ms on the browser's own clock; set by driver-side sources only. */
+  wallTime?: number
 }
 
 // ─── Trace and metadata ─────────────────────────────────────────────────────
@@ -455,6 +462,8 @@ export interface BaseDevToolsOptions {
    *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
    *  Only applies in trace mode. */
   emitArtifactsManifest?: boolean
+  /** `styles` (default) stores the stylesheets and fonts the trace's pages used so replay does not load them from the site; `none` stores nothing. Trace mode only. */
+  traceResources?: TraceResourcesMode
 }
 
 /** Minimal Cucumber pickle-step shape — only the fields the adapters read.
@@ -648,6 +657,10 @@ export interface TraceLog {
    *  filmstrip. Present only when `filmstrip` is enabled; thinned + content-
    *  addressed at export time. */
   screencastFrames?: ScreencastFrame[]
+  /** Stylesheets and fonts the page used, read back by the collector in trace mode. */
+  pageResources?: PageResource[]
+  /** The collector's own reads, whose driver-side network rows the trace writer drops. */
+  resourceReReads?: ResourceReRead[]
 }
 
 // ─── Preserve-and-rerun ─────────────────────────────────────────────────────

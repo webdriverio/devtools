@@ -24,6 +24,7 @@ from selenium_devtools import (
     device,
     instrumentation,
     output_dir,
+    page_resources,
     performance,
     read_value_locators,
     run_id,
@@ -54,6 +55,7 @@ RUNNERS = {
     "waitRowNaming",
     "finalFrameStamp",
     "captureTimingSummary",
+    "resourceUrlKey",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -376,6 +378,13 @@ class TestCaptureTimingSummary(unittest.TestCase):
                     },
                     case["expect"],
                 )
+
+
+class TestResourceUrlKey(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("resourceUrlKey"):
+            with self.subTest(case["name"]):
+                self.assertEqual(page_resources.url_key(case["url"]), case["expect"])
 
 
 if __name__ == "__main__":

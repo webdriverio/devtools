@@ -19,8 +19,24 @@ export interface TraceZipInputs {
   transcriptMd?: string
   /** NDJSON DOM mutation stream (one mutation per line). Omitted/empty → no entry. */
   mutationsNdjson?: Buffer
+  /** NDJSON index of stored page resources. Omitted/empty → no entry. */
+  pageResourcesNdjson?: Buffer
   /** Files written under `resources/` — typically screenshots + element snapshots. */
   resources: TraceZipResource[]
+}
+
+/** The first resource under each name: content-addressed producers can name the same bytes twice, and a zip must not list an entry twice. */
+export function uniqueResources(
+  resources: readonly TraceZipResource[]
+): TraceZipResource[] {
+  const seen = new Set<string>()
+  return resources.filter((resource) => {
+    if (seen.has(resource.resourceName)) {
+      return false
+    }
+    seen.add(resource.resourceName)
+    return true
+  })
 }
 
 export function buildTraceZip(inputs: TraceZipInputs): Promise<Buffer> {
@@ -40,7 +56,13 @@ export function buildTraceZip(inputs: TraceZipInputs): Promise<Buffer> {
     if (inputs.mutationsNdjson?.length) {
       zipFile.addBuffer(inputs.mutationsNdjson, TRACE_ZIP_ENTRIES.mutations)
     }
-    for (const resource of inputs.resources) {
+    if (inputs.pageResourcesNdjson?.length) {
+      zipFile.addBuffer(
+        inputs.pageResourcesNdjson,
+        TRACE_ZIP_ENTRIES.pageResources
+      )
+    }
+    for (const resource of uniqueResources(inputs.resources)) {
       zipFile.addBuffer(
         resource.data,
         `${TRACE_ZIP_ENTRIES.resourcesDir}/${resource.resourceName}`

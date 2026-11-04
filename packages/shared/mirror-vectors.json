@@ -758,6 +758,21 @@
           }
         }
       ]
+    },
+    "resourceUrlKey": {
+      "mirrors": {
+        "ts": "shared/page-resources.ts resourceUrlKey",
+        "py": "page_resources.py url_key"
+      },
+      "notes": "The key a trace drain names a stored resource by, so the page skips reading it again; both sides hash the URL's UTF-8 bytes.",
+      "cases": [
+        {"name": "an empty URL", "url": "", "expect": "ztntfp"},
+        {"name": "a stylesheet", "url": "https://site.test/css/site.css", "expect": "ihufww"},
+        {"name": "a font with a query", "url": "https://cdn.test/fonts/icons.woff2?v=4.7.0", "expect": "8cwn8a"},
+        {"name": "non-ASCII, hashed as UTF-8", "url": "https://site.test/café/üml.css", "expect": "bw1t0i"},
+        {"name": "outside the Basic Multilingual Plane", "url": "https://site.test/😀.css", "expect": "10dc522"},
+        {"name": "a lone surrogate, encoded as U+FFFD like TextEncoder", "url": "https://site.test/\ud800.css", "expect": "1cjj3d2"}
+      ]
     }
   }
 }

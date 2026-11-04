@@ -158,6 +158,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Trace mode + `show-trace` player | ✅ | ✅ | ✅ | ✅ |
 | DOM time-travel (mutation capture) | ✅ | ⚠️ with BiDi ¹ | ⚠️ with BiDi ¹ | ✅ |
 | Network requests (browser sessions) | ✅ | ⚠️ with BiDi ² | ⚠️ with BiDi ³ | ✅ |
+| Stylesheets and fonts stored in the trace (`traceResources`, browser sessions) | ✅ | ✅ | ✅ | ✅ |
 | Screencast (`filmstrip` / video) | ✅ CDP push (Chrome), polling elsewhere | ✅ CDP push (Chromium), polling elsewhere | ⚠️ polling only ⁴ | ✅ CDP push (Chromium), one frame per command elsewhere |
 | Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ⁵ | ✅ |
 | Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ `retain-on-failure` only ⁶ | ⚠️ `retain-on-failure` only ⁷ |
@@ -258,6 +259,7 @@ The player exposes everything captured in the archive:
 - **Transcript tab + Copy-for-LLM** — the run's Markdown transcript with a one-click "copy prompt" that bundles it with any failing-command errors, paste-ready for an LLM.
 - **Cucumber Feature → Scenario → Step nesting** — tests render as labelled `tracingGroup` spans wrapping their commands, with Cucumber steps nested under their scenario.
 - **Dense filmstrip** — with `filmstrip` enabled, the timeline scrubs a continuous screencast for smooth playback rather than one frame per action.
+- **Stored stylesheets and fonts**: the replayed page renders with the stylesheets and fonts the run used, served from the archive rather than the site under test, so it renders the same after the site changes, for a site the viewer cannot reach, and from an `https` page replaying an `http` site. Images still load from the site.
 - **Timeline input markers** — keyboard actions and pointer hits (commands with a captured hit point) get distinct glyphs on the timeline.
 
 The `show-trace` bin is exposed by each JavaScript adapter (`@wdio/devtools-service`, `@wdio/nightwatch-devtools`, `@wdio/selenium-devtools`), so `pnpm show-trace <zip>` / `npx show-trace <zip>` work in any project that installs one — no extra dependency.
@@ -271,7 +273,7 @@ pnpm show-trace a/trace.zip b/trace.zip              # several zips
 
 Each zip is read once, as the list fills in, and kept for when it is picked. Anything in the folder that is not a `.zip` (screenshots, videos, the artifacts manifest) is skipped; a zip that cannot be opened stays in the list with the reason, and the rest open normally. A zip records no test state, so the outcome is read from the trace itself: **failed** when an action or step in it failed, **passed** when it holds actions and none failed, **unknown** when it holds none. An assertion library that records no row (a jest `expect`, chai) can fail a test whose trace still reads as passed. One zip opens exactly as before, with no list.
 
-**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page still loads its own stylesheets and images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks the `http` ones, so a trace of an `http` site can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page takes its stylesheets and fonts from the archive (see `traceResources` below) and loads its images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks `http` images, and any stylesheet the trace did not store, so a trace of an `http` site written with `traceResources: 'none'` can render unstyled there and fully in `show-trace`. To try the hosted build locally:
 
 ```sh
 pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
@@ -289,7 +291,16 @@ pnpm player:hosted   # builds it and serves it at http://localhost:4173 under th
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
 | `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `traceResources` | `'styles'` \| `'none'` | `'styles'` | Which page resources the trace stores so its replay does not load them from the site. `'styles'` stores the stylesheets and fonts each archive's pages used, each once by content hash, capped at 1 MiB per resource and 8 MiB per archive (past the cap a resource replays live); `'none'` stores nothing. Images always replay from the site. The page collector reads each one back from the browser's HTTP cache, cross-origin ones only where the site allows CORS (a same-origin stylesheet it cannot read again falls back to its parsed rules), and the trace leaves those reads out of its network rows. Live mode reads nothing back. |
 | `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
+
+**What `traceResources` does not cover.**
+
+- Images, media, and stylesheets or fonts from tracking hosts always replay from the site, as does anything past the size caps or a cross-origin stylesheet whose server sends no CORS headers.
+- The collector's reads happen in the page under test, so the page can see them: they show up in its own `PerformanceObserver` and Resource Timing buffer, so a RUM script may report them, and a service worker answers them like any other fetch.
+- A cross-origin read the server refuses for CORS makes the browser log a CORS error in the page console, which the trace records.
+- A network row is dropped only when it is certainly a read. A row without the browser's own start time, or one the browser marked as a stylesheet or font load, stays, so a read can occasionally appear as a second row.
+- A native app has no document, so nothing is stored.
 
 The per-test **`screenshot`** and **`video`** artifact options live on each adapter rather than the shared base, are gated to `traceGranularity: 'test'`, and attach inline to Allure on WebdriverIO and Selenium (Nightwatch writes them produce-only) — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
 
@@ -517,6 +528,7 @@ Common options (all optional):
 | `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | One trace per session / spec / test |
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| … | `'on'` | Which traces to keep (trace mode) |
 | `filmstrip` | `boolean` | `true` | Dense screencast into the trace |
+| `traceResources` | `'styles'` \| `'none'` | `'styles'` | Store stylesheets and fonts in the trace |
 | `screenshot` | `'off'` \| `'on'` \| `'only-on-failure'` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `video` | `'off'` \| `<tracePolicy>` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows |

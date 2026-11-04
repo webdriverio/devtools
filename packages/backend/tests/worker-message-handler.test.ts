@@ -192,3 +192,18 @@ describe('createWorkerMessageHandler — traceExport', () => {
     }
   })
 })
+
+describe('createWorkerMessageHandler: page resources', () => {
+  it('keeps stored resources and reads for the trace writer without forwarding them to dashboard clients', () => {
+    const { ctx, broadcastToClients, baselineStore } = makeCtx()
+    const handler = createWorkerMessageHandler(ctx)
+    handler(buf({ scope: 'pageResources', data: [{ url: 'https://x/a.css' }] }))
+    handler(
+      buf({ scope: 'resourceReReads', data: [{ url: 'https://x/a.css' }] })
+    )
+    handler(buf({ scope: 'mutations', data: [] }))
+
+    expect(baselineStore.recordEvent).toHaveBeenCalledTimes(3)
+    expect(broadcastToClients).toHaveBeenCalledTimes(1)
+  })
+})

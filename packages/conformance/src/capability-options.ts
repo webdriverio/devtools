@@ -30,7 +30,8 @@ export const SHARED_OPTIONS: Record<keyof BaseDevToolsOptions, OptionTarget> = {
   traceGranularity: { feature: 'per-test-granularity' },
   tracePolicy: { feature: 'retry-retention' },
   filmstrip: { feature: 'filmstrip' },
-  emitArtifactsManifest: { feature: 'artifacts-manifest' }
+  emitArtifactsManifest: { feature: 'artifacts-manifest' },
+  traceResources: { feature: 'page-resources' }
 }
 
 export const SERVICE_OPTIONS: Record<OwnKeys<ServiceOptions>, OptionTarget> = {
@@ -78,14 +79,17 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   a11y: { feature: 'a11y-overlay' },
   trace_policy: { feature: 'retry-retention' },
   trace_granularity: { feature: 'per-test-granularity' },
+  trace_resources: { feature: 'page-resources' },
   '--devtools': TURNS_THE_ADAPTER_ON,
   '--devtools-trace': { feature: 'trace-mode' },
   '--devtools-trace-granularity': { feature: 'per-test-granularity' },
   '--devtools-trace-policy': { feature: 'retry-retention' },
+  '--devtools-trace-resources': { feature: 'page-resources' },
   devtools: TURNS_THE_ADAPTER_ON,
   devtools_trace: { feature: 'trace-mode' },
   devtools_trace_granularity: { feature: 'per-test-granularity' },
   devtools_trace_policy: { feature: 'retry-retention' },
+  devtools_trace_resources: { feature: 'page-resources' },
   DEVTOOLS_HOST: WHERE_THE_BACKEND_LISTENS,
   DEVTOOLS_PORT: WHERE_THE_BACKEND_LISTENS,
   DEVTOOLS_BACKEND_CMD: {
@@ -99,6 +103,7 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   DEVTOOLS_A11Y: { feature: 'a11y-overlay' },
   DEVTOOLS_TRACE_POLICY: { feature: 'retry-retention' },
   DEVTOOLS_TRACE_GRANULARITY: { feature: 'per-test-granularity' },
+  DEVTOOLS_TRACE_RESOURCES: { feature: 'page-resources' },
   DEVTOOLS_CAPTURE_TIMING: {
     notFeature:
       'A diagnostic that times trace capture; it changes nothing the run captures.'

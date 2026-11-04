@@ -137,7 +137,8 @@ describe('selenium onDriverEnd', () => {
           forward: vi.fn(async () => void order.push('drain')),
           stop: vi.fn()
         },
-        drainAfterLiveCommand: vi.fn(async () => {})
+        drainAfterLiveCommand: vi.fn(async () => {}),
+        pageResourceStore: { settle: vi.fn(async () => {}) }
       },
       filmstripFrames: [],
       resetRetryTracker: vi.fn()

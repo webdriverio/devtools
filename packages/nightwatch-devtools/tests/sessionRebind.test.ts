@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import type * as DevToolsCore from '@wdio/devtools-core'
-import { ensureSessionInitialized } from '../src/session-init.js'
+import {
+  createRunCapturer,
+  ensureSessionInitialized
+} from '../src/session-init.js'
 import type { SessionInitCtx } from '../src/session-init.js'
 import type { NightwatchBrowser } from '../src/types.js'
 
@@ -227,5 +230,27 @@ describe('ensureSessionInitialized — session replaced mid-run', () => {
     expect(rotateScreencastForSession).not.toHaveBeenCalled()
     expect(capturer.preloadRegistered).toBe(true)
     expect(ctx.isScriptInjected).toBe(true)
+  })
+})
+
+describe('createRunCapturer', () => {
+  it('configures the page-resource store from the run’s options', () => {
+    const base = {
+      runner: 'nightwatch',
+      port: 3000,
+      hostname: 'localhost'
+    } as const
+    const stores = createRunCapturer(
+      { ...base, mode: 'trace', traceResources: 'styles' },
+      fakeBrowser('s1')
+    )
+    const none = createRunCapturer(
+      { ...base, mode: 'trace', traceResources: 'none' },
+      fakeBrowser('s2')
+    )
+    expect(stores.pageResourceStore.mode).toBe('styles')
+    expect(none.pageResourceStore.mode).toBe('none')
+    stores.cleanup()
+    none.cleanup()
   })
 })

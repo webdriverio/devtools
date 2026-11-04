@@ -477,6 +477,40 @@ describe('SessionCapturer.captureTrace', () => {
     }
   })
 
+  it('asks the page for its stylesheets and fonts when the run stores them', async () => {
+    const http = await import('node:http')
+    const bodies: string[] = []
+    const server = http.createServer((req, res) => {
+      let raw = ''
+      req.on('data', (c) => {
+        raw += c
+      })
+      req.on('end', () => {
+        bodies.push(raw)
+        res.setHeader('content-type', 'application/json')
+        res.end(
+          JSON.stringify({ value: { mutations: [], pendingResources: 0 } })
+        )
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as { port: number }).port
+    const browser = makeMockBrowser({
+      sessionId: 'sess-resources',
+      transport: { settings: { webdriver: { host: '127.0.0.1', port } } }
+    })
+    const cap = makeCapturer(browser)
+    cap.pageResourceStore.mode = 'styles'
+    try {
+      await cap.captureTraceAtTestEnd(browser)
+      expect(bodies[0]).toContain(
+        'getTraceData({\\"resources\\":\\"styles\\",\\"stored\\":[]})'
+      )
+    } finally {
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+
   // The collector's buffer dies with the document, so on a navigating command
   // the drain has to reach the driver first; performance logs only accumulate,
   // so they lose nothing by waiting.

@@ -224,6 +224,65 @@ describe('retentionDecision', () => {
 })
 
 describe('exportActiveRunTrace', () => {
+  it('stores the page resources the DOM used and drops the rows their reads produced', async () => {
+    const css = 'https://x/app.css'
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        mutations: [
+          {
+            type: 'childList',
+            url: 'https://x/login',
+            timestamp: 1000,
+            addedNodes: [
+              {
+                type: 'html',
+                props: {
+                  children: [
+                    {
+                      type: 'link',
+                      props: { rel: 'stylesheet', href: '/app.css' }
+                    }
+                  ]
+                }
+              }
+            ],
+            removedNodes: []
+          }
+        ],
+        networkRequests: [
+          { id: 'load', url: css, method: 'GET', timestamp: 1010 },
+          {
+            id: 'read',
+            url: css,
+            method: 'GET',
+            timestamp: 1301,
+            wallTime: 1301
+          }
+        ],
+        pageResources: [
+          {
+            url: css,
+            kind: 'stylesheet',
+            mimeType: 'text/css',
+            data: Buffer.from('p{}').toString('base64'),
+            size: 3
+          }
+        ],
+        resourceReReads: [{ url: css, startedAt: 1300, loadedAt: 1010 }]
+      }),
+      { outputDir, sessionId: 'sess-res' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const index = strFromU8(files[TRACE_ZIP_ENTRIES.pageResources])
+    expect(JSON.parse(index)).toMatchObject({ url: css, kind: 'stylesheet' })
+    const network = strFromU8(files[TRACE_ZIP_ENTRIES.network])
+      .split('\n')
+      .filter(Boolean)
+    expect(network).toHaveLength(1)
+  })
+
   it('writes a zip whose actions are the accumulated commands', async () => {
     const outputDir = await tmpDir()
     const zipPath = await exportActiveRunTrace(run(), {

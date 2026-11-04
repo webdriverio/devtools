@@ -1,6 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  type Mock
+} from 'vitest'
 import { CAPTURE_PERFORMANCE_SCRIPT } from '@wdio/devtools-core'
-import type { CommandLog } from '@wdio/devtools-shared'
+import { resourceUrlKey, type CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
@@ -1196,6 +1204,47 @@ describe('captureTrace and BiDi evidence', () => {
     })
     await capturer.captureTrace(advertisingBrowser())
     expect(capturer.networkRequests.map((r) => r.id)).toEqual(['p-1'])
+  })
+})
+
+describe('captureTrace and page resources', () => {
+  const css = {
+    url: 'https://example.com/site.css',
+    kind: 'stylesheet',
+    mimeType: 'text/css',
+    data: 'cHt9',
+    size: 3
+  }
+  const browser = () =>
+    ({
+      execute: vi.fn().mockResolvedValue({ pageResources: [css] }),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('asks the page for its stylesheets and fonts only in a run that stores them, and keeps them', async () => {
+    const live = browser()
+    await new SessionCapturer().captureTrace(live)
+    expect((live as { execute: Mock }).execute.mock.calls[0].slice(1)).toEqual([
+      false,
+      'none',
+      expect.any(Array)
+    ])
+
+    const traced = browser()
+    const capturer = new SessionCapturer()
+    capturer.pageResourceStore.mode = 'styles'
+    await capturer.captureTrace(traced)
+    expect(
+      (traced as { execute: Mock }).execute.mock.calls[0].slice(1)
+    ).toEqual([false, 'styles', []])
+    expect(capturer.pageResources).toEqual([css])
+
+    // What is stored is named on the next drain, so a later document does not read it again.
+    await capturer.captureTrace(traced)
+    expect((traced as { execute: Mock }).execute.mock.calls[1][3]).toEqual([
+      resourceUrlKey(css.url)
+    ])
   })
 })
 
