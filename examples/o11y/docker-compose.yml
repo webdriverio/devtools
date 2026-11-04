@@ -1,0 +1,42 @@
+services:
+  lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+      - "3200:3200"
+      - "3100:3100"
+    volumes:
+      - lgtm-data:/data
+      - ./grafana/devtools-provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/devtools.yaml:ro
+      - ./grafana:/otel-lgtm/devtools-grafana:ro
+
+  s3:
+    image: rustfs/rustfs:1.0.1
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      RUSTFS_ACCESS_KEY: devtools
+      RUSTFS_SECRET_KEY: devtools-secret
+    volumes:
+      - s3-data:/data
+
+  s3-init:
+    image: amazon/aws-cli:2.37.13
+    depends_on:
+      - s3
+    environment:
+      AWS_ACCESS_KEY_ID: devtools
+      AWS_SECRET_ACCESS_KEY: devtools-secret
+      AWS_DEFAULT_REGION: us-east-1
+    volumes:
+      - ./s3:/s3:ro
+    entrypoint:
+      - /bin/sh
+      - /s3/init.sh
+
+volumes:
+  lgtm-data:
+  s3-data:
