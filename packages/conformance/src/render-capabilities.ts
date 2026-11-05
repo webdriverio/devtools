@@ -16,11 +16,11 @@ export const markerFor = (table: CapabilityTable, edge: 'start' | 'end') =>
 function mark(cell: Cell): string {
   switch (cell.support) {
     case 'supported':
-      return '✅'
+      return '✓'
     case 'partial':
-      return '⚠️'
+      return '◐'
     case 'unsupported':
-      return '❌'
+      return '✕'
   }
 }
 

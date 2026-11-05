@@ -47,22 +47,22 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| One row per command in the Actions list | ✅ | ✅ | ✅ | ✅ |
-| Waits show as one row with what they issued nested under it | ✅ | ✅ | ⚠️ no element-wait polls ¹ | ✅ |
-| Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
-| Browser console logs | ✅ | ✅ | ✅ | ✅ |
-| Source tab opens the test line that ran the command | ✅ | ✅ | ✅ | ✅ |
-| Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
-| Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
-| Failed command in the Errors tab, with the browser's message | ✅ | ✅ | ✅ | ✅ |
-| Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ✅ |
-| Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |
-| Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ³ | ✅ `openUi: false` | ⚠️ always opens ⁴ | ✅ `DEVTOOLS_OPEN=0` |
-| Turn off per-command screenshots (`captureScreenshots`) | ❌ ⁵ | ✅ | ❌ ⁶ | ❌ ⁶ |
-| Force the test browser headless (`headless`) | ❌ ⁷ | ⚠️ Chrome only ⁸ | ❌ ⁷ | ❌ ⁷ |
-| Safari kept frontmost so input lands (live mode) | ⚠️ once ⁹ | ✅ before each element input | ⚠️ once ⁹ | ⚠️ once ⁹ |
+| One row per command in the Actions list | ✓ | ✓ | ✓ | ✓ |
+| Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ no element-wait polls ¹ | ✓ |
+| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ |
+| Browser console logs | ✓ | ✓ | ✓ | ✓ |
+| Source tab opens the test line that ran the command | ✓ | ✓ | ✓ | ✓ |
+| Metadata tab (session, capabilities, device) | ✓ | ✓ | ✓ | ✓ |
+| Performance timings on navigation rows | ✓ | ✓ | ✓ | ✓ |
+| Failed command in the Errors tab, with the browser's message | ✓ | ✓ | ✓ | ✓ |
+| Run, Rerun and Run all from the dashboard | ◐ no Cucumber step rerun ² | ◐ no Cucumber step rerun ² | ◐ no Cucumber step rerun ² | ✓ |
+| Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
+| Dashboard window opens by itself in live mode, and can be turned off | ◐ always opens ³ | ✓ `openUi: false` | ◐ always opens ⁴ | ✓ `DEVTOOLS_OPEN=0` |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁵ | ✓ | ✕ ⁶ | ✕ ⁶ |
+| Force the test browser headless (`headless`) | ✕ ⁷ | ◐ Chrome only ⁸ | ✕ ⁷ | ✕ ⁷ |
+| Safari kept frontmost so input lands (live mode) | ◐ once ⁹ | ✓ before each element input | ◐ once ⁹ | ◐ once ⁹ |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
@@ -155,23 +155,23 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| Trace mode + `show-trace` player | ✅ | ✅ | ✅ | ✅ |
-| DOM time-travel (mutation capture) | ✅ | ⚠️ with BiDi ¹ | ⚠️ with BiDi ¹ | ✅ |
-| Network requests (browser sessions) | ✅ | ⚠️ with BiDi ² | ⚠️ with BiDi ³ | ✅ |
-| Screencast (`filmstrip` / video) | ✅ CDP push (Chrome), polling elsewhere | ✅ CDP push (Chromium), polling elsewhere | ⚠️ polling only ⁴ | ✅ CDP push (Chromium), one frame per command elsewhere |
-| Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ⁵ | ✅ |
-| Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ `retain-on-failure` only ⁶ | ⚠️ `retain-on-failure` only ⁷ |
-| Per-test `screenshot` / `video`, attached to Allure | ✅ | ✅ | ⚠️ produce-only ⁸ | ❌ ⁹ |
-| Cucumber Feature→Scenario→Step nesting | ⚠️ Scenario→Step ¹⁰ | ✅ | ⚠️ Feature→Scenario ¹¹ | ❌ ¹² |
-| Assertion capture (`captureAssertions`) | ✅ | ⚠️ `node:assert` only ¹³ | ⚠️ no `expect` ¹⁴ | ✅ |
-| BiDi console / network capture | ✅ auto | ✅ auto | ⚠️ opt-in ¹⁵ | ✅ auto |
-| A11y tab + pick-locator overlay (trace player) | ✅ | ✅ | ✅ | ✅ |
-| Transcript + Copy-for-LLM (trace player) | ✅ | ✅ | ✅ | ✅ |
-| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✅ | ✅ | ✅ | ❌ zip only ¹⁶ |
-| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✅ | ✅ | ⚠️ opt-in ¹⁷ | ❌ ¹⁸ |
-| Network without BiDi (Safari, Appium mobile browsers) | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ |
+| Trace mode + `show-trace` player | ✓ | ✓ | ✓ | ✓ |
+| DOM time-travel (mutation capture) | ✓ | ◐ with BiDi ¹ | ◐ with BiDi ¹ | ✓ |
+| Network requests (browser sessions) | ✓ | ◐ with BiDi ² | ◐ with BiDi ³ | ✓ |
+| Screencast (`filmstrip` / video) | ✓ CDP push (Chrome), polling elsewhere | ✓ CDP push (Chromium), polling elsewhere | ◐ polling only ⁴ | ✓ CDP push (Chromium), one frame per command elsewhere |
+| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁵ | ✓ |
+| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ `retain-on-failure` only ⁶ | ◐ `retain-on-failure` only ⁷ |
+| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ produce-only ⁸ | ✕ ⁹ |
+| Cucumber Feature→Scenario→Step nesting | ◐ Scenario→Step ¹⁰ | ✓ | ◐ Feature→Scenario ¹¹ | ✕ ¹² |
+| Assertion capture (`captureAssertions`) | ✓ | ◐ `node:assert` only ¹³ | ◐ no `expect` ¹⁴ | ✓ |
+| BiDi console / network capture | ✓ auto | ✓ auto | ◐ opt-in ¹⁵ | ✓ auto |
+| A11y tab + pick-locator overlay (trace player) | ✓ | ✓ | ✓ | ✓ |
+| Transcript + Copy-for-LLM (trace player) | ✓ | ✓ | ✓ | ✓ |
+| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ zip only ¹⁶ |
+| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ opt-in ¹⁷ | ✕ ¹⁸ |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ¹⁹ | ◐ ¹⁹ | ◐ ¹⁹ | ◐ ¹⁹ |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
 
@@ -378,14 +378,14 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| Network without BiDi (Safari, Appium mobile browsers) | ⚠️ ¹ | ⚠️ ¹ | ⚠️ ¹ | ⚠️ ¹ |
-| Mobile browser sessions (Chrome on Android, Safari on iOS) | ✅ | ✅ | ✅ | ✅ |
-| iOS (XCUITest): native apps and Safari | ✅ | ✅ | ✅ | ✅ |
-| Native session detected, page-side capture skipped | ✅ | ✅ | ✅ | ✅ |
-| Follows a hybrid app into its webview | ⚠️ string form only ² | ⚠️ ³ | ⚠️ ³ | ⚠️ ³ |
-| Native app network through appium-interceptor (`appium:intercept`) | ✅ Android | ✅ Android | ✅ Android | ✅ Android |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ¹ | ◐ ¹ | ◐ ¹ | ◐ ¹ |
+| Mobile browser sessions (Chrome on Android, Safari on iOS) | ✓ | ✓ | ✓ | ✓ |
+| iOS (XCUITest): native apps and Safari | ✓ | ✓ | ✓ | ✓ |
+| Native session detected, page-side capture skipped | ✓ | ✓ | ✓ | ✓ |
+| Follows a hybrid app into its webview | ◐ string form only ² | ◐ ³ | ◐ ³ | ◐ ³ |
+| Native app network through appium-interceptor (`appium:intercept`) | ✓ Android | ✓ Android | ✓ Android | ✓ Android |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 

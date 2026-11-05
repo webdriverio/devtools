@@ -233,10 +233,10 @@ describe('renderTable', () => {
       cells: allCells(byRule([RULES.failureRecorded]))
     })
     expect(renderTable('cross-framework', [proven])).toContain(
-      '| Probe | ✅ | ✅ | ✅ | ✅ |'
+      '| Probe | ✓ | ✓ | ✓ | ✓ |'
     )
     expect(renderTable('cross-framework', [feature()])).toContain(
-      `| Probe | ✅ | ✅ | ✅ | ✅ |\n\n${LEGEND}`
+      `| Probe | ✓ | ✓ | ✓ | ✓ |\n\n${LEGEND}`
     )
   })
 
@@ -263,7 +263,7 @@ describe('renderTable', () => {
       [
         '| Feature | WebdriverIO | Selenium | Nightwatch | Python |',
         '|---|---|---|---|---|',
-        '| Probe | ✅ | ⚠️ with BiDi ¹ | ⚠️ ¹ | ❌ n/a ² |',
+        '| Probe | ✓ | ◐ with BiDi ¹ | ◐ ¹ | ✕ n/a ² |',
         '',
         LEGEND,
         '',
@@ -311,7 +311,7 @@ describe('renderParity', () => {
         'Features not supported by every adapter: 1 of 2',
         '',
         'gap: Gap',
-        '  Nightwatch: ⚠️ opt-in. Why.',
+        '  Nightwatch: ◐ opt-in. Why.',
         '',
         'Cells: 3 conformance-tested, 0 unit-tested, 4 checked by hand, 1 partial or unsupported'
       ].join('\n')
