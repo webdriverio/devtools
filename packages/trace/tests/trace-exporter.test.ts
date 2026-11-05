@@ -513,6 +513,88 @@ describe('exported trace stream — dense filmstrip', () => {
     expect(afterSnaps).toEqual(['after@call@1', 'after@call@2'])
     await fs.rm(outputDir, { recursive: true, force: true })
   })
+
+  it('writes a trace zip when a snapshot has a non-string screenshot object and resolves that row to the previous frame', async () => {
+    const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-badshot-'))
+    const capturer: TraceCapturer = {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: ['https://example.test'],
+          timestamp: 1200,
+          startTime: 1150
+        },
+        {
+          command: 'click',
+          args: ['#go'],
+          timestamp: 1500,
+          startTime: 1450
+        }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Standalone },
+      startWallTime: 1000
+    }
+    const zipPath = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      actionSnapshots: [
+        { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+        {
+          timestamp: 1500,
+          command: 'click',
+          screenshot: {
+            message: 'Session not started or terminated'
+          } as unknown as string
+        }
+      ]
+    })
+    const stat = await fs.stat(zipPath)
+    expect(stat.size).toBeGreaterThan(0)
+
+    const dir = await writeTraceZip(capturer, {
+      outputDir,
+      sessionId: 'abc12345',
+      format: 'ndjson-directory',
+      actionSnapshots: [
+        { timestamp: 1200, command: 'url', screenshot: 'AAAA' },
+        {
+          timestamp: 1500,
+          command: 'click',
+          screenshot: {
+            message: 'Session not started or terminated'
+          } as unknown as string
+        }
+      ]
+    })
+    const lines = (await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+
+    const frameSnaps = lines.filter((l) => l.type === 'frame-snapshot')
+    expect(frameSnaps).toHaveLength(2)
+    for (const event of frameSnaps) {
+      const snapshot = event.snapshot as {
+        html: unknown
+        resourceOverrides: unknown
+      }
+      expect(JSON.stringify(snapshot.html)).toContain(
+        'https://screenshot.wdio-devtools.invalid/action.jpeg'
+      )
+      expect(snapshot.resourceOverrides).toEqual([
+        {
+          url: 'https://screenshot.wdio-devtools.invalid/action.jpeg',
+          sha1: 'page@abc12345-1200.jpeg'
+        }
+      ])
+    }
+    await fs.rm(outputDir, { recursive: true, force: true })
+  })
 })
 
 describe('exported trace stream — DOM mutations', () => {

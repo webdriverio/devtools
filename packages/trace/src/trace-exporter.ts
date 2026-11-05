@@ -549,7 +549,12 @@ function synthesizeSnapshotsFromCommands(
   commands: CommandLog[]
 ): ActionSnapshot[] {
   return commands
-    .filter((c) => c.screenshot && mapCommandToAction(c.command))
+    .filter(
+      (c) =>
+        typeof c.screenshot === 'string' &&
+        c.screenshot.length > 0 &&
+        mapCommandToAction(c.command)
+    )
     .map((c) => ({
       timestamp: c.timestamp,
       command: c.command,

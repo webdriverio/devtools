@@ -114,6 +114,29 @@ describe('captureActionSnapshot probe isolation', () => {
     expect(snap?.screenshot).toBeUndefined()
     expect(snap?.url).toBe('https://example.com/x')
   })
+
+  it('drops a non-string or empty screenshot while keeping the rest of the capture', async () => {
+    const objectShot = await captureActionSnapshot({
+      command: 'click',
+      timestamp: 14,
+      runScript: okScript,
+      getUrl: () => Promise.resolve('https://example.com/x'),
+      takeScreenshot: () =>
+        Promise.resolve({
+          message: 'Session not started or terminated'
+        } as unknown as string)
+    })
+    expect(objectShot?.screenshot).toBeUndefined()
+    expect(objectShot?.url).toBe('https://example.com/x')
+
+    const emptyShot = await captureActionSnapshot({
+      command: 'click',
+      timestamp: 15,
+      runScript: okScript,
+      takeScreenshot: () => Promise.resolve('')
+    })
+    expect(emptyShot?.screenshot).toBeUndefined()
+  })
 })
 
 describe('captureActionSnapshot locator dialect', () => {

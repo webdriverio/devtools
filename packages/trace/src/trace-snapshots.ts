@@ -16,6 +16,12 @@ export interface ScreencastFrameEvent {
   timestamp: number
 }
 
+function hasScreenshot(
+  snap: ActionSnapshot
+): snap is ActionSnapshot & { screenshot: string } {
+  return typeof snap.screenshot === 'string' && snap.screenshot.length > 0
+}
+
 // The one merge rule for same-timestamp snapshots: richest wins per field,
 // first-seen wins for identity (command/url/title, which no export path reads).
 // Merging per field matters because the real screenshot and the real elements
@@ -24,8 +30,12 @@ function mergeSnapshotInto(
   existing: ActionSnapshot,
   snap: ActionSnapshot
 ): void {
-  if ((snap.screenshot?.length ?? 0) > (existing.screenshot?.length ?? 0)) {
+  const snapLen = hasScreenshot(snap) ? snap.screenshot.length : 0
+  const existingLen = hasScreenshot(existing) ? existing.screenshot.length : 0
+  if (snapLen > existingLen) {
     existing.screenshot = snap.screenshot
+  } else if (!hasScreenshot(existing)) {
+    existing.screenshot = undefined
   }
   if (!existing.elements?.length && snap.elements?.length) {
     existing.elements = snap.elements
@@ -45,7 +55,10 @@ function collapseByTimestamp(snapshots: ActionSnapshot[]): ActionSnapshot[] {
   for (const snap of snapshots) {
     const existing = byTs.get(snap.timestamp)
     if (!existing) {
-      byTs.set(snap.timestamp, { ...snap })
+      byTs.set(snap.timestamp, {
+        ...snap,
+        screenshot: hasScreenshot(snap) ? snap.screenshot : undefined
+      })
       order.push(snap.timestamp)
       continue
     }
@@ -62,12 +75,16 @@ export function upsertRichestSnapshot(
   snapshots: ActionSnapshot[],
   snap: ActionSnapshot
 ): void {
-  const idx = snapshots.findIndex((s) => s.timestamp === snap.timestamp)
+  const normalized: ActionSnapshot = {
+    ...snap,
+    screenshot: hasScreenshot(snap) ? snap.screenshot : undefined
+  }
+  const idx = snapshots.findIndex((s) => s.timestamp === normalized.timestamp)
   if (idx === -1) {
-    snapshots.push(snap)
+    snapshots.push(normalized)
     return
   }
-  mergeSnapshotInto(snapshots[idx]!, snap)
+  mergeSnapshotInto(snapshots[idx]!, normalized)
 }
 
 function definedFields(snap: ActionSnapshot): Partial<ActionSnapshot> {
@@ -108,7 +125,7 @@ export function buildSnapshotResources(
   const out: TraceZipResource[] = []
   for (const snap of snapshots) {
     const base = `${pageId}-${snap.timestamp}`
-    if (snap.screenshot) {
+    if (hasScreenshot(snap)) {
       out.push({
         resourceName: screenshotResourceName(
           pageId,

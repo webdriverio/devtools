@@ -102,6 +102,47 @@ describe('webdriverGet', () => {
     await expect(webdriverGet(address(), 'sess', 'url')).resolves.toBeNull()
   })
 
+  it('answers null for a non-2xx response such as a 404 terminated-session reply', async () => {
+    respond = (res) => {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          value: { message: 'Session not started or terminated' }
+        })
+      )
+    }
+    await expect(
+      webdriverGet(address(), 'sess', 'screenshot')
+    ).resolves.toBeNull()
+  })
+
+  it('answers null for a 404 body without a value wrapper', async () => {
+    respond = (res) => {
+      res.writeHead(404, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ message: 'Session not started or terminated' }))
+    }
+    await expect(
+      webdriverGet(address(), 'sess', 'screenshot')
+    ).resolves.toBeNull()
+  })
+
+  it('answers null for a 200 body without a value field', async () => {
+    respond = (res) => {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ message: 'Session not started or terminated' }))
+    }
+    await expect(
+      webdriverGet(address(), 'sess', 'screenshot')
+    ).resolves.toBeNull()
+  })
+
+  it('answers null for a 200 value with a message and no error field', async () => {
+    respond = ok({ message: 'Session not started or terminated' })
+    await expect(
+      webdriverGet(address(), 'sess', 'screenshot')
+    ).resolves.toBeNull()
+  })
+
   it('answers null for a body that is not JSON', async () => {
     respond = (res) => {
       res.writeHead(200)

@@ -180,6 +180,9 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    * timestamp normalization (CDP gives seconds-as-float; we store ms).
    */
   protected pushCdpFrame(data: string, timestampSeconds?: number): void {
+    if (typeof data !== 'string' || data.length === 0) {
+      return
+    }
     const timestamp =
       typeof timestampSeconds === 'number'
         ? Math.round(timestampSeconds * 1000)
@@ -281,12 +284,14 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     if (generation !== this.#pollGeneration) {
       return null
     }
-    if (typeof first !== 'string') {
+    if (typeof first !== 'string' || first.length === 0) {
       this.onUnavailable(
         new Error(
           first === null
             ? 'first screenshot returned null'
-            : 'first screenshot timed out'
+            : first === FIRST_SHOT_TIMEOUT
+              ? 'first screenshot timed out'
+              : 'first screenshot was not a non-empty string'
         )
       )
       return null
@@ -321,7 +326,11 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
         this.#pollInFlight = true
         try {
           const data = await this.takeScreenshot()
-          if (data !== null && generation === this.#pollGeneration) {
+          if (
+            typeof data === 'string' &&
+            data.length > 0 &&
+            generation === this.#pollGeneration
+          ) {
             this.#appendFrame({ data, timestamp: Date.now() })
           }
         } catch {
