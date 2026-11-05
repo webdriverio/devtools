@@ -39,15 +39,10 @@ export function renderTable(
     reasons.push(reason)
     return reasons.length
   }
+  // A gap's reason already states what its label summarises; a supported cell's label is its only detail.
   const cellText = (cell: Cell) => {
-    const parts = [mark(cell)]
-    if (cell.label) {
-      parts.push(cell.label)
-    }
-    if (cell.support !== 'supported') {
-      parts.push(superscript(footnote(cell.reason)))
-    }
-    return parts.join(' ')
+    const note = cell.support === 'supported' ? cell.label : cell.reason
+    return note ? `${mark(cell)} ${superscript(footnote(note))}` : mark(cell)
   }
   const lines = [
     `| Feature | ${ADAPTER_COLUMNS.map((a) => a.title).join(' | ')} |`,

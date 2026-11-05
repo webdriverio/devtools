@@ -48,21 +48,21 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
 | One row per command in the Actions list | ✓ | ✓ | ✓ | ✓ |
-| Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ no element-wait polls ¹ | ✓ |
+| Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ ¹ | ✓ |
 | Screenshot on every command row | ✓ | ✓ | ✓ | ✓ |
 | Browser console logs | ✓ | ✓ | ✓ | ✓ |
 | Source tab opens the test line that ran the command | ✓ | ✓ | ✓ | ✓ |
 | Metadata tab (session, capabilities, device) | ✓ | ✓ | ✓ | ✓ |
 | Performance timings on navigation rows | ✓ | ✓ | ✓ | ✓ |
 | Failed command in the Errors tab, with the browser's message | ✓ | ✓ | ✓ | ✓ |
-| Run, Rerun and Run all from the dashboard | ◐ no Cucumber step rerun ² | ◐ no Cucumber step rerun ² | ◐ no Cucumber step rerun ² | ✓ |
+| Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
-| Dashboard window opens by itself in live mode, and can be turned off | ◐ always opens ³ | ✓ `openUi: false` | ◐ always opens ⁴ | ✓ `DEVTOOLS_OPEN=0` |
-| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁵ | ✓ | ✕ ⁶ | ✕ ⁶ |
-| Force the test browser headless (`headless`) | ✕ ⁷ | ◐ Chrome only ⁸ | ✕ ⁷ | ✕ ⁷ |
-| Safari kept frontmost so input lands (live mode) | ◐ once ⁹ | ✓ before each element input | ◐ once ⁹ | ◐ once ⁹ |
+| Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
+| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
 
-✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
@@ -70,17 +70,23 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 ³ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
 
-⁴ Nightwatch always opens the dashboard in live mode.
+⁴ Turn it off with `openUi: false`.
 
-⁵ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
+⁵ Nightwatch always opens the dashboard in live mode.
 
-⁶ No option: every command row takes a screenshot.
+⁶ Turn it off with `DEVTOOLS_OPEN=0`.
 
-⁷ No option: set headless in the browser capabilities, as for any run.
+⁷ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
 
-⁸ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+⁸ No option: every command row takes a screenshot.
 
-⁹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+⁹ No option: set headless in the browser capabilities, as for any run.
+
+¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+
+¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+
+¹² Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -156,22 +162,22 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
 | Trace mode + `show-trace` player | ✓ | ✓ | ✓ | ✓ |
-| DOM time-travel (mutation capture) | ✓ | ◐ with BiDi ¹ | ◐ with BiDi ¹ | ✓ |
-| Network requests (browser sessions) | ✓ | ◐ with BiDi ² | ◐ with BiDi ³ | ✓ |
-| Screencast (`filmstrip` / video) | ✓ CDP push (Chrome), polling elsewhere | ✓ CDP push (Chromium), polling elsewhere | ◐ polling only ⁴ | ✓ CDP push (Chromium), one frame per command elsewhere |
-| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁵ | ✓ |
-| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ `retain-on-failure` only ⁶ | ◐ `retain-on-failure` only ⁷ |
-| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ produce-only ⁸ | ✕ ⁹ |
-| Cucumber Feature→Scenario→Step nesting | ◐ Scenario→Step ¹⁰ | ✓ | ◐ Feature→Scenario ¹¹ | ✕ ¹² |
-| Assertion capture (`captureAssertions`) | ✓ | ◐ `node:assert` only ¹³ | ◐ no `expect` ¹⁴ | ✓ |
-| BiDi console / network capture | ✓ auto | ✓ auto | ◐ opt-in ¹⁵ | ✓ auto |
+| DOM time-travel (mutation capture) | ✓ | ◐ ¹ | ◐ ¹ | ✓ |
+| Network requests (browser sessions) | ✓ | ◐ ² | ◐ ³ | ✓ |
+| Screencast (`filmstrip` / video) | ✓ ⁴ | ✓ ⁵ | ◐ ⁶ | ✓ ⁷ |
+| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁸ | ✓ |
+| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ ⁹ | ◐ ¹⁰ |
+| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ ¹¹ | ✕ ¹² |
+| Cucumber Feature→Scenario→Step nesting | ◐ ¹³ | ✓ | ◐ ¹⁴ | ✕ ¹⁵ |
+| Assertion capture (`captureAssertions`) | ✓ | ◐ ¹⁶ | ◐ ¹⁷ | ✓ |
+| BiDi console / network capture | ✓ ¹⁸ | ✓ ¹⁸ | ◐ ¹⁹ | ✓ ¹⁸ |
 | A11y tab + pick-locator overlay (trace player) | ✓ | ✓ | ✓ | ✓ |
 | Transcript + Copy-for-LLM (trace player) | ✓ | ✓ | ✓ | ✓ |
-| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ zip only ¹⁶ |
-| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ opt-in ¹⁷ | ✕ ¹⁸ |
-| Network without BiDi (Safari, Appium mobile browsers) | ◐ ¹⁹ | ◐ ¹⁹ | ◐ ¹⁹ | ◐ ¹⁹ |
+| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
+| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²³ | ◐ ²³ | ◐ ²³ | ◐ ²³ |
 
-✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
 
@@ -179,37 +185,45 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ³ Without BiDi (`bidi: true`) or Chrome's performance log (`goog:loggingPrefs`), a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
 
-⁴ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
+⁴ Chrome streams over CDP; other browsers poll.
 
-⁵ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
+⁵ Chromium streams over CDP; other browsers poll.
 
-⁶ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
+⁶ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
 
-⁷ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
+⁷ Chromium streams over CDP; other browsers take one frame per command.
 
-⁸ Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
+⁸ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
 
-⁹ The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
+⁹ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
 
-¹⁰ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
+¹⁰ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
 
-¹¹ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
+¹¹ Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
 
-¹² The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
+¹² The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
 
-¹³ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
+¹³ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
 
-¹⁴ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
+¹⁴ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
 
-¹⁵ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
+¹⁵ The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
 
-¹⁶ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
+¹⁶ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
 
-¹⁷ Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
+¹⁷ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
 
-¹⁸ The Python adapter writes no artifacts manifest.
+¹⁸ Attached by itself when the session supports BiDi.
 
-¹⁹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
+¹⁹ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
+
+²⁰ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
+
+²¹ Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
+
+²² The Python adapter writes no artifacts manifest.
+
+²³ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 <!-- capability-matrix:readme-trace:end -->
 
@@ -382,16 +396,18 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 | Mobile browser sessions (Chrome on Android, Safari on iOS) | ✓ | ✓ | ✓ | ✓ |
 | iOS (XCUITest): native apps and Safari | ✓ | ✓ | ✓ | ✓ |
 | Native session detected, page-side capture skipped | ✓ | ✓ | ✓ | ✓ |
-| Follows a hybrid app into its webview | ◐ string form only ² | ◐ ³ | ◐ ³ | ◐ ³ |
-| Native app network through appium-interceptor (`appium:intercept`) | ✓ Android | ✓ Android | ✓ Android | ✓ Android |
+| Follows a hybrid app into its webview | ◐ ² | ◐ ³ | ◐ ³ | ◐ ³ |
+| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ |
 
-✓ supported. ◐ partial, with the limit in the note below. ✕ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 ² Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
 
 ³ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
+
+⁴ Android only; appium-interceptor is an Android plugin.
 
 <!-- capability-matrix:readme-mobile:end -->
 
