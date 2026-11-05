@@ -54,11 +54,11 @@ webdriver: {
 
 When you run the example, the plugin will:
 
-1. ✅ Start the DevTools backend server on port 3000
-2. ✅ Open the DevTools UI in a new browser window
-3. ✅ Run your Nightwatch tests
-4. ✅ Stream all commands, logs, and results to the UI in real-time
-5. ✅ Keep the UI open until you close the browser window
+1. ✓ Start the DevTools backend server on port 3000
+2. ✓ Open the DevTools UI in a new browser window
+3. ✓ Run your Nightwatch tests
+4. ✓ Stream all commands, logs, and results to the UI in real-time
+5. ✓ Keep the UI open until you close the browser window
 
 ## What You'll See in the DevTools UI
 
