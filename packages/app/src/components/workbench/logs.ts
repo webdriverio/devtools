@@ -171,14 +171,17 @@ export class DevtoolsCommandLogs extends Element {
   /** A stable field rather than a bound method or inline arrow: only the exact
    *  reference that was added can be removed again. */
   #onShowCommand = (event: Event): void => {
-    const { command, elapsedTime } = (event as CustomEvent<CommandEventProps>)
-      .detail
+    const { command, elapsedTime, keepTab } = (
+      event as CustomEvent<CommandEventProps>
+    ).detail
     this.elapsedTime = elapsedTime
     this.command = command
 
     // Source line-tracking is dispatched by the Actions handler; here we only
     // surface the command's detail in the Log tab.
-    this.closest('wdio-devtools-tabs')?.activateTab('Log')
+    if (!keepTab) {
+      this.closest('wdio-devtools-tabs')?.activateTab('Log')
+    }
   }
 
   connectedCallback(): void {

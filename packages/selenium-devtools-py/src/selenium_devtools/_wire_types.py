@@ -80,6 +80,7 @@ class CommandLog(_CommandLogRequired, total=False):
     snapshotText: str
     point: CommandLogPoint
     selector: str
+    callId: str
 
 
 class CommandLogPoint(TypedDict):

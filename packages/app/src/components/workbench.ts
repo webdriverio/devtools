@@ -553,6 +553,7 @@ export class DevtoolsWorkbench extends Element {
     return html`
       <wdio-devtools-tabs
         cacheId="activeWorkbenchTab"
+        ?linked=${this.playerMode}
         class="relative z-10 border-t-[1px] border-t-panelBorder ${
           this.#toolbarCollapsed ? 'hidden' : ''
         } flex-1 min-h-0"

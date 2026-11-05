@@ -6,6 +6,7 @@ import { TraceType, type CommandLog } from '@wdio/devtools-shared'
 import { Element } from '@core/element'
 import { DataManagerController } from './controller/DataManager.js'
 import { TraceOpenController } from './controller/trace-open.js'
+import { TraceLinkController } from './controller/trace-link.js'
 import { TraceRunController } from './controller/trace-run.js'
 import { KeyboardController, KBD } from './controller/keyboard.js'
 import { DragController, Direction } from './utils/DragController.js'
@@ -47,14 +48,22 @@ export class WebdriverIODevtoolsApplication extends Element {
   #traceRun = new TraceRunController(this, (data) =>
     this.dataManager.loadPlayerData(data)
   )
+  #traceLink = new TraceLinkController(this, {
+    isPlayer: () => this.dataManager.playerMode,
+    isRun: () => this.#traceRun.active
+  })
   #traceOpen = HOSTED_PLAYER
-    ? new TraceOpenController(this, {
-        one: async (bytes, onPhase) => {
-          await this.dataManager.openTraceArchive(bytes, onPhase)
-          this.#traceRun.clear()
+    ? new TraceOpenController(
+        this,
+        {
+          one: async (bytes, onPhase) => {
+            await this.dataManager.openTraceArchive(bytes, onPhase)
+            this.#traceRun.clear()
+          },
+          many: (sources) => void this.#traceRun.open(sources)
         },
-        many: (sources) => void this.#traceRun.open(sources)
-      })
+        () => this.#traceLink.forget()
+      )
     : undefined
 
   @state() showShortcuts = false
