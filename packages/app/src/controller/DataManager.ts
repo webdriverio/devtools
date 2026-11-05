@@ -231,8 +231,8 @@ export class DataManagerController implements ReactiveController {
     this.framesContextProvider.setValue(data.frames)
     this.actionGroupsContextProvider.setValue(data.groups)
     this.transcriptContextProvider.setValue(data.transcript)
-    // Hosted, a cached trace would outlive the tab; the cache only backs a live socket.
-    this.loadTraceFile(data.trace, !HOSTED_PLAYER)
+    // The cache only backs a live socket; a player trace there would replay as the next live run.
+    this.loadTraceFile(data.trace, false)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()
   }
