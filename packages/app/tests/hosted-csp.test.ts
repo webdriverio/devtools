@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { playerCsp } from '@wdio/devtools-shared'
+import { hostedPlayerCsp, playerCsp } from '@wdio/devtools-shared'
 
 import { hostingHeaders } from '../hosting-headers.js'
 
@@ -31,16 +31,27 @@ describe('the hosted player CSP', () => {
     expect(directive('font-src')).toContain('*')
   })
 
-  it('keeps scripts and network calls on the player’s own origin', () => {
+  it('keeps scripts on the player’s own origin', () => {
     expect(directive('script-src')).toEqual(["'self'"])
-    expect(directive('connect-src')).toEqual(["'self'"])
+  })
+
+  it('lets `?trace=` fetch a zip over https and nothing else', () => {
+    expect(directive('connect-src')).toEqual(["'self'", 'https:'])
   })
 
   it('keeps the year-long asset cache off index.html and every other path', () => {
     expect(hostingHeaders()['Cache-Control']).toBeUndefined()
   })
 
-  it('is the policy the local backend sends, so the two cannot drift', () => {
-    expect(policy).toBe(playerCsp())
+  it('is the policy shared declares, so the two cannot drift', () => {
+    expect(policy).toBe(hostedPlayerCsp())
+  })
+
+  it('differs from the local backend’s only in connect-src', () => {
+    const local = playerCsp().split('; ')
+    const hosted = policy.split('; ')
+    expect(
+      hosted.filter((part, i) => part !== local[i]).map((p) => p.split(' ')[0])
+    ).toEqual(['connect-src'])
   })
 })

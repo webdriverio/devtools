@@ -1,6 +1,12 @@
 import '@components/tabs.js'
 import type { DevtoolsTab, DevtoolsTabs } from '@components/tabs.js'
 
+import {
+  DOCK_TAB_CHANGE_EVENT,
+  DOCK_TABS_READY_EVENT,
+  OPEN_DOCK_TAB_EVENT
+} from '@/controller/constants.js'
+
 import { mount, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 
@@ -42,6 +48,8 @@ const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 interface MountOptions {
   cacheId?: string
+  /** The player's dock: opens on the address's linked tab and writes picks back. */
+  linked?: boolean
   /** Markup appended after the tabs, for the bar's named `actions` slot. */
   extraMarkup?: string
 }
@@ -55,7 +63,8 @@ async function mountTabs(
 ): Promise<DevtoolsTabs> {
   const el = await mount<DevtoolsTabs>(TAG, {
     innerHTML: markupFor(tabs) + (options.extraMarkup ?? ''),
-    ...(options.cacheId === undefined ? {} : { cacheId: options.cacheId })
+    ...(options.cacheId === undefined ? {} : { cacheId: options.cacheId }),
+    ...(options.linked ? { linked: true } : {})
   })
   panels(el).forEach((panel, index) => {
     const badge = tabs[index]?.badge
@@ -357,6 +366,85 @@ describe('wdio-devtools-tabs', () => {
       tabButton(el, 'Console').click()
 
       expect(localStorage.getItem(CACHE_ID)).toBe(null)
+    })
+  })
+
+  describe('the player dock’s address link', () => {
+    const LINK_EVENTS = [DOCK_TABS_READY_EVENT, DOCK_TAB_CHANGE_EVENT] as const
+    let heard: string[] = []
+    const hear = (event: Event) =>
+      heard.push(
+        event.type === DOCK_TAB_CHANGE_EVENT
+          ? `change:${(event as CustomEvent<string>).detail}`
+          : 'ready'
+      )
+    beforeEach(() => {
+      heard = []
+      LINK_EVENTS.forEach((type) => window.addEventListener(type, hear))
+    })
+    afterEach(() =>
+      LINK_EVENTS.forEach((type) => window.removeEventListener(type, hear))
+    )
+
+    it('announces it is ready once built, without announcing the remembered tab', async () => {
+      localStorage.setItem(CACHE_ID, 'Console')
+
+      const el = await mountTabs(DOCK, { cacheId: CACHE_ID, linked: true })
+
+      expect(activePanels(el)).toEqual(['Console'])
+      expect(heard).toEqual(['ready'])
+    })
+
+    it('announces each tab opened after that', async () => {
+      const el = await mountTabs(DOCK, { linked: true })
+
+      tabButton(el, 'Console').click()
+      openTab('Errors')
+
+      expect(heard).toEqual(['ready', 'change:Console', 'change:Errors'])
+    })
+
+    it('opens a linked tab by its lower-case name without remembering it', async () => {
+      localStorage.setItem(CACHE_ID, 'Console')
+      const el = await mountTabs(DOCK, { cacheId: CACHE_ID, linked: true })
+
+      window.dispatchEvent(
+        new CustomEvent(OPEN_DOCK_TAB_EVENT, {
+          detail: { label: 'errors', linked: true }
+        })
+      )
+      await settle(el)
+
+      expect(activePanels(el)).toEqual(['Errors'])
+      expect(localStorage.getItem(CACHE_ID)).toBe('Console')
+    })
+
+    it('ignores a linked tab it does not render', async () => {
+      const el = await mountTabs(DOCK, { linked: true })
+
+      window.dispatchEvent(
+        new CustomEvent(OPEN_DOCK_TAB_EVENT, {
+          detail: { label: 'network', linked: true }
+        })
+      )
+      await settle(el)
+
+      expect(activePanels(el)).toEqual(['Source'])
+    })
+
+    it('announces nothing and follows no link unless linked', async () => {
+      const el = await mountTabs(DOCK)
+
+      tabButton(el, 'Console').click()
+      window.dispatchEvent(
+        new CustomEvent(OPEN_DOCK_TAB_EVENT, {
+          detail: { label: 'errors', linked: true }
+        })
+      )
+      await settle(el)
+
+      expect(activePanels(el)).toEqual(['Console'])
+      expect(heard).toEqual([])
     })
   })
 })

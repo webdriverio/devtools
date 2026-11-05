@@ -173,6 +173,7 @@ Contains:
 - WebSocket client for the live event stream.
 - Context providers (`@lit/context`) for each data stream.
 - `DataManagerController` — orchestrates the WS connection and the 11 context providers (one per scope).
+- Player entry points: the live socket, a trace `show-trace` serves (`controller/trace-serve.ts`), and in the hosted build a picked or dropped zip (`controller/trace-open.ts`) or one `?trace=<url>` names (`controller/trace-download.ts`). The hash `#action=<callId>&tab=<tab>` (`shared/trace-player.ts`) links to a position in whichever trace is open.
 - Pure helpers: suite-merge logic, mark-running logic, run-detection logic, context-update transforms (`contextUpdates.ts`), runner-capability derivations (`runnerCapabilities.ts`), and the actions list's row trees (`action-tree.ts` for the player, `live-action-rows.ts` for the live list), which nest the rows a command issued under it, collapsed by default.
 
 Imports from: `shared`. Does not import: any adapter package, `backend` directly (only via WS/HTTP), `core`.

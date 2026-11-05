@@ -3,11 +3,15 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { remote } from 'webdriverio'
+import { formatTraceLink, TRACE_URL_PARAM } from '@wdio/devtools-shared'
+import { parseTraceZip } from '@wdio/devtools-trace/trace-reader'
 
 import {
   CSP_VIOLATION_PREFIX,
   LANDING_HEADING,
   LANDING_TIMEOUT_MS,
+  LINKED_ACTION_TITLE,
+  LINKED_TAB,
   MAX_EXPAND_PASSES,
   NOT_A_TRACE_ERROR,
   NOT_A_TRACE_NAME,
@@ -22,7 +26,7 @@ import {
 import {
   diffTitles,
   failingLogEntry,
-  missingCspDirectives,
+  cspDrift,
   readFormatFixtures,
   requestedWorker,
   type TraceToOpen
@@ -30,10 +34,13 @@ import {
 import {
   EXPAND_COLLAPSED_ROWS,
   READ_PLAYER_STATE,
+  READ_TRACE_POSITION,
+  clickRow,
   cspViolationReporter,
   replayLastRow,
   type PlayerState,
-  type ReplayState
+  type ReplayState,
+  type TracePosition
 } from './page-scripts.js'
 
 type Browser = WebdriverIO.Browser
@@ -49,6 +56,8 @@ interface Observed {
 export interface CheckOptions {
   baseUrl: string
   headed: boolean
+  /** Serves a zip from the player's origin and returns its path; absent for a deployed player, whose `?trace=` open is then not checked. */
+  serveZip?: (zipPath: string) => string
 }
 
 function log(message: string): void {
@@ -66,12 +75,10 @@ async function assertHostingHeaders(baseUrl: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`${baseUrl}/ answered ${response.status}`)
   }
-  const missing = missingCspDirectives(
-    response.headers.get('content-security-policy')
-  )
-  if (missing.length) {
+  const drift = cspDrift(response.headers.get('content-security-policy'))
+  if (drift) {
     throw new Error(
-      `${baseUrl}/ is not served under the hosting CSP; missing ${missing.join(', ')}`
+      `${baseUrl}/ is not served under hostedPlayerCsp(): ${drift}`
     )
   }
 }
@@ -245,6 +252,105 @@ async function openHostileTrace(
   log('hostile trace: replayed with no script run')
 }
 
+/** The callId the trace reader gives the action titled `title` in the zip at `zipPath`. */
+async function callIdOf(zipPath: string, title: string): Promise<string> {
+  const { trace } = parseTraceZip(new Uint8Array(await fs.readFile(zipPath)))
+  const callId = trace.commands.find(
+    (command) => command.title === title
+  )?.callId
+  if (!callId) {
+    throw new Error(`${zipPath} holds no action titled ${title}`)
+  }
+  return callId
+}
+
+function readPosition(browser: Browser): Promise<TracePosition> {
+  return browser.execute<TracePosition, []>(READ_TRACE_POSITION)
+}
+
+/** Waits for the open to show the linked action selected on the linked tab. */
+async function expectLinkedPosition(
+  browser: Browser,
+  name: string,
+  link: string
+): Promise<void> {
+  let position = await readPosition(browser)
+  await browser
+    .waitUntil(
+      async () => {
+        position = await readPosition(browser)
+        return (
+          position.activeRow === LINKED_ACTION_TITLE &&
+          position.dockTab === LINKED_TAB
+        )
+      },
+      { timeout: OPEN_TIMEOUT_MS, interval: 100 }
+    )
+    .catch(() => {
+      throw new Error(
+        `${name}: #${link} selected ${position.activeRow} on ${position.dockTab}, not ${LINKED_ACTION_TITLE} on ${LINKED_TAB}`
+      )
+    })
+}
+
+/** Picks another action row and waits for its callId to reach the address. */
+async function expectAddressFollowsPick(
+  browser: Browser,
+  name: string,
+  trace: TraceToOpen
+): Promise<void> {
+  const picked = trace.titles.find((title) => title !== LINKED_ACTION_TITLE)
+  if (!picked) {
+    throw new Error(`${name}: the trace holds no other action to pick`)
+  }
+  const expected = await callIdOf(trace.zipPath, picked)
+  if (!(await browser.execute<boolean, []>(clickRow(picked)))) {
+    throw new Error(`${name}: no row for ${picked} to pick`)
+  }
+  await browser.waitUntil(
+    async () =>
+      (await readPosition(browser)).hash.includes(`action=${expected}`),
+    {
+      timeout: OPEN_TIMEOUT_MS,
+      interval: 100,
+      timeoutMsg: `${name}: picking ${picked} never wrote action=${expected} into the address`
+    }
+  )
+}
+
+/** Opens a zip by `?trace=` with a deep link, then expects the linked action and tab, and the address to follow a pick. */
+async function openLinkedTraceUrl(
+  browser: Browser,
+  baseUrl: string,
+  trace: TraceToOpen,
+  route: string
+): Promise<void> {
+  const name = `${trace.name} by ?${TRACE_URL_PARAM}=`
+  const link = formatTraceLink({
+    action: await callIdOf(trace.zipPath, LINKED_ACTION_TITLE),
+    tab: LINKED_TAB.toLowerCase()
+  })
+  await browser.url(
+    `${baseUrl}/?${TRACE_URL_PARAM}=${encodeURIComponent(route)}#${link}`
+  )
+  const opened = await waitForState(
+    browser,
+    (state) =>
+      state.alerts.length > 0 ||
+      (state.landing === null && state.rows.length > 0),
+    OPEN_TIMEOUT_MS,
+    `${name}: the player never rendered an action row`
+  )
+  if (opened.alerts.length) {
+    throw new Error(`${name}: ${opened.alerts.join('; ')}`)
+  }
+  await expectLinkedPosition(browser, name, link)
+  await expectAddressFollowsPick(browser, name, trace)
+  log(
+    `${name}: opened at ${LINKED_ACTION_TITLE} on ${LINKED_TAB}, address follows a pick`
+  )
+}
+
 async function openNotATrace(
   browser: Browser,
   baseUrl: string,
@@ -307,7 +413,8 @@ async function tracesToOpen(workDir: string): Promise<TraceToOpen[]> {
 /** Opens every trace and a non-zip in the hosted player at `baseUrl`; throws on the first thing that is wrong. */
 export async function checkHostedPlayer({
   baseUrl,
-  headed
+  headed,
+  serveZip
 }: CheckOptions): Promise<void> {
   await assertHostingHeaders(baseUrl)
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hosted-player-'))
@@ -318,8 +425,22 @@ export async function checkHostedPlayer({
   const observed: Observed = { consoleErrors: [], requested: new Set() }
   try {
     await observePage(browser, observed)
-    for (const trace of await tracesToOpen(workDir)) {
+    const traces = await tracesToOpen(workDir)
+    for (const trace of traces) {
       await openTrace(browser, baseUrl, trace, observed)
+    }
+    const current = traces[traces.length - 1]
+    if (serveZip) {
+      await openLinkedTraceUrl(
+        browser,
+        baseUrl,
+        current,
+        serveZip(current.zipPath)
+      )
+    } else {
+      log(
+        `?${TRACE_URL_PARAM}= not checked: a deployed player has no zip on its own origin`
+      )
     }
     await openHostileTrace(browser, baseUrl, workDir)
     await openNotATrace(browser, baseUrl, workDir)

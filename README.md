@@ -279,6 +279,16 @@ Each zip is read once, as the list fills in, and kept for when it is picked. Any
 pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
 ```
 
+**Open a trace from a URL, and link into it.** `https://trace.webdriver.io/?trace=<url>` downloads the zip at `<url>` and opens it, so a CI job or a bug report can link straight to a trace:
+
+```text
+https://trace.webdriver.io/?trace=https%3A%2F%2Fci.example.com%2Fartifacts%2Ftrace.zip#action=call@12&tab=network
+```
+
+The URL must be `https` (or a path on the player's own origin), and its host must send an `Access-Control-Allow-Origin` header that admits the player (`*` or `https://trace.webdriver.io`); without it the browser refuses the download and the player says so. The request carries no cookies, credentials or referrer, so a private artifact needs a URL that is its own credential, such as a pre-signed link, and the player names a download by host and path only, never its query. A URL with its own query can be pasted as it is if `trace` is the last parameter, since everything after `trace=` is then taken as the URL, `&` parameters included; a percent-encoded URL (anything not starting with a scheme or `/`) ends at the first raw `&`, so it can be followed by other parameters. An empty `trace=` is refused. Zips over 512 MB are refused (opening one takes a few times its size in memory, since the tab holds the archive and its unpacked contents together), as is a body that does not start as a zip, and a host that sends nothing for 30 seconds is given up on. The zip is then parsed in the tab like a picked file and sent nowhere; fetching it is why the hosted page's CSP admits `connect-src https:`, while every other directive stays as strict as `show-trace`'s.
+
+The hash names a position in the trace, for a `?trace=` URL, a picked file and `show-trace` alike: `action=<callId>` opens on that action, by its `callId` in the zip (`call@12` from this writer, stable for the life of the zip), and `tab=<tab>` opens that bottom tab (`source`, `log`, `console`, `network`, `errors`, `a11y`, `transcript`). The player rewrites the hash as you pick actions and tabs, without adding history entries, so the address bar always links to what you are looking at. A link is applied once, to the trace the page opened with (and again whenever you edit the hash yourself); opening another trace by hand clears the hash and the `?trace=` URL, since the address no longer names what is on screen. An action or tab the trace does not have is ignored. When several traces are open as a run, the hash names no run entry, so it carries the tab only.
+
 **Other viewers.** The trace uses a portable NDJSON schema, so the same `.zip` also opens in other compatible standalone trace viewers that read the format, and — because it shares that on-disk format — is what an Allure report's **embedded trace viewer** (Allure ≥ 2.35) reads. See the [backend README](./packages/backend/README.md#trace-serving--show-trace) for the reader details.
 
 #### Options

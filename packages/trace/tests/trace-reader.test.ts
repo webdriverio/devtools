@@ -179,6 +179,15 @@ describe('parseTraceZip', () => {
     expect(trace.commands[2].error?.message).toBe('boom')
   })
 
+  it('keeps each command’s callId, which a player deep link names it by', () => {
+    const { trace } = parseTraceZip(fixtureZip())
+    expect(trace.commands.map((c) => c.callId)).toEqual([
+      'call@1',
+      'call@2',
+      'call@3'
+    ])
+  })
+
   it('attaches the nearest frame screenshot to each command', () => {
     const { trace } = parseTraceZip(fixtureZip())
     expect(trace.commands[0].screenshot).toBe(IMG1)
@@ -406,7 +415,11 @@ describe('parseTraceZip', () => {
         // wallTime here names the resource, independent of the filmstrip mode.
         {
           type: 'frame-snapshot',
-          snapshot: { callId: 'call@1', pageId: 'page@abcd1234', wallTime: 999 }
+          snapshot: {
+            callId: 'call@1',
+            pageId: 'page@abcd1234',
+            wallTime: 999
+          }
         }
       ]),
       'resources/page@abcd1234-999-snapshot.txt': strToU8(

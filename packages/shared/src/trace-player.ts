@@ -80,3 +80,55 @@ export interface TracePlayerData {
   /** Markdown run transcript (`transcript.md`), when the zip carried one. */
   transcript?: string
 }
+
+/** The hosted player's query parameter naming a trace zip to download and open. */
+export const TRACE_URL_PARAM = 'trace'
+
+/** A position inside an opened trace, carried in the page's hash so it survives a copied address. */
+export interface TraceLink {
+  /** The action's `callId` in the zip (`call@12` from this writer); stable for the life of the zip. */
+  action?: string
+  /** A bottom-dock tab, by its label in lower case (`network`, `console`, `errors`). */
+  tab?: string
+}
+
+const TRACE_LINK_KEYS = [
+  'action',
+  'tab'
+] as const satisfies readonly (keyof TraceLink)[]
+
+// Both are only ever compared against the trace's own ids and tab labels, never rendered or fetched.
+const TRACE_LINK_VALUE: Record<keyof TraceLink, RegExp> = {
+  // eslint-disable-next-line no-control-regex -- a callId is any writer's string; only control characters are refused
+  action: /^[^\u0000-\u001f\u007f]{1,200}$/,
+  tab: /^[a-z0-9-]{1,32}$/
+}
+
+/** Whether `parseTraceLink` would read `value` back under `key`. */
+export function isTraceLinkValue(key: keyof TraceLink, value: string): boolean {
+  return TRACE_LINK_VALUE[key].test(value)
+}
+
+/** Reads `#action=<callId>&tab=<label>`; a missing or malformed value is left out. */
+export function parseTraceLink(hash: string): TraceLink {
+  const params = new URLSearchParams(hash.replace(/^#/, ''))
+  const link: TraceLink = {}
+  for (const key of TRACE_LINK_KEYS) {
+    const value = params.get(key)
+    if (value !== null && isTraceLinkValue(key, value)) {
+      link[key] = value
+    }
+  }
+  return link
+}
+
+/** The hash, without its `#`, that `parseTraceLink` reads back as `link`. */
+export function formatTraceLink(link: TraceLink): string {
+  return TRACE_LINK_KEYS.flatMap((key) => {
+    const value = link[key]
+    // `@` is legal in a fragment, so `call@12` stays readable in the address bar.
+    return value
+      ? [`${key}=${encodeURIComponent(value).replace(/%40/g, '@')}`]
+      : []
+  }).join('&')
+}

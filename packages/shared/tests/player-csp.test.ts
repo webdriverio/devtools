@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { dashboardSocketSource, playerCsp } from '../src/player-csp.js'
+import {
+  dashboardSocketSource,
+  hostedPlayerCsp,
+  playerCsp
+} from '../src/player-csp.js'
 
 const directive = (policy: string, name: string) =>
   policy
@@ -30,6 +34,15 @@ describe('playerCsp', () => {
 
     expect(directive(policy, 'connect-src')).toBe("'self' ws://localhost:3000")
     expect(directive(policy, 'script-src')).toBe("'self'")
+  })
+})
+
+describe('hostedPlayerCsp', () => {
+  it('adds https to connect-src alone, for a zip `?trace=` names', () => {
+    const policy = hostedPlayerCsp()
+
+    expect(directive(policy, 'connect-src')).toBe("'self' https:")
+    expect(policy).toBe(playerCsp(['https:']))
   })
 })
 
