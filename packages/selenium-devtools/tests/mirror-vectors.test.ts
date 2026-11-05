@@ -13,6 +13,7 @@ import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
   deviceFromCapabilities,
   isNativeAppSession,
+  resourceUrlKey,
   RUNNER_ENV
 } from '@wdio/devtools-shared'
 import {
@@ -81,7 +82,8 @@ const RUNNERS = [
   'performancePayload',
   'waitRowNaming',
   'finalFrameStamp',
-  'captureTimingSummary'
+  'captureTimingSummary',
+  'resourceUrlKey'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -450,6 +452,16 @@ describe('captureTimingSummary', () => {
         summary,
         formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
       }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('resourceUrlKey', () => {
+  for (const c of section<Named & { url: string; expect: string }>(
+    'resourceUrlKey'
+  ).cases) {
+    it(c.name, () => {
+      expect(resourceUrlKey(c.url)).toBe(c.expect)
     })
   }
 })

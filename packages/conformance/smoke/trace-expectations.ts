@@ -7,6 +7,7 @@ import {
 } from '@wdio/devtools-shared'
 
 import { NODEID_SEPARATOR, TIMEOUT_PATTERNS } from './constants.js'
+import { checkPageResources } from './page-resources.js'
 import type {
   ExampleExpectations,
   RunOutcome,
@@ -448,7 +449,10 @@ export function checkExample(
     ...checkCallSites(expectations, traces),
     ...checkTimeouts(expectations, traces, outcome),
     ...(outcome.zips
-      ? checkTraceBudget(expectations.traceBudget, outcome.zips)
+      ? [
+          ...checkTraceBudget(expectations.traceBudget, outcome.zips),
+          ...checkPageResources(expectations.pageResources, outcome.zips)
+        ]
       : [])
   ]
 }

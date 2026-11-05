@@ -5,8 +5,10 @@ import type { AddressInfo } from 'node:net'
 
 import {
   FIXTURE_DEFAULT_HOST,
+  FIXTURE_FONT_PATH,
   FIXTURE_MAX_BODY_BYTES,
   FIXTURE_PASSWORD,
+  FIXTURE_STYLESHEET_PATH,
   FIXTURE_USERNAME
 } from './constants.js'
 
@@ -26,7 +28,7 @@ type FlashKey = keyof typeof FLASHES
 interface Reply {
   status: number
   headers: Record<string, string | string[]>
-  body: string
+  body: string | Buffer
 }
 
 function isFlashKey(value: string | undefined): value is FlashKey {
@@ -58,6 +60,7 @@ function page(title: string, content: string): string {
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
+  <link rel="stylesheet" href="${FIXTURE_STYLESHEET_PATH}">
 </head>
 <body>
   <div class="row">
@@ -71,6 +74,27 @@ ${content}
 </body>
 </html>
 `
+}
+
+// Relative, so a trace has to resolve the face against the stylesheet rather than the page.
+const STYLESHEET = `@font-face {
+  font-family: 'fixture-icons';
+  src: url('../fonts/fixture-icons.woff2') format('woff2');
+}
+body { font-family: sans-serif; }
+.fa, [class^='icon-'] { font-family: 'fixture-icons', sans-serif; font-style: normal; }
+`
+
+// Not a valid font: the browser still fetches a face a rendered rule uses, which is all a trace needs to store it.
+const FONT_BYTES = Buffer.from('wOF2-fixture-icons')
+
+/** Cacheable, as a real site's assets are, so a trace reads them back from the HTTP cache. */
+function asset(contentType: string, body: string | Buffer): Reply {
+  return {
+    status: 200,
+    headers: { 'content-type': contentType, 'cache-control': 'max-age=3600' },
+    body
+  }
 }
 
 function flashMarkup(key: FlashKey | undefined): string {
@@ -212,6 +236,10 @@ export async function route(req: IncomingMessage): Promise<Reply> {
       return loggedIn
         ? html(securePage(flash), flash !== undefined)
         : redirect('/login', [cookie(FLASH_COOKIE, 'mustLogin')])
+    case FIXTURE_STYLESHEET_PATH:
+      return asset('text/css; charset=utf-8', STYLESHEET)
+    case FIXTURE_FONT_PATH:
+      return asset('font/woff2', FONT_BYTES)
     case '/logout':
       return redirect('/login', [
         cookie(SESSION_COOKIE, ''),

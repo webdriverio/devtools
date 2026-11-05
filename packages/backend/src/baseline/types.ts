@@ -4,6 +4,8 @@ import type {
   ConsoleLog,
   Metadata,
   NetworkRequest,
+  PageResource,
+  ResourceReRead,
   ScreencastFrame,
   TestError,
   TestStatus,
@@ -66,4 +68,8 @@ export interface ActiveRun {
    *  that exports through here has to send them, so they accumulate like any
    *  other stream. Empty unless the adapter asked for a filmstrip. */
   screencastFrames: ScreencastFrame[]
+  /** Stylesheets and fonts read back in trace mode, one per URL; the trace writer keeps what each archive uses. */
+  pageResources: PageResource[]
+  /** Those reads, whose network rows the trace writer drops. */
+  resourceReReads: ResourceReRead[]
 }

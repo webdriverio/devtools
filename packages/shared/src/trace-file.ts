@@ -11,7 +11,9 @@ export const TRACE_ZIP_ENTRIES = {
   mutations: 'trace.mutations',
   /** Human/LLM-readable Markdown run transcript. */
   transcript: 'transcript.md',
-  /** Screenshots, element snapshots and network bodies live under here. */
+  /** NDJSON index of stored page resources, one `PageResourceIndexEntry` per URL. */
+  pageResources: 'page-resources.ndjson',
+  /** Screenshots, element snapshots, network bodies and page resources live under here. */
   resourcesDir: 'resources'
 } as const
 

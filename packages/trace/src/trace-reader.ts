@@ -23,6 +23,7 @@ import {
 } from '@wdio/devtools-shared'
 
 import { bytesToBase64 } from './base64.js'
+import { pageResourcesOf } from './trace-reader-page-resources.js'
 import {
   FRAME_RESOURCE_SUFFIXES,
   MUTATIONS_STREAM_SUFFIX,
@@ -436,7 +437,8 @@ export function parseTraceEntries(files: TraceZipEntries): TracePlayerData {
     ),
     commands,
     sources: buildSources(merged.befores.values(), files),
-    suites: []
+    suites: [],
+    ...pageResourcesOf(files)
   }
   return {
     trace,

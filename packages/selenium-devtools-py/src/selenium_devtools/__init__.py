@@ -27,6 +27,7 @@ from . import (
     element_scripts,
     instrumentation,
     lifecycle,
+    page_resources,
     page_scripts,
     rerun,
     trace_export,
@@ -47,6 +48,7 @@ from .constants import (
     ENV_TRACE,
     ENV_TRACE_POLICY,
     ENV_TRACE_GRANULARITY,
+    ENV_TRACE_RESOURCES,
     LOGGER_NAME,
 )
 from .logcapture import LogCapturer
@@ -145,7 +147,7 @@ def _warn_if_ignored() -> None:
     take away the dashboard nobody asked to lose. But it must not be silent:
     the symptom is otherwise an archive that never appears.
     """
-    for name in (ENV_TRACE_POLICY, ENV_TRACE_GRANULARITY):
+    for name in (ENV_TRACE_POLICY, ENV_TRACE_GRANULARITY, ENV_TRACE_RESOURCES):
         if os.environ.get(name):
             _log.warning(
                 "%s is set but this run is not in trace mode, so it does "
@@ -353,6 +355,7 @@ def enable(
     a11y: Optional[bool] = None,
     trace_policy: Optional[str] = None,
     trace_granularity: Optional[str] = None,
+    trace_resources: Optional[str] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -370,6 +373,11 @@ def enable(
         _resolve_trace_settings(
             trace, filmstrip, a11y, trace_policy, trace_granularity
         )
+    )
+
+    # Stylesheets and fonts are read back by trace drains alone; a live drain reads none.
+    page_resources.set_mode(
+        page_resources.resolve_mode(trace_resources) if trace_mode else "none"
     )
 
     # Before the backend is launched: the directory a rerun spawns in travels
@@ -484,6 +492,7 @@ def disable() -> None:
     # A new enable() in this process is a NEW run, so the id must not outlive
     # this one — the backend would otherwise keep the previous run's data.
     reset_run_id()
+    page_resources.reset()
     # Same reasoning: a re-enable() re-derives its commands rather than
     # inheriting the ones this run published.
     rerun.reset()
