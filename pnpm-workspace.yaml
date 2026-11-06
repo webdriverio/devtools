@@ -21,3 +21,6 @@ overrides:
   vite: ^8.0.7
   '@types/node': 26.6.4
   '@codemirror/state': 6.5.4
+  # @wdio/browser-runner's deps pin esbuild <=0.18 (a peer of modern-node-polyfills, a dep of vite-plugin-commonjs), forking a second vite whose viteConfig type the app's can't satisfy.
+  'modern-node-polyfills>esbuild': ^0.28.2
+  '@originjs/vite-plugin-commonjs>esbuild': ^0.28.2

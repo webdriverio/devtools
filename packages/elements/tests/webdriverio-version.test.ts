@@ -10,14 +10,12 @@ describe('rendersWithWdioSnapshot', () => {
     }
   )
 
-  it.each([
-    '10.2.0-alpha.1',
-    '10.2.0-alpha.100.sha-b38abd894',
-    '10.2.0',
-    '11.0.0'
-  ])('renders with @wdio/snapshot on %s', (version) => {
-    expect(rendersWithWdioSnapshot(version)).toBe(true)
-  })
+  it.each(['10.2.0-beta.1', '10.2.0-rc.1', '10.2.0', '11.0.0'])(
+    'renders with @wdio/snapshot on %s',
+    (version) => {
+      expect(rendersWithWdioSnapshot(version)).toBe(true)
+    }
+  )
 
   it.each(['garbage', '', undefined])(
     'falls back to legacy for an unreadable version %j',

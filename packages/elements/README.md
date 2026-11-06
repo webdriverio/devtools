@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.2.0-0`, the snapshot renderer (see below).
+Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.2.0`, the snapshot renderer (see below).
 
 ## Usage
 
@@ -26,7 +26,7 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer is opt-in:
 
 - **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
-- **10.2 and later, prereleases included** (`10.2.0-alpha.*`), with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. On WebdriverIO 10.2.0-alpha it matched the CLI on 6 of 15 pages checked; the differences are listed below. Install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
+- **10.2 and later, prereleases included**, with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. Install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
 - **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer. It warns when an `@wdio/snapshot` below 10.2 is resolvable or resolution fails, and is silent only when `@wdio/snapshot` is not installed.
 
 ```ts

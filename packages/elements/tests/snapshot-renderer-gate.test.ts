@@ -27,7 +27,7 @@ describe('resolvesWdioSnapshot', () => {
   })
 
   it('uses the snapshot renderer when @wdio/snapshot 10.2 prerelease is resolved', async () => {
-    installed.version = '10.2.0-alpha.100.sha-b38abd894'
+    installed.version = '10.2.0-rc.1'
 
     expect(await resolvesWdioSnapshot()).toBe(true)
   })
