@@ -2,6 +2,7 @@
   "example": "python-pytest",
   "runFails": false,
   "sourceFiles": ["examples/selenium-py/pytest/test_login_pytest.py"],
+  "pageResources": ["/css/fixture.css", "/fonts/fixture-icons.woff2"],
   "traceBudget": {
     "maxBytes": 870000,
     "measuredBytes": 688296,

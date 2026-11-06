@@ -10,6 +10,8 @@
  * navigation row.
  */
 
+import type { TraceResourcesMode } from './page-resources.js'
+
 /**
  * HTTP contract for {@link PageScriptsResponse}.
  *
@@ -51,11 +53,30 @@ export const COLLECTOR_INJECT_SCRIPT = `var s=document.createElement('script');s
  * dies with the page. The WDIO service drains the outgoing document without
  * forcing before a page transition, which is the one caller of `false`.
  */
-export function collectorDrainExpression(forceAnchor = false): string {
+export function collectorDrainExpression(
+  forceAnchor = false,
+  resources: TraceResourcesMode = 'none',
+  stored: readonly string[] = []
+): string {
   const call = forceAnchor
     ? 'window.wdioTraceCollector.captureCurrentDom();'
     : ''
-  return `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } ${call} return window.wdioTraceCollector.getTraceData();`
+  // A drain that names no mode reads nothing back, so live mode sends no bodies.
+  const opts =
+    resources === 'none'
+      ? ''
+      : JSON.stringify({ resources, stored } satisfies TraceDrainOptions)
+  return `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } ${call} return window.wdioTraceCollector.getTraceData(${opts});`
+}
+
+/** The trace drain served to an adapter that passes the stored keys as the script's first argument. */
+export const COLLECTOR_DRAIN_RESOURCES_SCRIPT = `if (!(${COLLECTOR_READY_EXPRESSION})) { return null; } window.wdioTraceCollector.captureCurrentDom(); return window.wdioTraceCollector.getTraceData({"resources":"styles","stored":arguments[0]||[]});`
+
+/** What a drain asks of `getTraceData`. */
+export interface TraceDrainOptions {
+  resources?: TraceResourcesMode
+  /** `resourceUrlKey`s of resources the run already stored, which the page does not read again. */
+  stored?: readonly string[]
 }
 
 /**
@@ -120,6 +141,8 @@ export interface PageScriptsResponse {
   collectorReady: string
   collectorInject: string
   collectorDrain: string
+  /** The trace-mode drain that also returns stylesheets and fonts, given the stored keys as its argument; absent from a backend older than it. */
+  collectorDrainResources?: string
   capturePerformance: string
 }
 
@@ -130,6 +153,7 @@ export function buildPageScripts(): PageScriptsResponse {
     collectorReady: COLLECTOR_READY_SCRIPT,
     collectorInject: COLLECTOR_INJECT_SCRIPT,
     collectorDrain: collectorDrainExpression(true),
+    collectorDrainResources: COLLECTOR_DRAIN_RESOURCES_SCRIPT,
     capturePerformance: CAPTURE_PERFORMANCE_SCRIPT
   }
 }

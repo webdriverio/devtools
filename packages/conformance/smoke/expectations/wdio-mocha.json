@@ -8,6 +8,7 @@
     "examples/wdio/pageobjects/login.page.ts",
     "examples/wdio/pageobjects/secure.page.ts"
   ],
+  "pageResources": ["/css/fixture.css", "/fonts/fixture-icons.woff2"],
   "traceBudget": {
     "maxBytes": 1210000,
     "measuredBytes": 966841,

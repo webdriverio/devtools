@@ -19,3 +19,15 @@ export const COLLECTOR_API = {
 /** `Content-Type` the collector is served with. It is JavaScript source that a
  *  caller injects into the page, never a module the browser loads itself. */
 export const COLLECTOR_CONTENT_TYPE = 'application/javascript; charset=utf-8'
+
+/** What a drain of the collector's `getTraceData()` returns, as untrusted page data: every field is narrowed where it is read. */
+export interface CollectorDrainPayload {
+  mutations?: unknown
+  traceLogs?: unknown
+  consoleLogs?: unknown
+  networkRequests?: unknown
+  metadata?: unknown
+  pageResources?: unknown
+  resourceReReads?: unknown
+  pendingResources?: unknown
+}

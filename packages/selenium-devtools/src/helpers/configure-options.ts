@@ -14,6 +14,7 @@ const OPTION_KIND = {
   traceFormat: 'choice',
   traceGranularity: 'choice',
   tracePolicy: 'choice',
+  traceResources: 'choice',
   screenshot: 'choice',
   video: 'choice',
   port: 'port',

@@ -98,6 +98,23 @@ describe('buildSpecCapturer', () => {
     parent.sources.set('/b.js', 'added-later')
     expect(sliced.sources.has('/b.js')).toBe(false)
   })
+
+  it('hands every slice the whole run\u2019s page resources, which the writer selects from', () => {
+    const resource = {
+      url: 'https://x/site.css',
+      kind: 'stylesheet' as const,
+      mimeType: 'text/css',
+      data: 'cHt9',
+      size: 3
+    }
+    const reRead = { url: resource.url, startedAt: 5, loadedAt: 1 }
+    const sliced = buildSpecCapturer(
+      { ...capturer(), pageResources: [resource], resourceReReads: [reRead] },
+      range({ commandStartIdx: 3 })
+    )
+    expect(sliced.pageResources).toEqual([resource])
+    expect(sliced.resourceReReads).toEqual([reRead])
+  })
 })
 
 describe('filterTestMetadataBySpec', () => {

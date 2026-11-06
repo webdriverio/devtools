@@ -19,7 +19,9 @@ from ._contract import (
     SCOPE_METADATA,
     SCOPE_MUTATIONS,
     SCOPE_NETWORK_REQUESTS,
+    SCOPE_PAGE_RESOURCES,
     SCOPE_REPLACE_COMMAND,
+    SCOPE_RESOURCE_RE_READS,
     SCOPE_SCREENCAST,
     SCOPE_SOURCES,
     SCOPE_SUITES,
@@ -201,6 +203,15 @@ class SessionCapturer:
             self._tx.send_json(SCOPE_NETWORK_REQUESTS, requests)
 
     # ── suites ───────────────────────────────────────────────────────────────────
+
+    def send_page_resources(
+        self, resources: List[Any], re_reads: List[Any]
+    ) -> None:
+        """Trace-mode stylesheets and fonts, and the reads whose rows the backend's trace writer drops."""
+        if resources:
+            self._tx.send_json(SCOPE_PAGE_RESOURCES, resources)
+        if re_reads:
+            self._tx.send_json(SCOPE_RESOURCE_RE_READS, re_reads)
 
     def send_suites(self, suites: List[SuiteStats]) -> None:
         # The UI expects Record<uid, SuiteStats>[] — one single-key record per

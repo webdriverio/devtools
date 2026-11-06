@@ -126,6 +126,7 @@ def network_request(
     request_headers: Optional[dict] = None,
     response_headers: Optional[dict] = None,
     error: Optional[str] = None,
+    wall_time: Optional[int] = None,
 ) -> NetworkRequest:
     entry: NetworkRequest = {
         "id": request_id,
@@ -153,6 +154,8 @@ def network_request(
         entry["responseHeaders"] = response_headers
     if error is not None:
         entry["error"] = error
+    if wall_time is not None:
+        entry["wallTime"] = wall_time
     return entry
 
 

@@ -48,6 +48,10 @@ REQUIRED_DATA_SCOPES = {
     "SCOPE_SCREENCAST_FRAMES": "screencastFrames",
     # Per-action element trees — what the trace's A11y tab reads.
     "SCOPE_ACTION_SNAPSHOTS": "actionSnapshots",
+    # Stylesheets and fonts the page read back in trace mode, and those reads,
+    # whose network rows the backend's trace writer drops.
+    "SCOPE_PAGE_RESOURCES": "pageResources",
+    "SCOPE_RESOURCE_RE_READS": "resourceReReads",
 }
 
 
@@ -231,6 +235,30 @@ def _test_runner_ids(types_ts: str) -> list[str]:
     return re.findall(r"'([^']+)'", m.group(1))
 
 
+def _page_resource_constants(page_resources_ts: str) -> dict:
+    """The trace-resources modes, default and bounds the Python adapter applies itself."""
+    modes = re.search(r"export type TraceResourcesMode = ([^\n]+)", page_resources_ts)
+    default = re.search(
+        r"export const DEFAULT_TRACE_RESOURCES: TraceResourcesMode = '([^']+)'",
+        page_resources_ts,
+    )
+    numbers = {
+        name: re.search(rf"export const {name} = ([0-9_]+)", page_resources_ts)
+        for name in (
+            "PAGE_RESOURCE_SETTLE_TIMEOUT_MS",
+            "PAGE_RESOURCE_SETTLE_POLL_MS",
+            "MAX_STORED_RESOURCE_KEYS",
+        )
+    }
+    if not modes or not default or not all(numbers.values()):
+        raise SystemExit("could not read the page-resource constants in shared/page-resources.ts")
+    return {
+        "modes": re.findall(r"'([^']+)'", modes.group(1)),
+        "default": default.group(1),
+        **{name: int(m.group(1).replace("_", "")) for name, m in numbers.items()},
+    }
+
+
 def _native_platforms(device_ts: str) -> list[str]:
     m = re.search(r"export const NATIVE_PLATFORMS = \[(.*?)\] as const", device_ts, re.DOTALL)
     if not m:
@@ -351,6 +379,9 @@ def main() -> int:
     control = _ws_scopes(routes_ts)
     worker_query = _worker_query(routes_ts)
     native_platforms = _native_platforms((shared / "src" / "device.ts").read_text())
+    page_resources = _page_resource_constants(
+        (shared / "src" / "page-resources.ts").read_text()
+    )
     runner_ts = (shared / "src" / "runner.ts").read_text()
     run_id_env = _run_id_env(runner_ts)
     rerun_slot = _rerun_slot(runner_ts)
@@ -455,6 +486,12 @@ def main() -> int:
         f'ENV_REUSE_HOST = "{reuse_env["HOST"]}"',
         f'ENV_REUSE_PORT = "{reuse_env["PORT"]}"',
         f'ENV_LAUNCH_COMMAND = "{reuse_env["LAUNCH_COMMAND"]}"',
+        "",
+        f"TRACE_RESOURCES_MODES = {tuple(page_resources['modes'])!r}",
+        f'DEFAULT_TRACE_RESOURCES = "{page_resources["default"]}"',
+        f"PAGE_RESOURCE_SETTLE_TIMEOUT_S = {page_resources['PAGE_RESOURCE_SETTLE_TIMEOUT_MS'] / 1000}",
+        f"PAGE_RESOURCE_SETTLE_POLL_S = {page_resources['PAGE_RESOURCE_SETTLE_POLL_MS'] / 1000}",
+        f"MAX_STORED_RESOURCE_KEYS = {page_resources['MAX_STORED_RESOURCE_KEYS']}",
         "",
     ]
     pkg = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools"
