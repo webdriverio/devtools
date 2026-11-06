@@ -3,13 +3,14 @@ import { html, type TemplateResult } from 'lit'
 import { customElement, state, query } from 'lit/decorators.js'
 import { consume } from '@lit/context'
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
-import {
-  imageDimensions,
-  imageMime,
-  isKeyboardCommand
-} from '@wdio/devtools-shared'
+import { isKeyboardCommand } from '@wdio/devtools-shared'
 
-import { commandContext, framesContext } from '../../controller/context.js'
+import {
+  commandContext,
+  framesContext,
+  playerArchiveContext,
+  type PlayerArchive
+} from '../../controller/context.js'
 import { elapsedSince } from '../../utils/elapsed.js'
 import { activeSpanAt } from '../workbench/active-entry.js'
 import { KBD } from '../../controller/keyboard.js'
@@ -24,9 +25,22 @@ import {
 import {
   formatTickLabel,
   formatTimecode,
+  sampleFrames,
   tickStep
 } from './trace-timeline-utils.js'
 import { timelineStyles } from './trace-timeline-styles.js'
+import { FrameImages } from './frame-images.js'
+
+/** Ruler and scrub bar heights, which the thumbnails do not get. */
+const STRIP_CHROME_PX = 44
+/** A collapsed strip still spaces thumbnails as if this tall, rather than drawing every frame. */
+const MIN_THUMB_HEIGHT_PX = 16
+/** Thumbnails drawn per thumbnail width of strip; overlap past that hides frames rather than showing them. */
+const THUMBS_PER_SLOT = 2
+/** Drawn before the strip has been measured. */
+const UNMEASURED_THUMBS = 100
+/** Share of the entry cache the strip's images may hold; the rest is for the selected frame and stored bodies. */
+const STRIP_CACHE_SHARE = 0.75
 
 const COMPONENT = 'wdio-devtools-trace-timeline'
 
@@ -40,6 +54,10 @@ export class TraceTimeline extends Element {
   @consume({ context: framesContext, subscribe: true })
   @state()
   frames: TracePlayerFrame[] = []
+
+  @consume({ context: playerArchiveContext, subscribe: true })
+  @state()
+  archive?: PlayerArchive
 
   /** Playback position in ms relative to the recording start. */
   @state() currentMs = 0
@@ -56,7 +74,9 @@ export class TraceTimeline extends Element {
   @query('[data-scrub]') scrubEl?: HTMLElement
 
   #dragging = false
-  #thumbAspectMemo?: { screenshot: string; aspect: string | null }
+  #images = new FrameImages(() => this.requestUpdate())
+  #stripSize?: { width: number; height: number }
+  #resizeObserver?: ResizeObserver
 
   static styles = [...Element.styles, timelineStyles]
 
@@ -73,6 +93,9 @@ export class TraceTimeline extends Element {
 
   disconnectedCallback(): void {
     super.disconnectedCallback()
+    this.#resizeObserver?.disconnect()
+    this.#resizeObserver = undefined
+    this.#images.unpin(this.archive)
     this.#stopRaf()
     window.removeEventListener('pointermove', this.#onPointerMove)
     window.removeEventListener('pointerup', this.#onPointerUp)
@@ -151,6 +174,14 @@ export class TraceTimeline extends Element {
   // ─── playback ─────────────────────────────────────────────────────────────
 
   protected firstUpdated(): void {
+    this.#resizeObserver = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      this.#stripSize = { width, height }
+      this.requestUpdate()
+    })
+    if (this.scrubEl) {
+      this.#resizeObserver.observe(this.scrubEl)
+    }
     // Defer one frame so the browser pane (which attaches its `show-command`
     // listener after `await updateComplete`) is ready to receive the first frame.
     requestAnimationFrame(() => this.#syncActiveCommand())
@@ -327,12 +358,12 @@ export class TraceTimeline extends Element {
 
   // ─── render ───────────────────────────────────────────────────────────────
 
-  /** Timestamp of the frame nearest the playhead — drives filmstrip highlight. */
-  get #activeFrameTimestamp(): number | undefined {
+  /** Timestamp of the drawn frame nearest the playhead, which the filmstrip highlights. */
+  #activeFrameTimestamp(drawn: TracePlayerFrame[]): number | undefined {
     const clock = this.#start + this.currentMs
     let best: number | undefined
     let bestDelta = Infinity
-    for (const frame of this.frames) {
+    for (const frame of drawn) {
       const delta = Math.abs(frame.timestamp - clock)
       if (delta < bestDelta) {
         bestDelta = delta
@@ -381,27 +412,58 @@ export class TraceTimeline extends Element {
   }
 
   /** Shape of a filmstrip thumbnail, as a CSS `aspect-ratio`, or null when the
-   *  capture's bytes name no size. Read from the capture's own pixels rather
-   *  than the metadata viewport, which disagrees with the screenshot on both
-   *  mobile platforms. A fixed 16:9 box cropped (object-cover) a portrait
-   *  capture to a horizontal band through its middle — usually empty page, so
-   *  the whole strip rendered as blank rectangles. One ratio for the strip:
-   *  every frame of a run shares one capture surface, and a mid-run rotation
-   *  letterboxes inside the box instead of being cropped away. Memoized on the
-   *  frame it was read from, because this runs on every playback tick. */
+   *  capture's bytes name no size. Read from the first capture's own pixels
+   *  (the reader measures it) rather than the metadata viewport, which
+   *  disagrees with the screenshot on both mobile platforms. A fixed 16:9 box
+   *  cropped (object-cover) a portrait capture to a horizontal band through its
+   *  middle, usually empty page, so the whole strip rendered as blank
+   *  rectangles. One ratio for the strip: every frame of a run shares one
+   *  capture surface, and a mid-run rotation letterboxes inside the box instead
+   *  of being cropped away. */
   get #thumbAspect(): string | null {
-    const screenshot = this.frames[0]?.screenshot
-    if (!screenshot) {
-      return null
+    const size = this.archive?.frameSize
+    return size ? `${size.width} / ${size.height}` : null
+  }
+
+  /** The frames drawn: as many as fit the strip's width, so a long trace reads a few images rather than every one. */
+  get #drawnFrames(): TracePlayerFrame[] {
+    const size = this.#stripSize
+    const fit = size?.width ? this.#thumbsFitting(size) : UNMEASURED_THUMBS
+    return sampleFrames(this.frames, Math.min(fit, this.#thumbsCached))
+  }
+
+  /** The drawn frames whose image is read: none past what the cache holds, so a frame larger than the budget stays a placeholder. */
+  #imaged(drawn: TracePlayerFrame[]): Set<string> {
+    return new Set(drawn.slice(0, this.#thumbsCached).map(({ entry }) => entry))
+  }
+
+  /** As many frames as the cache can hold at once, so the strip never evicts its own thumbnails. */
+  get #thumbsCached(): number {
+    const archive = this.archive
+    if (!archive?.frameBytes) {
+      return Infinity
     }
-    if (this.#thumbAspectMemo?.screenshot !== screenshot) {
-      const size = imageDimensions(screenshot)
-      this.#thumbAspectMemo = {
-        screenshot,
-        aspect: size ? `${size.width} / ${size.height}` : null
-      }
-    }
-    return this.#thumbAspectMemo.aspect
+    return Math.floor(
+      (archive.entries.maxBytes * STRIP_CACHE_SHARE) / archive.frameBytes
+    )
+  }
+
+  #thumbsFitting(size: { width: number; height: number }): number {
+    const frameSize = this.archive?.frameSize
+    const aspect = frameSize ? frameSize.width / frameSize.height : 16 / 9
+    const thumbHeight = Math.max(
+      MIN_THUMB_HEIGHT_PX,
+      size.height - STRIP_CHROME_PX
+    )
+    const thumbWidth = thumbHeight * aspect
+    return Math.ceil(size.width / thumbWidth) * THUMBS_PER_SLOT
+  }
+
+  #renderThumbImage(frame: TracePlayerFrame, read: boolean): TemplateResult {
+    const src = read ? this.#images.src(this.archive, frame.entry) : undefined
+    return src
+      ? html`<img class="h-full w-full object-contain" src="${src}" />`
+      : html`<div class="h-full w-full bg-panelBorder/30"></div>`
   }
 
   // Thumbnails sit at their wall-clock position along the axis.
@@ -413,11 +475,14 @@ export class TraceTimeline extends Element {
         No frames captured
       </div>`
     }
-    const activeFrame = this.#activeFrameTimestamp
+    const drawn = this.#drawnFrames
+    const imaged = this.#imaged(drawn)
+    this.#images.pin(this.archive, imaged)
+    const activeFrame = this.#activeFrameTimestamp(drawn)
     const aspect = this.#thumbAspect
     return html`
       <div class="relative flex-1 min-h-0">
-        ${this.frames.map((frame) => {
+        ${drawn.map((frame) => {
           const fraction = this.#fraction(frame.timestamp)
           const active = frame.timestamp === activeFrame
           return html`<button
@@ -436,12 +501,7 @@ export class TraceTimeline extends Element {
             title="${formatTimecode(frame.timestamp - this.#start)}"
             @click="${() => this.#seekToTimestamp(frame.timestamp)}"
           >
-            <img
-              class="h-full w-full object-contain"
-              src="data:${imageMime(
-                frame.screenshot
-              )};base64,${frame.screenshot}"
-            />
+            ${this.#renderThumbImage(frame, imaged.has(frame.entry))}
           </button>`
         })}
       </div>

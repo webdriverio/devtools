@@ -23,6 +23,7 @@ import { render } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
 import { replayDocument, transform } from './vnode-transform.js'
 import { archivedResources } from './archived-resources.js'
+import { PlayerFrames } from './player-frame.js'
 import { isUnsafeReplayAttribute } from './replay-safety.js'
 import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
@@ -33,14 +34,18 @@ import {
   imageDimensions,
   imageMime,
   type CommandLog,
-  type ImageSize
+  type ImageSize,
+  type TracePlayerFrame
 } from '@wdio/devtools-shared'
 
 import {
   mutationContext,
   metadataContext,
   metadataBySessionContext,
-  commandContext
+  commandContext,
+  framesContext,
+  playerArchiveContext,
+  type PlayerArchive
 } from '../../controller/context.js'
 import { OPEN_DOCK_TAB_EVENT } from '../../controller/constants.js'
 import type {
@@ -92,6 +97,8 @@ export class DevtoolsBrowser extends Element {
   #activeUrl?: string
   /** Base64 PNG of the screenshot for the currently selected command, or null. */
   #screenshotData: string | null = null
+  /** A player trace's frame for the selected command, read from its zip. */
+  #playerFrames = new PlayerFrames(() => this.requestUpdate())
   /**
    * All recorded videos received from the backend, in arrival order. A new
    * entry is pushed for every browser session (initial + after every
@@ -127,6 +134,12 @@ export class DevtoolsBrowser extends Element {
 
   @consume({ context: commandContext, subscribe: true })
   commands: CommandLog[] = []
+
+  @consume({ context: framesContext, subscribe: true })
+  frames: TracePlayerFrame[] = []
+
+  @consume({ context: playerArchiveContext, subscribe: true })
+  archive: PlayerArchive | undefined = undefined
 
   static styles = [...Element.styles, compactSelectStyles, snapshotStyles]
 
@@ -186,6 +199,7 @@ export class DevtoolsBrowser extends Element {
     }
     this.#boxObserver?.disconnect()
     this.#boxObserver = undefined
+    this.#playerFrames.release(this.archive)
   }
 
   #captureShape?: { screenshot: string; size: ImageSize | null }
@@ -195,11 +209,16 @@ export class DevtoolsBrowser extends Element {
   get #captureSize(): ImageSize | null {
     const screenshot = this.#screenshotData ?? this.#latestAutoScreenshot
     if (!screenshot) {
-      // A REPLAYED capture has no screenshot to measure: both sources above
-      // read `command.screenshot`, and a trace's commands carry none — its
-      // images are separate resources. Without a fallback no native trace
-      // could ever draw device chrome, because the shape was undecidable, and
-      // the player framed a phone as a desktop browser.
+      // A REPLAYED capture keeps its images in its zip: the shown frame's size
+      // once read, the first frame's (which the reader measured) until then.
+      const frameSize = this.#playerFrames.size ?? this.archive?.frameSize
+      if (frameSize) {
+        return frameSize
+      }
+      // A trace with no frame has no screenshot to measure at all. Without a
+      // fallback no native trace could ever draw device chrome, because the
+      // shape was undecidable, and the player framed a phone as a desktop
+      // browser.
       //
       // Only a PORTRAIT viewport is trusted for it. The reader substitutes a
       // synthetic 1280x720 for a trace that recorded no viewport, and that
@@ -477,6 +496,11 @@ export class DevtoolsBrowser extends Element {
 
   async #renderCommandScreenshot(command?: CommandLog) {
     this.#screenshotData = this.#screenshotForCommand(command)
+    void this.#playerFrames.show(
+      this.frames ?? [],
+      this.archive,
+      this.#screenshotData ? undefined : command
+    )
     // Follow the selected command's page in the address bar — commands carry no
     // URL, so resolve it from the navigation active at the command's time.
     if (command) {
@@ -1046,31 +1070,19 @@ export class DevtoolsBrowser extends Element {
       </div>`
     }
     // No mutation stream (DOM-less / foreign trace): fall back to the selected
-    // command's screenshot, then the latest available frame.
-    if (this.#screenshotData) {
+    // command's screenshot, a player trace's frame for it, then the latest
+    // available frame.
+    const screenshot = this.#screenshotData ?? this.#latestAutoScreenshot
+    const src = screenshot
+      ? `data:${imageMime(screenshot)};base64,${screenshot}`
+      : this.#playerFrames.current
+    if (src) {
       return html`<div class="iframe-wrapper">
         <div
           class="screenshot-overlay"
           style="position:relative;flex:1;min-height:0;"
         >
-          <img
-            src="data:${imageMime(this.#screenshotData)};base64,${
-              this.#screenshotData
-            }"
-          />
-        </div>
-      </div>`
-    }
-    const autoScreenshot = this.#latestAutoScreenshot
-    if (autoScreenshot) {
-      return html`<div class="iframe-wrapper">
-        <div
-          class="screenshot-overlay"
-          style="position:relative;flex:1;min-height:0;"
-        >
-          <img
-            src="data:${imageMime(autoScreenshot)};base64,${autoScreenshot}"
-          />
+          <img src="${src}" />
         </div>
       </div>`
     }

@@ -1,8 +1,14 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { beforeAll, describe, it, expect } from 'vitest'
-import type { TracePlayerData } from '@wdio/devtools-shared'
+import { nearestFrame, type TracePlayerData } from '@wdio/devtools-shared'
 
-import { parseTraceZip } from '../src/trace-reader.js'
+import {
+  openTraceArchive,
+  parseTraceZip,
+  readTracePayload,
+  type TraceArchive
+} from '../src/trace-reader.js'
+import { bytesZipSource } from '../src/zip-index.js'
 import type { TraceFormatManifest } from './fixtures/trace-formats/fixture-manifest.js'
 
 // Fixture names start with the example they came from, so each adapter's format stays covered.
@@ -19,14 +25,12 @@ const fixtures = readdirSync(FIXTURE_DIR)
     return { name, zipName, manifest }
   })
 
-function read(zipName: string): TracePlayerData {
-  return parseTraceZip(
-    new Uint8Array(readFileSync(new URL(zipName, FIXTURE_DIR)))
-  )
+function zipBytes(zipName: string): Uint8Array {
+  return new Uint8Array(readFileSync(new URL(zipName, FIXTURE_DIR)))
 }
 
-function frameMarker(screenshot: string): string {
-  return Buffer.from(screenshot, 'base64').toString('latin1')
+function frameMarker(image: Uint8Array): string {
+  return Buffer.from(image).toString('latin1')
 }
 
 describe('trace zips written by an older writer', () => {
@@ -38,9 +42,15 @@ describe('trace zips written by an older writer', () => {
 
   describe.each(fixtures)('$name', ({ zipName, manifest }) => {
     let parsed: TracePlayerData
+    let archive: TraceArchive
 
-    beforeAll(() => {
-      parsed = read(zipName)
+    beforeAll(async () => {
+      archive = await openTraceArchive(bytesZipSource(zipBytes(zipName)))
+      parsed = await readTracePayload(archive)
+    })
+
+    it('reads the same payload through the archive as from the whole zip', () => {
+      expect(parsed).toEqual(parseTraceZip(zipBytes(zipName)))
     })
 
     it('keeps its metadata', () => {
@@ -86,15 +96,18 @@ describe('trace zips written by an older writer', () => {
       ).toHaveLength(manifest.mutations.documentAnchors)
     })
 
-    it('pairs each screencast frame with its own image', () => {
-      expect(
-        parsed.frames.map((frame) => frameMarker(frame.screenshot))
-      ).toEqual(
+    it('pairs each screencast frame with its own image', async () => {
+      const images = await Promise.all(
+        parsed.frames.map((frame) => archive.read(frame.entry))
+      )
+      expect(images.map(frameMarker)).toEqual(
         manifest.frames.map((marker) => expect.stringContaining(marker))
       )
       if (parsed.frames.length) {
         expect(
-          parsed.trace.commands.every((command) => command.screenshot)
+          parsed.trace.commands.every((command) =>
+            nearestFrame(parsed.frames, command.timestamp)
+          )
         ).toBe(true)
       }
     })

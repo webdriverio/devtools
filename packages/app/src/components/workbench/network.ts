@@ -5,7 +5,11 @@ import { networkStyles } from './network/styles.js'
 import { filterToolbarStyles, keyValueCardStyles } from '../shared-styles.js'
 import { customElement, state } from 'lit/decorators.js'
 import { consume } from '@lit/context'
-import { networkRequestContext } from '../../controller/context.js'
+import {
+  networkRequestContext,
+  playerArchiveContext,
+  type PlayerArchive
+} from '../../controller/context.js'
 import {
   FAILED_STATUS_LABEL,
   NO_VALUE,
@@ -31,6 +35,7 @@ import {
   requestFailed,
   requestStatusKind
 } from './network/request-detail.js'
+import { StoredResponseBodies } from './network/stored-bodies.js'
 
 import '../placeholder.js'
 
@@ -41,6 +46,12 @@ export class DevtoolsNetwork extends Element {
   @consume({ context: networkRequestContext, subscribe: true })
   @state()
   networkRequests: NetworkRequest[] = []
+
+  @consume({ context: playerArchiveContext, subscribe: true })
+  @state()
+  archive?: PlayerArchive
+
+  #storedBodies = new StoredResponseBodies(() => this.requestUpdate())
 
   @state()
   selectedRequest?: NetworkRequest
@@ -240,7 +251,9 @@ export class DevtoolsNetwork extends Element {
         </div>
         ${
           this.selectedRequest
-            ? renderNetworkRequestDetail(this.selectedRequest)
+            ? renderNetworkRequestDetail(
+                this.#storedBodies.withBody(this.selectedRequest, this.archive)
+              )
             : nothing
         }
       </div>

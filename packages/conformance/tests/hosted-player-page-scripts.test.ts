@@ -65,7 +65,7 @@ describe('READ_PLAYER_STATE', () => {
     expect(state.rows).toEqual([])
   })
 
-  it('reads action rows wherever they are slotted, and filmstrip images', () => {
+  it('reads action rows wherever they are slotted, and filmstrip images, inline or read from the zip', () => {
     const root = app()
     const workbench = host('wdio-devtools-workbench', root)
     const actions = host('wdio-devtools-actions', workbench)
@@ -74,7 +74,7 @@ describe('READ_PLAYER_STATE', () => {
     host(
       'wdio-devtools-trace-timeline',
       workbench.shadowRoot as ShadowRoot,
-      '<button><img src="data:image/png;base64,AA"></button><button><img src="/robot.png"></button>'
+      '<button><img src="data:image/png;base64,AA"></button><button><img src="blob:http://localhost/1"></button><button><img src="/robot.png"></button>'
     )
 
     const state = run<PlayerState>(READ_PLAYER_STATE)
@@ -82,7 +82,7 @@ describe('READ_PLAYER_STATE', () => {
     expect(state.landing).toBe(null)
     expect(state.rows).toEqual(['Element.click()', 'Expect.toBe()'])
     expect(state.groups).toBe(0)
-    expect(state.frames).toBe(1)
+    expect(state.frames).toBe(2)
     expect(state.alerts).toEqual([])
     expect(Array.isArray(state.resources)).toBe(true)
   })

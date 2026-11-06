@@ -39,10 +39,8 @@ export function imageExtension(base64: string): string {
 export function imageDimensions(base64: string): ImageSize | null {
   for (const window of HEADER_WINDOWS) {
     const bytes = headerBytes(base64, window)
-    const size = pngSize(bytes) ?? jpegSize(bytes)
-    // A zero from a corrupt or truncated header is not a size — a caller
-    // deriving a ratio from it gets a 0/0 that collapses whatever it shapes.
-    if (size && size.width > 0 && size.height > 0) {
+    const size = sizeOf(bytes)
+    if (size) {
       return size
     }
     // A prefix short of the window it asked for is the whole image: a wider
@@ -52,6 +50,18 @@ export function imageDimensions(base64: string): ImageSize | null {
     }
   }
   return null
+}
+
+/** `imageDimensions` for an image's raw bytes, as a zip entry holds them. */
+export function imageBytesDimensions(bytes: Uint8Array): ImageSize | null {
+  return sizeOf(bytes)
+}
+
+function sizeOf(bytes: Uint8Array): ImageSize | null {
+  const size = pngSize(bytes) ?? jpegSize(bytes)
+  // A zero from a corrupt or truncated header is not a size: a caller deriving
+  // a ratio from it gets a 0/0 that collapses whatever it shapes.
+  return size && size.width > 0 && size.height > 0 ? size : null
 }
 
 /** The first `limit` bytes of a base64 string, sliced to a whole number of

@@ -13,18 +13,20 @@ import { TraceType } from '@wdio/devtools-shared'
 import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 
 import {
-  parseInWorker,
+  inPageArchiveClient,
   readTraceArchive,
-  type TraceParser
+  workerArchiveClient,
+  type TraceArchiveClient
 } from '../src/controller/trace-archive.js'
-import { answerParseRequest } from '../src/controller/trace-parse.js'
+import { createTraceReader } from '../src/controller/trace-parse.js'
 import type {
   TraceOpenPhase,
-  TraceParseMessage,
-  TraceParseRequest
+  TraceReaderMessage,
+  TraceReaderRequest
 } from '../src/controller/trace-parse-protocol.js'
 
 const dirs: string[] = []
+const SHOT = btoa('a frame')
 
 afterEach(async () => {
   vi.unstubAllGlobals()
@@ -33,7 +35,7 @@ afterEach(async () => {
   )
 })
 
-async function recordedTrace(): Promise<ArrayBuffer> {
+async function recordedTrace(): Promise<Blob> {
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-parse-'))
   dirs.push(outputDir)
   const zip = await writeTraceZip(
@@ -43,7 +45,12 @@ async function recordedTrace(): Promise<ArrayBuffer> {
       consoleLogs: [],
       networkRequests: [],
       commandsLog: [
-        { command: 'url', args: ['https://example.com'], timestamp: 2000 }
+        {
+          command: 'url',
+          args: ['https://example.com'],
+          timestamp: 2000,
+          screenshot: SHOT
+        }
       ],
       sources: new Map(),
       metadata: { type: TraceType.Testrunner, sessionId: 'abc12345' },
@@ -51,20 +58,27 @@ async function recordedTrace(): Promise<ArrayBuffer> {
     },
     { outputDir, sessionId: 'abc12345' }
   )
-  return new Uint8Array(await fs.readFile(zip)).buffer
+  return new Blob([new Uint8Array(await fs.readFile(zip))])
 }
 
-const junk = (): ArrayBuffer => new TextEncoder().encode('not a zip').buffer
+const junk = (): Blob => new Blob(['not a zip'])
 
-function answers(bytes: ArrayBuffer): TraceParseMessage[] {
-  const messages: TraceParseMessage[] = []
-  answerParseRequest(bytes, (message) => messages.push(message))
+async function answers(
+  requests: TraceReaderRequest[]
+): Promise<TraceReaderMessage[]> {
+  const messages: TraceReaderMessage[] = []
+  const answer = createTraceReader((message) => messages.push(message))
+  for (const request of requests) {
+    await answer(request)
+  }
   return messages
 }
 
 describe("the trace reader's side of the protocol", () => {
-  it('reports each phase, then the payload', async () => {
-    const messages = answers(await recordedTrace())
+  it('reports each phase, then the payload naming its frames by entry', async () => {
+    const messages = await answers([
+      { type: 'open', blob: await recordedTrace() }
+    ])
 
     expect(messages.slice(0, 2)).toEqual([
       { type: 'phase', phase: 'unpacking' },
@@ -75,10 +89,37 @@ describe("the trace reader's side of the protocol", () => {
     expect(last.type === 'done' && last.data.trace.commands[0]?.command).toBe(
       'url'
     )
+    expect(last.type === 'done' && last.data.frames[0]?.entry).toMatch(
+      /^resources\//
+    )
   })
 
-  it('answers bytes that are not a zip with the reason, not a throw', () => {
-    const messages = answers(junk())
+  it('answers an entry of the open zip with its bytes', async () => {
+    const blob = await recordedTrace()
+    const opened = await answers([{ type: 'open', blob }])
+    const done = opened[2]!
+    const entry = done.type === 'done' ? done.data.frames[0]!.entry : ''
+
+    const messages = await answers([
+      { type: 'open', blob },
+      { type: 'entry', id: 7, name: entry },
+      { type: 'entry', id: 8, name: 'resources/missing' }
+    ])
+
+    const [read, missing] = messages.slice(3)
+    expect(read).toMatchObject({ type: 'entry', id: 7 })
+    expect(read!.type === 'entry' && (await read!.blob.text())).toBe('a frame')
+    expect(missing).toMatchObject({ type: 'entry-error', id: 8 })
+  })
+
+  it('refuses an entry before any zip is open', async () => {
+    expect(await answers([{ type: 'entry', id: 1, name: 'x' }])).toEqual([
+      { type: 'entry-error', id: 1, message: 'No trace is open' }
+    ])
+  })
+
+  it('answers bytes that are not a zip with the reason, not a throw', async () => {
+    const messages = await answers([{ type: 'open', blob: junk() }])
 
     expect(messages[0]).toEqual({ type: 'phase', phase: 'unpacking' })
     expect(messages).toHaveLength(2)
@@ -89,7 +130,7 @@ describe("the trace reader's side of the protocol", () => {
 interface Posted {
   url: string
   options?: WorkerOptions
-  transfer: Transferable[]
+  requests: TraceReaderRequest[]
   terminated: boolean
 }
 
@@ -98,28 +139,29 @@ function stubWorker(fail?: string): Posted[] {
   const workers: Posted[] = []
   class FakeWorker extends EventTarget {
     readonly #record: Posted
+    readonly #answer = createTraceReader((data) =>
+      this.dispatchEvent(new MessageEvent('message', { data }))
+    )
 
     constructor(url: URL, options?: WorkerOptions) {
       super()
       this.#record = {
         url: String(url),
         options,
-        transfer: [],
+        requests: [],
         terminated: false
       }
       workers.push(this.#record)
     }
 
-    postMessage(request: TraceParseRequest, transfer: Transferable[]) {
-      this.#record.transfer = transfer
+    postMessage(request: TraceReaderRequest) {
+      this.#record.requests.push(request)
       queueMicrotask(() => {
         if (fail !== undefined) {
           this.dispatchEvent(new ErrorEvent('error', { message: fail }))
           return
         }
-        answerParseRequest(request.bytes, (data) =>
-          this.dispatchEvent(new MessageEvent('message', { data }))
-        )
+        void this.#answer(request)
       })
     }
 
@@ -132,82 +174,142 @@ function stubWorker(fail?: string): Posted[] {
 }
 
 describe("the page's side of the protocol", () => {
-  it('loads the reader as a module worker from the app and hands it the bytes', async () => {
+  it('loads the reader as a module worker, posts it the Blob and keeps it for reads', async () => {
     const workers = stubWorker()
-    const bytes = await recordedTrace()
+    const blob = await recordedTrace()
     const phases: TraceOpenPhase[] = []
+    const client = workerArchiveClient()
 
-    const result = await parseInWorker(bytes, (phase) => phases.push(phase))
+    const data = await client.open(blob, (phase) => phases.push(phase))
+    const frame = await client.read(data.frames[0]!.entry)
 
-    expect(result.type).toBe('done')
     expect(phases).toEqual(['unpacking', 'building'])
+    expect(await frame.text()).toBe('a frame')
     expect(workers).toHaveLength(1)
     expect(workers[0]!.url).toMatch(/\/trace-parse\.worker\.ts(\?|$)/)
     expect(workers[0]!.options).toEqual({ type: 'module' })
-    expect(workers[0]!.transfer).toEqual([bytes])
+    expect(workers[0]!.requests[0]).toEqual({ type: 'open', blob })
+    expect(workers[0]!.terminated).toBe(false)
+
+    client.close()
     expect(workers[0]!.terminated).toBe(true)
   })
 
-  it('passes a reason the bytes are not a trace through as a result', async () => {
-    const workers = stubWorker()
+  it('rejects reads still in flight, and any after, once closed', async () => {
+    stubWorker()
+    const client = workerArchiveClient()
+    const data = await client.open(await recordedTrace(), () => {})
 
-    const result = await parseInWorker(junk(), () => {})
+    const inFlight = client.read(data.frames[0]!.entry)
+    client.close()
 
-    expect(result.type).toBe('error')
-    expect(workers[0]!.terminated).toBe(true)
+    await expect(inFlight).rejects.toThrow('The trace was closed')
+    await expect(client.read('x')).rejects.toThrow('The trace was closed')
   })
 
-  it('rejects when the worker never starts', async () => {
-    const workers = stubWorker('blocked')
+  it('passes a reason the bytes are not a trace through as a rejection', async () => {
+    stubWorker()
 
-    await expect(parseInWorker(junk(), () => {})).rejects.toThrow(
+    await expect(workerArchiveClient().open(junk(), () => {})).rejects.toThrow(
+      /^Not a readable trace: /
+    )
+  })
+
+  it('rejects when the worker never starts, and every read after', async () => {
+    stubWorker('blocked')
+    const client = workerArchiveClient()
+
+    await expect(client.open(junk(), () => {})).rejects.toThrow(
       'The trace reader could not start: blocked'
     )
-    expect(workers[0]!.terminated).toBe(true)
+    await expect(client.read('resources/x')).rejects.toThrow(
+      'The trace was closed'
+    )
+  })
+
+  it('runs the same reader in the page without a worker', async () => {
+    const client = inPageArchiveClient()
+    const data = await client.open(await recordedTrace(), () => {})
+
+    expect(await (await client.read(data.frames[0]!.entry)).text()).toBe(
+      'a frame'
+    )
+    client.close()
   })
 })
 
+/** A client whose open answers as given, recording whether it was closed. */
+function stubClient(open: TraceArchiveClient['open']) {
+  const state = { closed: false }
+  const client: TraceArchiveClient = {
+    open,
+    read: () => Promise.resolve(new Blob()),
+    close: () => {
+      state.closed = true
+    }
+  }
+  return { state, create: () => client }
+}
+
 describe('readTraceArchive', () => {
-  it('reports reading the file before the reader’s own phases', async () => {
+  it('reports reading the file before the reader’s own phases, and leaves the archive open', async () => {
     const phases: TraceOpenPhase[] = []
 
-    const data = await readTraceArchive(
-      new Blob([await recordedTrace()]),
-      (phase) => phases.push(phase)
+    const { data, archive } = await readTraceArchive(
+      await recordedTrace(),
+      (phase) => phases.push(phase),
+      inPageArchiveClient
     )
 
     expect(phases).toEqual(['reading', 'unpacking', 'building'])
     expect(data.trace.metadata?.sessionId).toBe('abc12345')
+    expect(await (await archive.read(data.frames[0]!.entry)).text()).toBe(
+      'a frame'
+    )
+    archive.close()
   })
 
-  it('names a reader error as an unreadable trace', async () => {
-    const parse: TraceParser = () =>
-      Promise.resolve({ type: 'error', message: 'invalid zip data' })
+  it('closes the archive and reports the reason when it is not a trace', async () => {
+    const { state, create } = stubClient(() =>
+      Promise.reject(new Error('Not a readable trace: invalid zip data'))
+    )
 
     await expect(
-      readTraceArchive(new Blob(['zip']), () => {}, parse)
+      readTraceArchive(new Blob(['zip']), () => {}, create)
     ).rejects.toThrow('Not a readable trace: invalid zip data')
+    expect(state.closed).toBe(true)
   })
 
-  it('reports a reader that failed to run as it is', async () => {
-    const parse: TraceParser = () =>
-      Promise.reject(new Error('The trace reader could not start'))
+  it('closes the archive of a zip with nothing to show', async () => {
+    const { state, create } = stubClient(() =>
+      Promise.resolve({
+        trace: {
+          commands: [],
+          consoleLogs: [],
+          networkRequests: [],
+          mutations: []
+        } as never,
+        frames: [],
+        startTime: 0,
+        duration: 0
+      })
+    )
 
     await expect(
-      readTraceArchive(new Blob(['zip']), () => {}, parse)
-    ).rejects.toThrow(/^The trace reader could not start$/)
+      readTraceArchive(new Blob(['zip']), () => {}, create)
+    ).rejects.toThrow('No trace found in this archive')
+    expect(state.closed).toBe(true)
   })
 
-  it('hands the parser the file’s own bytes', async () => {
-    const seen: number[] = []
-    const parse: TraceParser = (bytes) => {
-      seen.push(bytes.byteLength)
-      return Promise.resolve({ type: 'error', message: 'stop' })
-    }
+  it('hands the reader the file itself', async () => {
+    const seen: Blob[] = []
+    const file = new Blob(['abc'])
+    const { create } = stubClient((blob) => {
+      seen.push(blob)
+      return Promise.reject(new Error('stop'))
+    })
 
-    await expect(
-      readTraceArchive(new Blob(['abc']), () => {}, parse)
-    ).rejects.toThrow()
-    expect(seen).toEqual([3])
+    await expect(readTraceArchive(file, () => {}, create)).rejects.toThrow()
+    expect(seen).toEqual([file])
   })
 })

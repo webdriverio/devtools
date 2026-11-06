@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  sampleFrames,
   formatTickLabel,
   tickStep
 } from '../src/components/browser/trace-timeline-utils.js'
@@ -29,5 +30,21 @@ describe('formatTickLabel', () => {
   it('formats minutes as m:ss', () => {
     expect(formatTickLabel(75_000)).toBe('1:15')
     expect(formatTickLabel(60_000)).toBe('1:00')
+  })
+})
+
+describe('sampleFrames', () => {
+  const frames = Array.from({ length: 101 }, (_, i) => i)
+
+  it('keeps every frame when they fit', () => {
+    expect(sampleFrames([1, 2, 3], 5)).toEqual([1, 2, 3])
+  })
+
+  it('spreads at most the cap evenly, keeping the first and last', () => {
+    expect(sampleFrames(frames, 5)).toEqual([0, 25, 50, 75, 100])
+  })
+
+  it('keeps the two ends however narrow the strip', () => {
+    expect(sampleFrames(frames, 0)).toEqual([0, 100])
   })
 })

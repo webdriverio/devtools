@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReactiveControllerHost } from 'lit'
 import type { CommandLog, TracePlayerData } from '@wdio/devtools-shared'
 
+import type { TraceArchiveClient } from '../src/controller/trace-archive.js'
 import {
   orderTraceRun,
   TraceRunController,
@@ -48,21 +49,175 @@ const source = (path: string): TraceSource => ({
 
 function setup(byPath: Record<string, TracePlayerData | Error>) {
   const shown: TracePlayerData[] = []
+  const archives: {
+    path: string
+    closed: boolean
+    archive: TraceArchiveClient
+  }[] = []
   const parse = vi.fn(async (bytes: Blob) => {
-    const found = byPath[await bytes.text()]
+    const path = await bytes.text()
+    const found = byPath[path]
     if (found instanceof Error) {
       throw found
     }
-    return found
+    const record = {
+      path,
+      closed: false,
+      archive: {
+        open: () => Promise.resolve(found),
+        read: () => Promise.resolve(new Blob()),
+        close: () => {
+          record.closed = true
+        }
+      }
+    }
+    archives.push(record)
+    return { data: found, archive: record.archive }
   })
-  const run = new TraceRunController(host, (data) => shown.push(data), parse)
-  return { run, shown, parse }
+  const handedOn: TraceArchiveClient[] = []
+  const run = new TraceRunController(
+    host,
+    ({ data, archive }) => {
+      shown.push(data)
+      handedOn.push(archive)
+    },
+    parse
+  )
+  return { run, shown, parse, archives, handedOn }
 }
 
 const labels = (entries: readonly TraceRunEntry[]) =>
   entries.map(({ label }) => label)
 
 describe('TraceRunController', () => {
+  it('keeps only each zip’s summary, closing its archive once summarized', async () => {
+    const { run, archives, handedOn } = setup({
+      'a/trace.zip': payload(TRACE_OUTCOME.PASSED, 1),
+      'b/trace.zip': payload(TRACE_OUTCOME.FAILED, 2)
+    })
+
+    await run.open([source('a/trace.zip'), source('b/trace.zip')])
+
+    expect(run.entries.every((entry) => !('data' in entry))).toBe(true)
+    // Two read for the list, then the failed one opened again to be shown.
+    expect(archives.map(({ path, closed }) => [path, closed])).toEqual([
+      ['a/trace.zip', true],
+      ['b/trace.zip', true],
+      ['b/trace.zip', false]
+    ])
+    expect(handedOn).toEqual([archives[2]!.archive])
+  })
+
+  it('opens a picked row’s zip again and hands its archive on', async () => {
+    const passed = payload(TRACE_OUTCOME.PASSED, 1)
+    const { run, shown, archives } = setup({
+      'a/trace.zip': passed,
+      'b/trace.zip': payload(TRACE_OUTCOME.FAILED, 2)
+    })
+    await run.open([source('a/trace.zip'), source('b/trace.zip')])
+
+    await run.select(0)
+
+    expect(shown[shown.length - 1]).toBe(passed)
+    expect(run.selectedId).toBe(0)
+    expect(archives[archives.length - 1]).toMatchObject({
+      path: 'a/trace.zip',
+      closed: false
+    })
+  })
+
+  it('closes a pick that a later pick overtook', async () => {
+    const { run, shown, archives } = setup({
+      'a/trace.zip': payload(TRACE_OUTCOME.PASSED, 1),
+      'b/trace.zip': payload(TRACE_OUTCOME.FAILED, 2)
+    })
+    await run.open([source('a/trace.zip'), source('b/trace.zip')])
+    const before = shown.length
+
+    const first = run.select(0)
+    const second = run.select(1)
+    await Promise.all([first, second])
+
+    expect(shown.length).toBe(before + 1)
+    expect(run.selectedId).toBe(1)
+    expect(
+      archives.filter(({ closed }) => !closed).map(({ path }) => path)
+    ).toEqual(['b/trace.zip', 'b/trace.zip'])
+  })
+
+  it('keeps a row pickable when opening it again fails once', async () => {
+    const passed = payload(TRACE_OUTCOME.PASSED, 1)
+    const { run, shown } = setup({
+      'a/trace.zip': passed,
+      'b/trace.zip': payload(TRACE_OUTCOME.FAILED, 2)
+    })
+    let fail = false
+    const flaky: TraceSource = {
+      path: 'a/trace.zip',
+      read: () =>
+        fail
+          ? Promise.reject(new Error('gone for now'))
+          : Promise.resolve(new Blob(['a/trace.zip']))
+    }
+    await run.open([flaky, source('b/trace.zip')])
+
+    fail = true
+    await run.select(0)
+    expect(run.entries[0]!.status).toBe('ready')
+    expect(run.selectedId).toBe(1)
+    expect(run.error).toBe('Could not open a/trace.zip: gone for now')
+
+    fail = false
+    await run.select(0)
+    expect(run.selectedId).toBe(0)
+    expect(run.error).toBeUndefined()
+    expect(shown[shown.length - 1]).toBe(passed)
+  })
+
+  it('leaves the selection to a pick made while the previous one was still showing', async () => {
+    const shown: string[] = []
+    let releaseFirst!: () => void
+    const firstShown = new Promise<void>((resolve) => (releaseFirst = resolve))
+    const run = new TraceRunController(
+      host,
+      ({ data }) => {
+        shown.push(String(data.startTime))
+        return data.startTime === 1 ? firstShown : undefined
+      },
+      async (bytes) => ({
+        data: payload(
+          TRACE_OUTCOME.PASSED,
+          (await bytes.text()) === 'a' ? 1 : 2
+        ),
+        archive: { open: vi.fn(), read: vi.fn(), close: () => {} }
+      })
+    )
+    const sources = [source('a'), source('b')]
+    const opening = run.open(sources)
+    await vi.waitFor(() => expect(shown).toEqual(['1']))
+
+    await run.select(1)
+    releaseFirst()
+    await opening
+
+    expect(run.selectedId).toBe(1)
+  })
+
+  it('drops a pick still opening once something else is opened', async () => {
+    const { run, shown } = setup({
+      'a/trace.zip': payload(TRACE_OUTCOME.PASSED, 1),
+      'b/trace.zip': payload(TRACE_OUTCOME.FAILED, 2)
+    })
+    await run.open([source('a/trace.zip'), source('b/trace.zip')])
+    const before = shown.length
+
+    const pick = run.select(0)
+    run.cancelPending()
+    await pick
+
+    expect(shown.length).toBe(before)
+  })
+
   it('reads every zip once and lists each one with its outcome', async () => {
     const { run, parse } = setup({
       'a/trace.zip': payload(TRACE_OUTCOME.PASSED, 1),
@@ -71,7 +226,8 @@ describe('TraceRunController', () => {
 
     await run.open([source('a/trace.zip'), source('b/trace.zip')])
 
-    expect(parse).toHaveBeenCalledTimes(2)
+    // The list reads each once; the one played first is opened again to show it.
+    expect(parse).toHaveBeenCalledTimes(3)
     expect(
       run.ordered.map((entry) =>
         entry.status === 'ready' ? entry.summary.outcome : entry.status
@@ -137,7 +293,7 @@ describe('TraceRunController', () => {
     ])
     await vi.waitFor(() => expect(run.entries[0].status).toBe('ready'))
 
-    run.select(0)
+    await run.select(0)
     release()
     await opened
 
@@ -173,7 +329,7 @@ describe('TraceRunController', () => {
     const { run, shown } = setup({ 'a/trace.zip': new Error('bad zip') })
     await run.open([source('a/trace.zip'), source('b/trace.zip')])
 
-    run.select(0)
+    await run.select(0)
 
     expect(shown).toEqual([])
     expect(run.selectedId).toBeUndefined()
@@ -225,7 +381,6 @@ describe('orderTraceRun', () => {
     path: `${id}`,
     label: `${id}`,
     status: 'ready',
-    data: payload(outcome, startTime),
     summary: { outcome, startTime }
   })
 

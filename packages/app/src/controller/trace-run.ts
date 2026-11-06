@@ -1,7 +1,6 @@
 import type { ReactiveControllerHost } from 'lit'
-import type { TracePlayerData } from '@wdio/devtools-shared'
 
-import { readTraceArchive } from './trace-archive.js'
+import { readTraceArchive, type OpenedTrace } from './trace-archive.js'
 import type { TraceSource } from '../utils/trace-sources.js'
 import {
   summarizeTrace,
@@ -19,12 +18,12 @@ export type TraceRunEntry = {
   label: string
 } & (
   | { status: 'pending' }
-  | { status: 'ready'; summary: TraceSummary; data: TracePlayerData }
+  | { status: 'ready'; summary: TraceSummary }
   | { status: 'error'; error: string }
 )
 
-/** Reads one zip into the player payload. */
-export type TraceRunParser = (bytes: Blob) => Promise<TracePlayerData>
+/** Opens one zip; the caller closes the archive it returns or hands it on. */
+export type TraceRunOpener = (bytes: Blob) => Promise<OpenedTrace>
 
 // Failures first, since a run is opened to find what broke; then unreadable zips, which may be failures too.
 const RANK = {
@@ -38,6 +37,9 @@ const RANK = {
 const rankOf = (entry: TraceRunEntry): number =>
   entry.status === 'ready' ? RANK[entry.summary.outcome] : RANK[entry.status]
 
+const reason = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
+
 const startOf = (entry: TraceRunEntry): number =>
   entry.status === 'ready' ? entry.summary.startTime : Number.POSITIVE_INFINITY
 
@@ -50,24 +52,28 @@ export function orderTraceRun(
   )
 }
 
-/** Traces opened together, read once each and in turn (one zip's bytes in flight), kept for when their row is picked. */
+/** Traces opened together, read in turn (one zip open at a time) for their summary alone, and opened again when their row is picked. */
 export class TraceRunController {
   entries: TraceRunEntry[] = []
   selectedId?: number
+  /** Why the last pick could not be opened, for the same banner a failed open shows. */
+  error?: string
 
   readonly #host: ReactiveControllerHost
-  readonly #show: (data: TracePlayerData) => void
-  readonly #parse: TraceRunParser
+  readonly #show: (opened: OpenedTrace) => void | Promise<void>
+  readonly #open: TraceRunOpener
+  #sources: readonly TraceSource[] = []
   #generation = 0
+  #selection = 0
 
   constructor(
     host: ReactiveControllerHost,
-    show: (data: TracePlayerData) => void,
-    parse: TraceRunParser = (bytes) => readTraceArchive(bytes)
+    show: (opened: OpenedTrace) => void | Promise<void>,
+    open: TraceRunOpener = (bytes) => readTraceArchive(bytes)
   ) {
     this.#host = host
     this.#show = show
-    this.#parse = parse
+    this.#open = open
   }
 
   get active(): boolean {
@@ -85,11 +91,11 @@ export class TraceRunController {
 
   async open(sources: readonly TraceSource[]): Promise<void> {
     const generation = ++this.#generation
+    const selection = ++this.#selection
     this.selectedId = undefined
+    this.#sources = sources
     this.entries = sources.map((source, id) => ({
-      id,
-      path: source.path,
-      label: traceLabelFromPath(source.path),
+      ...this.#base(id, source),
       status: 'pending'
     }))
     this.#host.requestUpdate()
@@ -100,39 +106,73 @@ export class TraceRunController {
       }
       this.#replace(settled)
     }
-    this.#selectFirst()
+    await this.#selectFirst(selection)
   }
 
-  select(id: number): void {
+  /** Opens the row's zip again and shows it, unless another row was picked meanwhile. */
+  async select(id: number): Promise<void> {
     const entry = this.entries.find((candidate) => candidate.id === id)
-    if (entry?.status !== 'ready') {
+    const source = this.#sources[id]
+    if (entry?.status !== 'ready' || !source) {
       return
     }
-    this.selectedId = id
-    this.#show(entry.data)
+    const selection = ++this.#selection
+    let opened: OpenedTrace
+    try {
+      opened = await this.#open(await source.read())
+    } catch (error) {
+      // It read once, so the row stays pickable: a failure here can be passing (a file moved back, a backend restarted).
+      if (selection === this.#selection) {
+        this.error = `Could not open ${source.path}: ${reason(error)}`
+        this.#host.requestUpdate()
+      }
+      return
+    }
+    if (selection !== this.#selection) {
+      opened.archive.close()
+      return
+    }
+    await this.#show(opened)
+    if (selection === this.#selection) {
+      this.selectedId = id
+      this.error = undefined
+      this.#host.requestUpdate()
+    }
+  }
+
+  dismissError(): void {
+    this.error = undefined
     this.#host.requestUpdate()
+  }
+
+  /** Drops any pick still opening, so it cannot replace a trace opened some other way meanwhile. */
+  cancelPending(): void {
+    this.#selection++
   }
 
   clear(): void {
     this.#generation++
+    this.#selection++
+    this.#sources = []
+    this.error = undefined
     this.entries = []
     this.selectedId = undefined
     this.#host.requestUpdate()
   }
 
+  #base(id: number, source: TraceSource) {
+    return { id, path: source.path, label: traceLabelFromPath(source.path) }
+  }
+
   // One zip's failure is its own row; it never stops the rest of the run.
   async #read(id: number, source: TraceSource): Promise<TraceRunEntry> {
-    const base = {
-      id,
-      path: source.path,
-      label: traceLabelFromPath(source.path)
-    }
+    const base = this.#base(id, source)
     try {
-      const data = await this.#parse(await source.read())
-      return { ...base, status: 'ready', data, summary: summarizeTrace(data) }
+      const { data, archive } = await this.#open(await source.read())
+      archive.close()
+      return { ...base, status: 'ready', summary: summarizeTrace(data) }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      return { ...base, status: 'error', error: message }
+      return { ...base, status: 'error', error: reason(error) }
     }
   }
 
@@ -144,13 +184,13 @@ export class TraceRunController {
   }
 
   // Opens the top of the list once it is known, unless a row was picked meanwhile.
-  #selectFirst(): void {
-    if (this.selectedId !== undefined) {
+  async #selectFirst(selectionAtOpen: number): Promise<void> {
+    if (this.#selection !== selectionAtOpen) {
       return
     }
     const first = this.ordered.find((entry) => entry.status === 'ready')
     if (first) {
-      this.select(first.id)
+      await this.select(first.id)
     }
   }
 }

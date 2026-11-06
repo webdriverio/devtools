@@ -1,15 +1,18 @@
 // Inputs for the app-shell specs. Everything here is a WIRE shape — a `suites`
-// WS frame, a `metadata` frame, the `TracePlayerData` the backend serves at
-// TRACE_API.get — so a spec drives the real DataManager/component derivation
-// instead of hand-building the state those paths are supposed to produce.
+// WS frame, a `metadata` frame, the trace zip the backend serves in trace-serve
+// mode, so a spec drives the real DataManager/component derivation instead of
+// hand-building the state those paths are supposed to produce.
 
-import { TRACE_API, TraceType, WS_PATHS } from '@wdio/devtools-shared'
-import type {
-  CommandLog,
-  Metadata,
-  TraceLog,
-  TracePlayerData
+import {
+  ACTION_MAP,
+  TRACE_API,
+  TraceType,
+  traceZipUrl,
+  WS_PATHS
 } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata, TraceLog } from '@wdio/devtools-shared'
+
+import { storedZip } from '../support/trace-archive.js'
 
 import type {
   SuiteStatsFragment,
@@ -152,17 +155,36 @@ export function traceLog(overrides: Partial<TraceLog> = {}): TraceLog {
   }
 }
 
-/** What the backend serves at TRACE_API.get in trace-player mode. */
-export function tracePlayerData(
-  overrides: Partial<TracePlayerData> = {}
-): TracePlayerData {
-  return {
-    trace: traceLog(),
-    frames: [],
-    startTime: RUN_START,
-    duration: 800,
-    ...overrides
-  }
+/** A trace zip of `commands` recorded by a testrunner, as `show-trace` serves it. */
+export function traceZip(commands: CommandLog[] = loginCommands): Blob {
+  const events: Record<string, unknown>[] = [
+    {
+      type: 'context-options',
+      wallTime: RUN_START,
+      monotonicTime: 0,
+      browserName: 'chrome',
+      runner: 'mocha'
+    }
+  ]
+  commands.forEach((command, index) => {
+    const action = ACTION_MAP[command.command]!
+    const callId = `call@${index + 1}`
+    const at = command.timestamp - RUN_START
+    events.push(
+      {
+        type: 'before',
+        callId,
+        startTime: at,
+        class: action.class,
+        method: action.method,
+        params: { 0: command.args[0] }
+      },
+      { type: 'after', callId, endTime: at }
+    )
+  })
+  return storedZip({
+    'trace.trace': events.map((event) => JSON.stringify(event)).join('\n')
+  })
 }
 
 export interface RecordedRequest {
@@ -209,16 +231,55 @@ export interface FakeBackend {
   restore(): void
 }
 
+/** What `show-trace` serves: its zips, and how many times each may be fetched before the backend fails it. */
+export interface ServedZips {
+  zips: Blob[]
+  /** Fetches each zip answers before it answers 500 instead. */
+  fetchesBeforeFailing?: number
+}
+
+/** What trace-serve mode answers at `url`: the zips as a run, or nothing to serve; undefined for any other route. */
+function traceServeResponse(
+  url: string,
+  served: ServedZips | undefined,
+  fetches: number[]
+): Response | undefined {
+  const zips = served?.zips ?? []
+  if (url === TRACE_API.run) {
+    return zips.length
+      ? Response.json({
+          traces: zips.map((_, i) => ({
+            path: `run/t${i}/trace.zip`,
+            url: traceZipUrl(i)
+          }))
+        })
+      : // 204: the route exists in live mode but serves no trace.
+        new Response(null, { status: 204 })
+  }
+  if (url === TRACE_API.get) {
+    return new Response(null, { status: 204 })
+  }
+  const index = zips.findIndex((_, i) => url === traceZipUrl(i))
+  if (index === -1) {
+    return undefined
+  }
+  fetches[index] = (fetches[index] ?? 0) + 1
+  return fetches[index]! > (served?.fetchesBeforeFailing ?? Infinity)
+    ? new Response(null, { status: 500 })
+    : new Response(zips[index])
+}
+
 /**
- * Stands in for the backend the app boots against: the trace probe at
- * TRACE_API.get decides player vs live mode, and the `/client` upgrade is where
- * live data arrives. Only those two are intercepted — every other request and
- * socket goes to the real implementation, because the component runner serves
- * the spec itself over both.
+ * Stands in for the backend the app boots against: the listing at
+ * TRACE_API.run decides player vs live mode, and the `/client` upgrade is where
+ * live data arrives. Only those two (and the listed zip) are intercepted:
+ * every other request and socket goes to the real implementation, because the
+ * component runner serves the spec itself over both.
  */
 export function installFakeBackend(
-  options: { trace?: TracePlayerData } = {}
+  options: { served?: ServedZips } = {}
 ): FakeBackend {
+  const fetches: number[] = []
   const nativeFetch = globalThis.fetch
   const NativeSocket = globalThis.WebSocket
   const backend: FakeBackend = {
@@ -234,13 +295,9 @@ export function installFakeBackend(
     const url = String(
       typeof input === 'string' ? input : (input as Request).url
     )
-    if (url === TRACE_API.get) {
-      return Promise.resolve(
-        options.trace
-          ? new Response(JSON.stringify(options.trace), { status: 200 })
-          : // 204: the route exists in live mode but serves no trace.
-            new Response(null, { status: 204 })
-      )
+    const served = traceServeResponse(url, options.served, fetches)
+    if (served) {
+      return Promise.resolve(served)
     }
     if (url.startsWith('/api/')) {
       backend.requests.push({
@@ -279,7 +336,9 @@ export async function waitFor(
   predicate: () => boolean,
   what: string
 ): Promise<void> {
-  for (let tick = 0; tick < 50 && !predicate(); tick += 1) {
+  // Bounded by time, not ticks: opening a served zip loads the reader on demand.
+  const deadline = Date.now() + 4000
+  while (Date.now() < deadline && !predicate()) {
     await flush()
   }
   if (!predicate()) {

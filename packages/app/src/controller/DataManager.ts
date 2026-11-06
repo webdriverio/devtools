@@ -26,19 +26,27 @@ import {
   selectedTestUidContext,
   framesContext,
   actionGroupsContext,
-  transcriptContext
+  transcriptContext,
+  playerArchiveContext
 } from './context.js'
 import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
 import { HOSTED_PLAYER } from './constants.js'
 import { cacheTrace, readCachedTrace } from './trace-cache.js'
 import { archivedResources } from '../components/browser/archived-resources.js'
-import { readTraceArchive } from './trace-archive.js'
-import { probeServedTrace } from './trace-serve.js'
+import { readTraceArchive, type TraceArchiveClient } from './trace-archive.js'
+import { PlayerTraceLoads } from './player-trace.js'
+import { openLegacyTrace } from './legacy-trace.js'
+import { probeServedTraces } from './trace-serve.js'
 import type { TraceSource } from '../utils/trace-sources.js'
 import { RUN_ALL_UID } from '../components/sidebar/constants.js'
 import { rerunState } from './rerunState.js'
 import type { SuiteStatsFragment, SocketMessage } from './types.js'
-import { canonicalizeUids, mergeSuite } from './suite-merge.js'
+import {
+  canonicalizeUids,
+  mergeSuite,
+  rootSuitesOf,
+  suiteMapOf
+} from './suite-merge.js'
 import {
   markAllRunning,
   markSpecificRunning,
@@ -77,13 +85,19 @@ export class DataManagerController implements ReactiveController {
   framesContextProvider: ContextProvider<typeof framesContext>
   actionGroupsContextProvider: ContextProvider<typeof actionGroupsContext>
   transcriptContextProvider: ContextProvider<typeof transcriptContext>
+  playerArchiveContextProvider: ContextProvider<typeof playerArchiveContext>
 
   #playerMode = false
+  readonly #playerLoads: PlayerTraceLoads
   /** Opens the zips `show-trace` lists; without it, a served run is never probed. */
   onServedRun?: (sources: TraceSource[]) => void
 
-  constructor(host: ReactiveControllerHost & HTMLElement) {
+  constructor(
+    host: ReactiveControllerHost & HTMLElement,
+    playerLoads = new PlayerTraceLoads()
+  ) {
     ;(this.#host = host).addController(this)
+    this.#playerLoads = playerLoads
     this.mutationsContextProvider = this.#provide(mutationContext, [])
     this.logsContextProvider = this.#provide(logContext, [])
     this.consoleLogsContextProvider = this.#provide(consoleLogContext, [])
@@ -114,6 +128,10 @@ export class DataManagerController implements ReactiveController {
       undefined
     )
     this.transcriptContextProvider = this.#provide(transcriptContext, undefined)
+    this.playerArchiveContextProvider = this.#provide(
+      playerArchiveContext,
+      undefined
+    )
   }
 
   #provide<T extends Context<unknown, unknown>>(
@@ -209,37 +227,54 @@ export class DataManagerController implements ReactiveController {
     void this.#bootstrap()
   }
 
-  // `show-trace` serves a trace, or several to list; either skips the live WS.
+  // `show-trace` serves one zip to open, or several to list; either skips the live WS.
   async #bootstrap() {
     // Hosted, there is no backend: the trace arrives as a file the viewer picks.
     if (HOSTED_PLAYER) {
       return
     }
-    const served = await probeServedTrace(Boolean(this.onServedRun))
+    const served = await probeServedTraces()
     if (!served) {
       return this.#connectWebSocket()
     }
-    if ('trace' in served) {
-      return this.loadPlayerData(served.trace)
-    }
     this.#playerMode = true
-    this.onServedRun?.(served.run)
+    if ('payload' in served) {
+      const { data, archive } = openLegacyTrace(served.payload)
+      return this.loadPlayerData(data, archive)
+    }
+    const { run } = served
+    if (run.length === 1) {
+      try {
+        return await this.openTraceArchive(await run[0].read())
+      } catch (err) {
+        console.error(`Failed to open ${run[0].path}`, err)
+      }
+    }
+    this.onServedRun?.(run)
     this.#host.requestUpdate()
   }
 
-  loadPlayerData(data: TracePlayerData) {
+  /** Shows a trace; `archive` is where its images, bodies and page resources are read from, and is closed when the next trace loads. */
+  async loadPlayerData(data: TracePlayerData, archive?: TraceArchiveClient) {
+    const prepared = await this.#playerLoads.prepare(data, archive)
+    if (!prepared) {
+      return
+    }
     this.#playerMode = true
     this.framesContextProvider.setValue(data.frames)
     this.actionGroupsContextProvider.setValue(data.groups)
     this.transcriptContextProvider.setValue(data.transcript)
-    // Hosted, a cached trace would outlive the tab; the cache only backs a live socket.
-    this.loadTraceFile(data.trace, !HOSTED_PLAYER)
+    this.playerArchiveContextProvider.setValue(prepared.archive)
+    // The cache only backs a live socket; a player trace is reopened from its zip.
+    this.loadTraceFile(data.trace, false)
+    archivedResources.load(prepared.resources)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()
   }
 
   async openTraceArchive(...args: Parameters<typeof readTraceArchive>) {
-    this.loadPlayerData(await readTraceArchive(...args))
+    const { data, archive } = await readTraceArchive(...args)
+    await this.loadPlayerData(data, archive)
   }
 
   #connectWebSocket() {
@@ -474,46 +509,15 @@ export class DataManagerController implements ReactiveController {
     this.sourcesContextProvider.setValue(merged)
   }
 
-  #seedSuiteMapFromContext(): Map<string, SuiteStatsFragment> {
-    const suiteMap = new Map<string, SuiteStatsFragment>()
-    ;(this.suitesContextProvider.value || []).forEach((chunk) => {
-      Object.entries(chunk as Record<string, SuiteStatsFragment>).forEach(
-        ([uid, suite]) => {
-          if (suite?.uid) {
-            suiteMap.set(uid, suite)
-          }
-        }
-      )
-    })
-    return suiteMap
-  }
-
-  #collectIncomingRootSuites(
-    payloads: Record<string, SuiteStatsFragment>[]
-  ): SuiteStatsFragment[] {
-    const out: SuiteStatsFragment[] = []
-    payloads.forEach((chunk) => {
-      if (!chunk) {
-        return
-      }
-      for (const suite of Object.values(chunk)) {
-        if (suite?.uid) {
-          out.push(suite)
-        }
-      }
-    })
-    return out
-  }
-
   #handleSuitesUpdate(data: unknown) {
     const payloads = Array.isArray(data)
       ? (data as Record<string, SuiteStatsFragment>[])
       : ([data] as Record<string, SuiteStatsFragment>[])
-    const suiteMap = this.#seedSuiteMapFromContext()
+    const suiteMap = suiteMapOf(this.suitesContextProvider.value || [])
     // Canonicalize uids for root suites so a rerun whose reporter assigned a
     // different uid still merges into the original row.
     const existingRootSuites = Array.from(suiteMap.values())
-    const incomingRootSuites = this.#collectIncomingRootSuites(payloads)
+    const incomingRootSuites = rootSuitesOf(payloads)
     const mergeCtx = {
       activeRerunTestUid: this.#activeRerunTestUid,
       activeRerunSuiteUid: rerunState.activeRerunSuiteUid
@@ -552,7 +556,7 @@ export class DataManagerController implements ReactiveController {
     if (cache) {
       cacheTrace(traceFile)
     }
-    archivedResources.load(traceFile.pageResources ?? [])
+    archivedResources.clear()
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )

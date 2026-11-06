@@ -6,6 +6,8 @@ import {
   mergeTests,
   mergeChildSuites,
   mergeSuite,
+  rootSuitesOf,
+  suiteMapOf,
   type MergeContext
 } from '../src/controller/suite-merge.js'
 import type {
@@ -289,5 +291,29 @@ describe('mergeChildSuites', () => {
     const merged = mergeChildSuites(existing, incoming, ctx())
     expect(merged).toHaveLength(1)
     expect(merged[0]?.uid).toBe('original')
+  })
+})
+
+describe('suiteMapOf', () => {
+  it('keys each root suite by its chunk key, skipping entries with no uid', () => {
+    const a = suite('a')
+    const b = suite('b')
+    const map = suiteMapOf([{ a }, { b, ghost: {} as SuiteStatsFragment }])
+
+    expect([...map.entries()]).toEqual([
+      ['a', a],
+      ['b', b]
+    ])
+  })
+})
+
+describe('rootSuitesOf', () => {
+  it('lists incoming root suites in order, skipping empty chunks and uid-less entries', () => {
+    const a = suite('a')
+    const b = suite('b')
+
+    expect(
+      rootSuitesOf([{ a }, undefined, { ghost: {} as SuiteStatsFragment, b }])
+    ).toEqual([a, b])
   })
 })

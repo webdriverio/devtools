@@ -4,15 +4,15 @@ import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   TRACE_API,
   traceZipUrl,
-  type TracePlayerData,
+  type LegacyTracePlayerData,
   type TraceRunListing
 } from '@wdio/devtools-shared'
 
 import type { TraceRunFile } from './trace-files.js'
 
-/** What trace-serve mode serves: one reconstructed trace, or a run of zips the app reads itself. */
+/** What trace-serve mode serves: zips the app reads itself (what `show-trace` passes), or one payload a caller reconstructed with its images inline. */
 export interface TraceServe {
-  trace?: TracePlayerData
+  trace?: LegacyTracePlayerData
   traceRun?: readonly TraceRunFile[]
 }
 
@@ -40,8 +40,8 @@ export function registerTraceRoutes(
   s: FastifyInstance,
   { trace, traceRun }: TraceServe
 ): void {
-  // Always registered so live mode gets a definitive 204 here instead of a 404
-  // from the static handler: the app probes this on boot to choose between
+  // Both always registered so live mode gets a definitive 204 instead of a 404
+  // from the static handler: the app probes them on boot to choose between
   // player and live-WS mode, and a 204 keeps the common (live) path quiet.
   s.get(TRACE_API.get, async (_request, reply) =>
     trace ? reply.send(trace) : reply.code(204).send()
@@ -52,7 +52,7 @@ export function registerTraceRoutes(
   s.get(
     TRACE_API.zip,
     {
-      // The app fetches every listed zip once per page load, so a large run would exhaust the global limit.
+      // The app fetches every listed zip to list it and again each time its row is picked, so a large run would exhaust the global limit.
       config: {
         rateLimit: {
           max: Math.max(
