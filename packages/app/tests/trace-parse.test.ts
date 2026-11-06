@@ -112,6 +112,22 @@ describe("the trace reader's side of the protocol", () => {
     expect(missing).toMatchObject({ type: 'entry-error', id: 8 })
   })
 
+  it('reads the opened file once, however many entries it holds', async () => {
+    const blob = await recordedTrace()
+    const slice = vi.spyOn(blob, 'slice')
+    const whole = vi.spyOn(blob, 'arrayBuffer')
+    const opened = await answers([{ type: 'open', blob }])
+    const done = opened[2]!
+    const entry = done.type === 'done' ? done.data.frames[0]!.entry : ''
+
+    const answer = createTraceReader(() => {})
+    await answer({ type: 'open', blob })
+    await answer({ type: 'entry', id: 1, name: entry })
+
+    expect(slice).not.toHaveBeenCalled()
+    expect(whole).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses an entry before any zip is open', async () => {
     expect(await answers([{ type: 'entry', id: 1, name: 'x' }])).toEqual([
       { type: 'entry-error', id: 1, message: 'No trace is open' }

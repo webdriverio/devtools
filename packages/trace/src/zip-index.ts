@@ -319,12 +319,3 @@ export function bytesZipSource(bytes: Uint8Array): ZipSource {
       Promise.resolve(bytes.subarray(offset, offset + length))
   }
 }
-
-/** A zip in a Blob or File, read a range at a time. */
-export function blobZipSource(blob: Blob): ZipSource {
-  return {
-    size: blob.size,
-    read: async (offset, length) =>
-      new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer())
-  }
-}

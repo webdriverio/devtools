@@ -1,6 +1,6 @@
 import {
-  blobZipSource,
   buildTracePayload,
+  bytesZipSource,
   openTraceArchive,
   readTraceEntries,
   type TraceArchive
@@ -23,7 +23,9 @@ export function createTraceReader(
     if (request.type === 'open') {
       try {
         post({ type: 'phase', phase: 'unpacking' })
-        archive = await openTraceArchive(blobZipSource(request.blob))
+        // One read of the file: each slice of a picked File is its own browser-process read, measured at ~0.9 s apiece on a monitored machine.
+        const bytes = new Uint8Array(await request.blob.arrayBuffer())
+        archive = await openTraceArchive(bytesZipSource(bytes))
         const entries = await readTraceEntries(archive)
         post({ type: 'phase', phase: 'building' })
         post({ type: 'done', data: await buildTracePayload(entries, archive) })

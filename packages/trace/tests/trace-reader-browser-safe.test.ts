@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { writeTraceZip } from '../src/trace-exporter.js'
 import { openTraceArchive, readTracePayload } from '../src/trace-reader.js'
-import { blobZipSource } from '../src/zip-index.js'
+import { bytesZipSource } from '../src/zip-index.js'
 
 // The hosted trace player bundles the reader for the browser, and Vite only
 // warns when it stubs a Node built-in, so the build alone would not catch one.
@@ -86,11 +86,11 @@ async function recordedZip(): Promise<Uint8Array<ArrayBuffer>> {
 describe('trace-reader in a browser', () => {
   // An import walk cannot see a Node global, which is how `Buffer` once
   // reached the hosted player and failed every trace with a screenshot.
-  it('reads a recorded trace from a Blob with no Buffer in scope', async () => {
+  it('reads a recorded trace with no Buffer in scope', async () => {
     const zip = await recordedZip()
     vi.stubGlobal('Buffer', undefined)
 
-    const archive = await openTraceArchive(blobZipSource(new Blob([zip])))
+    const archive = await openTraceArchive(bytesZipSource(new Uint8Array(zip)))
     const { frames, trace } = await readTracePayload(archive)
 
     const images = await Promise.all(

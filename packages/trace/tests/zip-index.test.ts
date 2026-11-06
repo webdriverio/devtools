@@ -1,8 +1,7 @@
 import { deflateSync, strFromU8, strToU8, zipSync } from 'fflate'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import {
-  blobZipSource,
   bytesZipSource,
   openZip,
   ZIP_MAX_INFLATED_BYTES,
@@ -237,22 +236,6 @@ describe('openZip', () => {
       bytesZipSource(buildZip([{ name: 'a', text: 'a' }]))
     )
     await expect(index.read('b')).rejects.toThrow('no entry b')
-  })
-
-  it('reads a Blob a range at a time, never whole', async () => {
-    const zip = buildZip([
-      { name: 'one', text: 'first', method: 0 },
-      { name: 'two', text: 'x'.repeat(80_000), method: 0 }
-    ])
-    const blob = new Blob([zip])
-    const slice = vi.spyOn(blob, 'slice')
-    const index = await openZip(blobZipSource(blob))
-    expect(strFromU8(await index.read('one'))).toBe('first')
-    expect(
-      slice.mock.calls.every(
-        ([start, end]) => (end ?? 0) - (start ?? 0) < zip.byteLength
-      )
-    ).toBe(true)
   })
 })
 

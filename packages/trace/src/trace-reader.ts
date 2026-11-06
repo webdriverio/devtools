@@ -34,7 +34,7 @@ import {
 } from './zip-index.js'
 
 // The app may import only this module from `trace`, so the sources it opens a zip over come through it.
-export { blobZipSource, bytesZipSource, type ZipSource } from './zip-index.js'
+export { bytesZipSource, type ZipSource } from './zip-index.js'
 import {
   FRAME_RESOURCE_SUFFIXES,
   MUTATIONS_STREAM_SUFFIX,
