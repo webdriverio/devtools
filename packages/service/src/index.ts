@@ -5,6 +5,7 @@ import {
   beginInputDispatch,
   captureAndAttachScreenshot,
   clearReadValues,
+  configureInputMasking,
   errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
@@ -104,6 +105,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
+    configureInputMasking(serviceOptions)
     this.#assertionTracker = new AssertionTracker({
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,

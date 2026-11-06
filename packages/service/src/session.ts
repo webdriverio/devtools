@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises'
 import url from 'node:url'
 
 import logger from '@wdio/logger'
 import { parse } from 'stack-trace'
-import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
@@ -26,6 +24,7 @@ import {
   errorMessage,
   getRequestType,
   isSessionGoneError,
+  loadCollectorSource,
   loadInjectableScript,
   LOG_SOURCES,
   rememberReadValue,
@@ -449,9 +448,7 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
     try {
-      const script = await resolve('@wdio/devtools-script', import.meta.url)
-      const source = (await fs.readFile(url.fileURLToPath(script))).toString()
-      const functionDeclaration = `async () => { ${source} }`
+      const functionDeclaration = `async () => { ${await loadCollectorSource()} }`
 
       await browser.scriptAddPreloadScript({
         functionDeclaration

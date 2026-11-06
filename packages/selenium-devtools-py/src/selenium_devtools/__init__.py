@@ -19,12 +19,13 @@ import os
 import subprocess
 import sys
 import threading
-from typing import Optional
+from typing import Optional, Sequence
 
 from . import (
     backend,
     capture_timing,
     element_scripts,
+    input_masking,
     instrumentation,
     lifecycle,
     page_scripts,
@@ -353,6 +354,8 @@ def enable(
     a11y: Optional[bool] = None,
     trace_policy: Optional[str] = None,
     trace_granularity: Optional[str] = None,
+    mask_inputs: Optional[bool] = None,
+    mask_selectors: Optional[Sequence[str]] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -360,6 +363,11 @@ def enable(
     automatically (see :mod:`.backend`). Returns the SessionCapturer, or None if
     the dashboard can't be reached/launched — a missing dashboard must never
     break the user's test run.
+
+    ``mask_inputs`` (default on, ``DEVTOOLS_MASK_INPUTS``) masks the value of
+    password fields in the replayed page; ``mask_selectors``
+    (``DEVTOOLS_MASK_SELECTORS``) masks the text and value of matching elements
+    there too. Command rows always carry what the test typed.
     """
     if _active["capturer"] is not None:
         return _active["capturer"]
@@ -405,6 +413,7 @@ def enable(
         return None
 
     capturer = SessionCapturer(transport)
+    input_masking.configure(mask_inputs, mask_selectors)
     instrumentation.install(
         capturer,
         webdriver_cls,

@@ -50,6 +50,12 @@ export interface BrowserRequest {
   at: number
 }
 
+/** Text an element received through Element Send Keys. */
+export interface TypedText {
+  selector: string
+  text: string
+}
+
 /** What happened in the browser, independent of any adapter. */
 export interface BrowserTruth {
   documents: BrowserDocument[]
@@ -57,6 +63,10 @@ export interface BrowserTruth {
   /** When the browser completed each user action, in order, keyed by shared's action method. */
   actions: Record<ActionMethod, number[]>
   requests: BrowserRequest[]
+  /** The text every element received through Element Send Keys, in order. */
+  typed: TypedText[]
+  /** How many collector sources the page was handed without the run's mask policy declared ahead of them. */
+  undeclaredMaskPolicies: number
   /** What the session was served over BiDi, which decides what a network row must carry: `off` when no
    *  socket was handed out, whether the mode offers none or the new-session request asked for none. */
   bidi: BidiMode

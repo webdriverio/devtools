@@ -3,6 +3,7 @@ import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
 import { ResourceTimingCollector } from './collectors/resourceTiming.js'
 import { assignRef, hasRef, parseDocument } from './utils.js'
+import { pageMask } from './masking.js'
 
 /**
  * When THIS document came into existence, as epoch ms.
@@ -105,6 +106,11 @@ export class DataCollector {
 
   getMetadata() {
     return this.#metadata
+  }
+
+  /** The mask selector list, read by the element scripts so an action snapshot masks what the DOM stream masks. */
+  maskSelector(): string | null {
+    return pageMask.selector
   }
 
   getTraceData() {

@@ -54,6 +54,7 @@ import {
   serverLock
 } from './helpers/configure-options.js'
 import {
+  configureInputMasking,
   RetryTracker,
   errorMessage,
   requestsInterceptedNetwork,
@@ -177,8 +178,11 @@ class SeleniumDevToolsPlugin {
       filmstrip: options.filmstrip ?? true,
       screenshot: options.screenshot ?? 'off',
       video: options.video ?? 'off',
-      emitArtifactsManifest: options.emitArtifactsManifest
+      emitArtifactsManifest: options.emitArtifactsManifest,
+      maskInputs: options.maskInputs ?? true,
+      maskSelectors: options.maskSelectors ?? []
     }
+    configureInputMasking(this.#options)
     const policyWarning = tracePolicyModeWarning(
       options.tracePolicy,
       this.#options.mode
@@ -318,6 +322,8 @@ class SeleniumDevToolsPlugin {
     for (const warning of applyConfigureOptions(this.#options, opts, lock)) {
       log.warn(warning)
     }
+    // A preload already registered keeps the policy it was built with; only sessions started after this see a change.
+    configureInputMasking(this.#options)
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {
         log.warn('trace mode: ignoring screencast option (live-mode feature)')
