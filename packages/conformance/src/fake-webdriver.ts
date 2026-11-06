@@ -12,6 +12,7 @@ import {
   BLANK_PNG,
   BROKEN_PATH,
   COLLECTOR_SIGNATURE,
+  DEFAULT_TIMEOUTS,
   DOCUMENT_MIME,
   ELEMENT_KEY,
   ELEMENT_TEXT,
@@ -61,6 +62,13 @@ type Reply = {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+const FIXED_REPLIES: Record<string, unknown> = {
+  '/screenshot': BLANK_PNG,
+  '/window/rect': { x: 0, y: 0, width: 1280, height: 720 },
+  '/window': WINDOW_HANDLE,
+  '/window/handles': [WINDOW_HANDLE]
+}
 
 /** A W3C WebDriver over a two-page model with one late-rendered element; without a preload its collector anchors only when a drain forces it. */
 export class FakeWebDriver {
@@ -217,6 +225,9 @@ export class FakeWebDriver {
     if (method === 'POST' && (path === '/element' || path === '/elements')) {
       return this.#find(String(params.value), path === '/elements')
     }
+    if (method === 'GET' && path === '/timeouts') {
+      return { value: DEFAULT_TIMEOUTS }
+    }
     const element = path.match(/^\/element\/([^/]+)\/(value|click|clear|text)$/)
     if (element) {
       return this.#onElement(element[1], element[2], params)
@@ -224,19 +235,7 @@ export class FakeWebDriver {
     if (method === 'POST' && path.startsWith('/execute/')) {
       return this.#executeReply(params)
     }
-    if (path === '/screenshot') {
-      return { value: BLANK_PNG }
-    }
-    if (path === '/window/rect') {
-      return { value: { x: 0, y: 0, width: 1280, height: 720 } }
-    }
-    if (path === '/window') {
-      return { value: WINDOW_HANDLE }
-    }
-    if (path === '/window/handles') {
-      return { value: [WINDOW_HANDLE] }
-    }
-    return { value: null }
+    return { value: FIXED_REPLIES[path] ?? null }
   }
 
   async #navigate(path: string): Promise<Reply> {

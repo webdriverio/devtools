@@ -20,10 +20,32 @@ export type {
 export { getElements } from './get-elements.js'
 export type { VisibleElementsResult } from './get-elements.js'
 
-export { serializeWebSnapshot, serializeMobileSnapshot } from './snapshot.js'
-export type { WebSnapshotOptions, MobileSnapshotOptions } from './snapshot.js'
 export type { JSONElement } from './locators/index.js'
 
-export { getSnapshot } from './get-snapshot.js'
-export type { GetSnapshotOptions } from './get-snapshot.js'
-export type { SnapshotResult, SnapshotElement } from './snapshot.js'
+export {
+  serializeWebSnapshot,
+  serializeMobileSnapshot,
+  buildSnapshot,
+  accessibilityNodesToSnapshotNodes,
+  jsonElementToSnapshotNodes
+} from './snapshot.js'
+export type {
+  WebSnapshotOptions,
+  MobileSnapshotOptions,
+  SnapshotResult,
+  SnapshotElement
+} from './snapshot.js'
+
+export { getSnapshot, snapshotRenderer } from './get-snapshot.js'
+export type {
+  GetSnapshotOptions,
+  GetSnapshotResult,
+  SnapshotFormat
+} from './get-snapshot.js'
+export { SnapshotError } from './snapshot-error.js'
+export type {
+  CandidateKind,
+  SnapshotCandidate,
+  SnapshotNode,
+  SnapshotRef
+} from './snapshot-types.js'

@@ -8,7 +8,7 @@ Element detection and locator generation for WebdriverIO — browser DOM queryin
 npm install @wdio/elements
 ```
 
-Requires `webdriverio` as a peer dependency (`^9.0.0 || ^10.0.0`).
+Peer dependency: `webdriverio` `^9.0.0 || ^10.0.0`. Optional peer: `@wdio/snapshot` `^10.2.0`, the snapshot renderer (see below).
 
 ## Usage
 
@@ -23,30 +23,49 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 
 ### Accessibility snapshot (`getSnapshot`)
 
-A single call for web and mobile that returns an AI-readable accessibility/DOM snapshot as a `SnapshotResult` — a text tree with `e1`, `e2`, … virtual element IDs baked in, plus an `elements` map that resolves each ID to a real selector. No post-processing required.
+Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer follows the installed versions:
+
+- **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
+- **10.2 and later, prereleases included**, with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`.
+- **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer. It warns when an `@wdio/snapshot` below 10.2 is resolvable or resolution fails, and is silent only when `@wdio/snapshot` is not installed.
+
+With npm, `@wdio/cli` 10.2 already brings `@wdio/snapshot` (through `@wdio/session`), so a WebdriverIO 10.2 project that installed the CLI renders with `@wdio/snapshot` unless it removes it. Without the CLI, install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
 
-const { text, elements } = await getSnapshot(browser, { inViewportOnly: true })
-// text: '[Page: Login — https://…]\n  button "Log in" → //button[contains(., "Log in")]\n  …'
-// elements: { e1: { selector, qualifiedSelector?, tagName, role, text }, … }
+const { format, text, elements, refs } = await getSnapshot(browser, {
+  viewport: true
+})
+// text: '- button "start" [ref=e1]  → ~start' (one line per node)
+// elements: { e1: { selector, tagName, role, text } }
+// refs: SnapshotRef[], on format 'snapshot' only
 ```
 
-Every locator this API returns is portable across WebdriverIO, Selenium and
-Nightwatch: CSS where an id/attribute/class identifies the element uniquely,
-XPath where its text does (WebdriverIO resolves a leading `//` as XPath;
-Selenium takes it via `By.xpath`, Nightwatch via its `'xpath'` locate strategy).
+The result fields:
 
-The DevTools **per-action trace capture** runs the same scripts but asks for the
-locator in the recording runner's own dialect, so a WebdriverIO trace shows
-`button*=Log in` while a Selenium one shows the XPath above. Nightwatch prefers a
-unique CSS selector and falls back to that XPath only when none exists. Only
-the text branch differs; every other branch is the same portable CSS.
+- `format`: `'snapshot'` or `'legacy'`, the renderer that produced the result.
+- `text`: the tree with `eN` refs.
+- `elements`: each ref's selector, role and name. On the snapshot path `tagName` is empty.
+- `refs`: the `SnapshotRef[]` behind the text, on the snapshot path only.
 
-It auto-detects platform: web sessions walk the browser accessibility tree, mobile sessions parse the page-source XML. `@wdio/devtools-service` also registers a `browser.getSnapshot()` runtime accessor that calls this directly.
+On the snapshot path a ref can carry no selector: when the page yields no unique candidate selector for it, under any transport, it has no `elements` entry and its line in `text` has no `→` part (its candidates stay in `refs`).
 
-This is the snapshot the DevTools **trace player** consumes: the per-action accessibility tree feeds the player's **A11y tab** (roles + accessible names, hover to highlight, click to copy a locator), and the resolved `elements` back the player's **element overlay / pick-locator** (click-to-copy boxes drawn over each interacted element, cross-linked to the A11y rows).
+Options: `viewport` (or its alias `inViewportOnly`; `viewport` wins when both are set). The default is viewport-only on both renderers. Pass `{ viewport: false }` for the full page, which is much larger on long pages.
+
+`snapshotRenderer()` returns `'snapshot'` when the installed `webdriverio` is 10.2 or later and the resolved `@wdio/snapshot` is 10.2 or later, else `'legacy'`. If `@wdio/snapshot` is installed but fails to load, `getSnapshot` falls back to legacy with a warning, `snapshotRenderer()` returns `'legacy'` from then on, and the result's `format` is the authoritative answer.
+
+Native sessions (`platformName` of Android, iOS, Mac or Windows with no `browserName`) parse the page source on the snapshot path. Only collection failures `@wdio/snapshot` raises are `SnapshotError`s; they and driver errors propagate, driver errors unchanged. Two exceptions: a failed page-source read logs a warning and returns `text: '[No elements found]'` with empty `elements` and `refs`; and if the driver cannot report the window size a native viewport snapshot reads, the whole tree is rendered, as on the legacy path.
+
+The DevTools **per-action trace capture** is a separate path with its own page scripts, so a locator in a trace can differ from the one `getSnapshot` renders.
+
+Differences from the CLI, whose session holds state this function does not have. The renderer and selector logic are shared:
+
+- The CLI session installs a page recorder that marks elements with JS click listeners as clickable. A plain `getSnapshot` has none, so a control with only a click listener gets no ref.
+- The CLI appends a `Requests failed:` note.
+- The CLI numbers refs across the actions of its session. Here they start at `e1` on every call.
+
+`@wdio/devtools-service`'s `browser.getSnapshot()` calls this function with `viewport` defaulting to `true` on both renderers, so it reads the visible viewport unless you pass `{ viewport: false }`. If the call fails it logs a warning and returns `{ format, text: '[Snapshot unavailable]', elements: {} }` (plus `refs: []` on the snapshot format) instead of throwing; the `getSnapshot` exported here throws.
 
 ### Browser
 
@@ -76,22 +95,30 @@ const elements = await getMobileVisibleElements(browser, 'ios', {
 })
 ```
 
-For the raw JSON element tree alongside the flat list:
-
-```ts
-import { getMobileVisibleElementsWithTree } from '@wdio/elements'
-
-const { elements, tree } = await getMobileVisibleElementsWithTree(browser, 'android')
-```
-
 ### AI-readable snapshots
 
 ```ts
-import { serializeWebSnapshot, serializeMobileSnapshot } from '@wdio/elements'
+import { getBrowserAccessibilityTree, serializeWebSnapshot } from '@wdio/elements'
 
-const snapshot = await serializeWebSnapshot(browser, { includeBounds: true })
-// or
-const snapshot = await serializeMobileSnapshot(browser, 'android', { includeLocators: true })
+const nodes = await getBrowserAccessibilityTree(browser, { inViewportOnly: true })
+const text = serializeWebSnapshot(
+  nodes,
+  { url: await browser.getUrl(), title: await browser.getTitle() },
+  { inViewportOnly: true }
+)
+```
+
+```ts
+import { serializeMobileSnapshot } from '@wdio/elements'
+import { xmlToJSON } from '@wdio/elements/locators'
+
+const sourceXML = await browser.getPageSource()
+const root = xmlToJSON(sourceXML)
+const text = root && serializeMobileSnapshot(
+  root,
+  { platform: 'android', sourceXML },
+  { inViewportOnly: true }
+)
 ```
 
 ### Locator generation
@@ -121,11 +148,11 @@ Auto-detects platform and returns a unified result.
 
 ### `getSnapshot(browser, options)`
 
-Auto-detects platform and returns a `SnapshotResult` — `{ text, elements }` — where `text` is the rendered accessibility tree with embedded `e1`, `e2`, … IDs and `elements` maps each ID to a `SnapshotElement` (`selector`, optional `qualifiedSelector` for `.instance(N)` disambiguation, `tagName`, `role`, `text`).
+Returns `GetSnapshotResult` — `{ format, text, elements, refs? }`; see [Accessibility snapshot](#accessibility-snapshot-getsnapshot) for the fields.
 
 | Param | Type | Default | Description |
 |---|---|---|---|
-| `inViewportOnly` | `boolean` | `true` | Only include elements whose bounds intersect the viewport |
+| `viewport` | `boolean` | `true` | Only include what intersects the viewport; `inViewportOnly` is accepted as an alias and `viewport` wins when both are set |
 
 ### `getInteractableBrowserElements(browser, options)`
 
@@ -138,14 +165,6 @@ Single DOM walk returning the accessibility tree as a flat `AccessibilityNode[]`
 ### `getMobileVisibleElements(browser, platform, options)`
 
 Parses page source XML (2 HTTP calls total) and returns elements with generated locators.
-
-### `getMobileVisibleElementsWithTree(browser, platform, options)`
-
-Same as above but also returns the raw `JSONElement` tree.
-
-### `serializeWebSnapshot(browser, options)` / `serializeMobileSnapshot(browser, platform, options)`
-
-Generate AI-readable (TOON-format) snapshots for LLM consumption.
 
 ### `@wdio/elements/locators`
 
@@ -167,9 +186,8 @@ export type {
   MobileElementInfo, GetMobileElementsOptions,
   AccessibilityNode,
   VisibleElementsResult,
-  WebSnapshotOptions, MobileSnapshotOptions,
-  GetSnapshotOptions,
-  SnapshotResult, SnapshotElement
+  GetSnapshotOptions, GetSnapshotResult,
+  CandidateKind, SnapshotCandidate, SnapshotNode, SnapshotRef
 } from '@wdio/elements'
 
 // From @wdio/elements/locators:
