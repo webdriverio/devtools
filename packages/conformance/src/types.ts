@@ -339,11 +339,13 @@ export type Cell =
   | {
       readonly support: 'supported'
       readonly evidence: Evidence
+      /** The table's footnote for this cell, a sentence. */
       readonly label?: string
     }
   | {
       readonly support: 'partial' | 'unsupported'
       readonly reason: string
+      /** A short summary for `--parity`; the table footnotes the reason instead. */
       readonly label?: string
     }
 
