@@ -46,11 +46,33 @@ async function checkEntryPoints() {
   ]) {
     assert.equal(typeof elements[fn], 'function', `@wdio/elements ${fn}`)
   }
-  assert.equal(
-    elements.snapshotRenderer(),
-    'legacy',
-    'no @wdio/snapshot is installed here, so the legacy renderer renders'
-  )
+  if (major === '9') {
+    assert.deepEqual(
+      installedVersions('@wdio/snapshot'),
+      [],
+      'no @wdio/snapshot on WebdriverIO 9'
+    )
+    assert.equal(
+      elements.snapshotRenderer(),
+      'legacy',
+      'WebdriverIO 9 renderer'
+    )
+  } else if (major === '10') {
+    // Arrives transitively: @wdio/cli 10.2 -> @wdio/session -> @wdio/snapshot.
+    assert.ok(
+      installedVersions('@wdio/snapshot').some(
+        (v) => v.startsWith('10.') && Number(v.split('.')[1]) >= 2
+      ),
+      '@wdio/cli 10.2 brings @wdio/snapshot through @wdio/session'
+    )
+    assert.equal(
+      elements.snapshotRenderer(),
+      'snapshot',
+      'WebdriverIO 10 renderer'
+    )
+  } else {
+    assert.fail(`no renderer expectation for webdriverio ${major}`)
+  }
   const locators = await import('@wdio/elements/locators')
   assert.equal(typeof locators.xmlToJSON, 'function', '@wdio/elements/locators')
 }

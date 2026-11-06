@@ -23,11 +23,13 @@ const result = await getElements(browser, { limit: 50, inViewportOnly: true })
 
 ### Accessibility snapshot (`getSnapshot`)
 
-Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer is opt-in:
+Returns the accessibility tree as text: each actionable element gets an `eN` ref, and on the snapshot renderer its line ends in `→ <selector>`. The renderer follows the installed versions:
 
 - **Below 10.2** (9.x, 10.0, 10.1): the legacy renderer, which keeps this package's previous output. Do not install `@wdio/snapshot` on these versions: npm refuses it or nests a WebdriverIO 10 under your WebdriverIO 9.
-- **10.2 and later, prereleases included**, with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. Install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
+- **10.2 and later, prereleases included**, with `@wdio/snapshot` 10.2 or later resolvable: `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`.
 - **10.2 and later without a resolvable `@wdio/snapshot` 10.2 or later**: the legacy renderer. It warns when an `@wdio/snapshot` below 10.2 is resolvable or resolution fails, and is silent only when `@wdio/snapshot` is not installed.
+
+With npm, `@wdio/cli` 10.2 already brings `@wdio/snapshot` (through `@wdio/session`), so a WebdriverIO 10.2 project that installed the CLI renders with `@wdio/snapshot` unless it removes it. Without the CLI, install it yourself (`npm i -D @wdio/snapshot`, a 10.2 or later release).
 
 ```ts
 import { getSnapshot } from '@wdio/elements'
