@@ -1,5 +1,13 @@
 import assert from 'node:assert'
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  afterAll
+} from 'vitest'
 import {
   ASSERT_PATCHED_SYMBOL,
   TRACKED_ASSERT_METHODS
@@ -9,6 +17,7 @@ import { replaceCommand, type CommandLog } from '@wdio/devtools-shared'
 import DevToolsHookService from '../src/index.js'
 import { SessionCapturer } from '../src/session.js'
 import { WaitRows } from '../src/wait-rows.js'
+import { HooksInFlight } from '../src/command-stack.js'
 
 // A command issued from the spec carries a user frame on its stack; one WDIO issues internally does not.
 const stack = vi.hoisted(() => {
@@ -33,7 +42,8 @@ vi.mock('../src/screencast-lifecycle.js', () => ({
     return {
       start: vi.fn().mockResolvedValue(undefined),
       markStart: vi.fn(),
-      finalize: vi.fn().mockResolvedValue(undefined)
+      finalize: vi.fn().mockResolvedValue(undefined),
+      attachTestVideo: vi.fn().mockResolvedValue(undefined)
     }
   })
 }))
@@ -435,6 +445,265 @@ describe('a wait is one row holding what it issued', () => {
   })
 })
 
+/** WDIO's module-global `inCommandHook`: a command's hook is skipped while any other hook is still running. */
+function wdioHookGate() {
+  let inCommandHook = false
+  return async (hook: () => Promise<void>) => {
+    if (inCommandHook) {
+      return
+    }
+    inCommandHook = true
+    await hook()
+    inCommandHook = false
+  }
+}
+
+/** A poll's screenshot the test releases, holding that poll's afterCommand hook open until then. */
+function heldScreenshot() {
+  let release = () => {}
+  vi.mocked(browser.takeScreenshot).mockReturnValueOnce(
+    new Promise<string>((resolve) => (release = () => resolve('SHOT')))
+  )
+  return () => release()
+}
+
+const TIMEOUT = new Error('element ("#missing") still not existing after 300ms')
+
+/** A closed row is stamped at its completion; a running one, or one only marked failed, still carries its start. */
+const closed = (id: number) => {
+  const row = rows().find((r) => r.id === id)
+  return Boolean(row && row.timestamp > row.startTime!)
+}
+
+describe('a wait whose afterCommand WDIO skipped is closed when its test ends (#529)', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    sent = []
+    vi.spyOn(SessionCapturer.prototype, 'sendUpstream').mockImplementation(
+      (scope: string, data: unknown) => {
+        sent.push([scope, data])
+      }
+    )
+    service = new DevToolsHookService()
+    await service.before({} as never, [], browser)
+    sent = []
+    let clock = 1_000
+    vi.spyOn(Date, 'now').mockImplementation(() => (clock += 10))
+  })
+  afterEach(() => {
+    vi.mocked(Date.now).mockRestore()
+  })
+
+  const endTest = (error?: Error) =>
+    service.afterTest(
+      { file: '/test/specs/login.spec.ts', title: 't', fullTitle: 't' },
+      undefined,
+      { error, passed: !error } as never
+    )
+
+  /** An element wait's hooks up to its first poll, whose afterCommand then holds the gate on its screenshot. */
+  async function elementWaitHeldInPoll(gated: ReturnType<typeof wdioHookGate>) {
+    await gated(() => before('waitForExist', [], true))
+    await gated(() => before('waitForExist', [{ timeout: 300 }], false))
+    await gated(() => before('waitUntil', [], true))
+    await gated(() => before('waitUntil', [null, { timeout: 300 }], false))
+    await gated(() => before('isExisting', [], false))
+    await gated(() => before('isExisting', [], false))
+    // Wrapped, or awaiting this helper would wait for the held capture itself.
+    const poll = (async () => {
+      await gated(() => after('isExisting', [], false))
+      await gated(() => after('isExisting', [], false))
+    })()
+    return { poll }
+  }
+
+  /** The element wait's own hooks firing as its timer rejects it. */
+  async function elementWaitSettles(
+    gated: ReturnType<typeof wdioHookGate>,
+    error?: Error
+  ) {
+    await gated(() =>
+      after('waitUntil', [null, { timeout: 300 }], undefined, error)
+    )
+    await gated(() => after('waitUntil', [], undefined, error))
+    await gated(() => after('waitForExist', [{ timeout: 300 }], !error, error))
+    await gated(() => after('waitForExist', [], !error, error))
+  }
+
+  it.each([
+    ['before', true],
+    ['after', false]
+  ])(
+    "carries an element wait's timeout when its test ends %s the held poll's capture finished",
+    async (_order, endFirst) => {
+      const gated = wdioHookGate()
+      await command('$', ['#missing'], { 'element-6066': 'el-1' })
+      const release = heldScreenshot()
+      const { poll } = await elementWaitHeldInPoll(gated)
+      await elementWaitSettles(gated, TIMEOUT)
+      if (endFirst) {
+        const ended = endTest(TIMEOUT)
+        release()
+        await Promise.all([ended, poll])
+      } else {
+        release()
+        await poll
+        await endTest(TIMEOUT)
+      }
+
+      const wait = rows().find((r) => r.command === 'waitForExist')!
+      expect(closed(wait.id!)).toBe(true)
+      expect(wait.error?.message).toBe(TIMEOUT.message)
+      expect(wait.selector).toBe('#missing')
+      expect(wait.parentId).toBeUndefined()
+      expect(wait.startTime).toBeLessThanOrEqual(wait.timestamp)
+    }
+  )
+
+  it("carries a top-level waitUntil's timeout", async () => {
+    const gated = wdioHookGate()
+    const timeout = new Error('waitUntil condition timed out after 300ms')
+    const args = [async () => false, { timeout: 300 }]
+    await gated(() => before('waitUntil', args, true))
+    await gated(() => before('getText', [], true))
+    const release = heldScreenshot()
+    const poll = gated(() => after('getText', [], 'Welcome'))
+    await gated(() => after('waitUntil', args, undefined, timeout))
+    const ended = endTest(timeout)
+    release()
+    await Promise.all([ended, poll])
+
+    const wait = rows().find((r) => r.command === 'waitUntil')!
+    expect(closed(wait.id!)).toBe(true)
+    expect(wait.error?.message).toBe(timeout.message)
+    expect(rows().find((r) => r.command === 'getText')?.parentId).toBe(wait.id)
+  })
+
+  it('closes a nested wait before the wait whose condition issued it, both with the timeout', async () => {
+    const gated = wdioHookGate()
+    const outerArgs = [async () => false, { timeout: 2000 }]
+    await gated(() => before('waitUntil', outerArgs, true))
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated, TIMEOUT)
+    await gated(() => after('waitUntil', outerArgs, undefined, TIMEOUT))
+    const ended = endTest(TIMEOUT)
+    release()
+    await Promise.all([ended, poll])
+
+    const outer = rows().find((r) => r.command === 'waitUntil')!
+    const inner = rows().find((r) => r.command === 'waitForExist')!
+    expect(inner.parentId).toBe(outer.id)
+    expect([outer.error?.message, inner.error?.message]).toEqual([
+      TIMEOUT.message,
+      TIMEOUT.message
+    ])
+    const closes = sent
+      .filter(([scope]) => scope === 'replaceCommand')
+      .map(([, data]) => (data as { command: CommandLog }).command.id)
+    expect(closes.indexOf(inner.id)).toBeLessThan(closes.lastIndexOf(outer.id))
+  })
+
+  it('closes a wait as passed when its afterCommand was skipped and its test passed', async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated)
+    release()
+    await poll
+    await endTest()
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(closed(wait.id!)).toBe(true)
+    expect(wait.error).toBeUndefined()
+  })
+
+  it('closes it when a Cucumber step ends, with the step error', async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated, TIMEOUT)
+    const ended = service.afterStep(undefined, undefined, {
+      error: TIMEOUT.message
+    })
+    release()
+    await Promise.all([ended, poll])
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(closed(wait.id!)).toBe(true)
+    expect(wait.error?.message).toBe(TIMEOUT.message)
+  })
+
+  it("closes it with a step's string error as the runner reported it, ANSI stripped and with no stack of the service's", async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated, TIMEOUT)
+    const ended = service.afterStep(undefined, undefined, {
+      error: `\u001b[31m${TIMEOUT.message}\u001b[39m`
+    })
+    release()
+    await Promise.all([ended, poll])
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(wait.error).toEqual({ name: 'Error', message: TIMEOUT.message })
+  })
+
+  it('leaves an assertion failure on its own row and closes the wait without it', async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated)
+    release()
+    await poll
+    await endTest(new assert.AssertionError({ message: 'title differs' }))
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(closed(wait.id!)).toBe(true)
+    expect(wait.error).toBeUndefined()
+  })
+
+  it("lets the next test's first command keep its row once a poll's capture outlived the timed-out wait", async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated, TIMEOUT)
+    // The capture answers later than the test ends; the next test starts as soon as afterTest resolves.
+    setTimeout(release, 20)
+    await endTest(TIMEOUT)
+    await gated(() => before('url', ['/broken'], true))
+    await gated(() =>
+      after('url', ['/broken'], undefined, new Error('net::ERR_FAILED'))
+    )
+    await poll
+
+    expect(rows().find((r) => r.command === 'url')?.error?.message).toBe(
+      'net::ERR_FAILED'
+    )
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(rows().filter((r) => r.parentId === wait.id)).toHaveLength(1)
+  })
+
+  it('leaves a wait its own hook closed as it was', async () => {
+    await elementWait([false, true])
+    const before = [...sent]
+    await endTest()
+
+    expect(sent).toEqual(before)
+    expect(
+      rows().find((r) => r.command === 'waitForExist')?.error
+    ).toBeUndefined()
+  })
+
+  it("keeps the error its own hook recorded rather than the test's", async () => {
+    await elementWait([false], TIMEOUT)
+    await endTest(new Error('a later assertion'))
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(wait.error?.message).toBe(TIMEOUT.message)
+  })
+})
+
 /** A run-long log already holding `earlier` rows, counting every element a lookup reads. */
 function channel(earlier: number) {
   const rows: CommandLog[] = Array.from({ length: earlier }, (_, i) => ({
@@ -481,5 +750,33 @@ describe('WaitRows lookups', () => {
       ['getText', 2],
       ['waitUntil', id]
     ])
+  })
+})
+
+describe('HooksInFlight', () => {
+  it('returns the hook it tracks and settles once every tracked hook has, a rejected one included', async () => {
+    const hooks = new HooksInFlight()
+    const hook = Promise.reject(new Error('hook failed'))
+    expect(hooks.track(hook)).toBe(hook)
+    await expect(hook).rejects.toThrow('hook failed')
+    let release = () => {}
+    hooks.track(new Promise<void>((resolve) => (release = resolve)))
+    const settled = hooks.settled(1000)
+    release()
+    expect(await settled).toBe(true)
+  })
+
+  it('gives up on a wedged hook after its ceiling', async () => {
+    vi.useFakeTimers()
+    try {
+      const hooks = new HooksInFlight()
+      hooks.track(new Promise<void>(() => {}))
+      const settled = hooks.settled(1000)
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(await settled).toBe(false)
+      expect(await hooks.settled(1000)).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

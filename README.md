@@ -227,7 +227,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 <!-- capability-matrix:readme-trace:end -->
 
-In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI. The WebdriverIO service prints the path of each trace it wrote when its worker finishes.
 
 | Adapter | How to enable |
 |---|---|

@@ -36,6 +36,7 @@ import {
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
+import { toCommandError } from './assert-capture.js'
 import { directProbes } from './direct-probes.js'
 import type { CommandNesting } from './command-stack.js'
 import { WaitRows } from './wait-rows.js'
@@ -291,6 +292,13 @@ export class SessionCapturer extends SessionCapturerBase {
     this.commandsLog.push(entry)
     const id = this.sendCommand(entry)
     this.#retryTracker.recordCapture(sig, id)
+  }
+
+  /** Closes a wait left open when its test or step ended, with that test's failure or as passed; an assertion failure stays on its own row. */
+  closeOpenWait(id: number, testError: unknown): void {
+    this.#restoreWaitSelector(id)
+    this.#waitRows.closeOpen(id, toCommandError(testError))
+    this.#retryTracker.reset()
   }
 
   /** Drop retry state at test/scenario boundaries so a deliberate re-issue of
