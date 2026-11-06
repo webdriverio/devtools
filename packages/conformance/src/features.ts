@@ -23,8 +23,9 @@ const SELENIUM = ADAPTER_TESTS['selenium-devtools']
 const NIGHTWATCH = ADAPTER_TESTS['nightwatch-devtools']
 const PYTHON = ADAPTER_TESTS['selenium-devtools-py']
 
-// appium-interceptor is an Android plugin; iOS app traffic needs a device or proxy capture outside the adapters.
-const onAndroid = (path: string) => covered(path, 'Android')
+// iOS app traffic needs a device or proxy capture outside the adapters.
+const ANDROID_ONLY = 'Android only; appium-interceptor is an Android plugin.'
+const onAndroid = (path: string) => covered(path, ANDROID_ONLY)
 const NEEDS_APPIUM_WEB = (demo: string) =>
   `Needs an Appium device; check by hand with \`DEVTOOLS_MOBILE=web pnpm ${demo}\`.`
 const NEEDS_IOS = (demo: string) =>
@@ -85,7 +86,7 @@ export const FEATURES = [
     cells: {
       'devtools-service': covered(
         `${WDIO}screencast.test.ts`,
-        'CDP push (Chrome), polling elsewhere'
+        'Chrome streams over CDP; other browsers poll.'
       ),
       'selenium-devtools': covered(
         `${SELENIUM}screencast.test.ts`,
@@ -97,7 +98,7 @@ export const FEATURES = [
       ),
       'selenium-devtools-py': covered(
         `${PYTHON}test_cdp_screencast.py`,
-        'CDP push (Chromium), one frame per command elsewhere'
+        'Chromium streams over CDP; other browsers take one frame per command.'
       )
     }
   },
@@ -195,11 +196,11 @@ export const FEATURES = [
     cells: {
       'devtools-service': byHand(
         'No test covers the service attaching BiDi by itself; check by hand with `pnpm demo:wdio`.',
-        'auto'
+        'Attached by itself when the session supports BiDi.'
       ),
       'selenium-devtools': byHand(
         'No test covers `webSocketUrl` being set on the Builder and BiDi attached; check by hand with `pnpm demo:selenium`.',
-        'auto'
+        'Attached by itself when the session supports BiDi.'
       ),
       'nightwatch-devtools': partial(
         'Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.',
@@ -207,7 +208,7 @@ export const FEATURES = [
       ),
       'selenium-devtools-py': covered(
         `${PYTHON}test_instrumentation.py`,
-        'auto'
+        'Attached by itself when the session supports BiDi.'
       )
     }
   },
@@ -341,7 +342,7 @@ export const FEATURES = [
       ),
       'selenium-devtools': byHand(
         'No unit test asserts the window stays shut; check by hand with `openUi: false` on the Selenium example.',
-        '`openUi: false`'
+        'Turn it off with `openUi: false`.'
       ),
       'nightwatch-devtools': partial(
         'Nightwatch always opens the dashboard in live mode.',
@@ -349,7 +350,7 @@ export const FEATURES = [
       ),
       'selenium-devtools-py': covered(
         `${PYTHON}test_lifecycle.py`,
-        '`DEVTOOLS_OPEN=0`'
+        'Turn it off with `DEVTOOLS_OPEN=0`.'
       )
     }
   },
@@ -390,7 +391,7 @@ export const FEATURES = [
       'devtools-service': partial(REASONS.SAFARI_FOCUS_ONCE, 'once'),
       'selenium-devtools': byHand(
         'No test covers the Safari window switch before an input; check live on desktop Safari.',
-        'before each element input'
+        'Brings Safari to the front before each element click, type, clear and submit.'
       ),
       'nightwatch-devtools': partial(REASONS.SAFARI_FOCUS_ONCE, 'once'),
       'selenium-devtools-py': partial(REASONS.SAFARI_FOCUS_ONCE, 'once')

@@ -233,18 +233,19 @@ describe('renderTable', () => {
       cells: allCells(byRule([RULES.failureRecorded]))
     })
     expect(renderTable('cross-framework', [proven])).toContain(
-      '| Probe | ✅ | ✅ | ✅ | ✅ |'
+      '| Probe | ✓ | ✓ | ✓ | ✓ |'
     )
     expect(renderTable('cross-framework', [feature()])).toContain(
-      `| Probe | ✅ | ✅ | ✅ | ✅ |\n\n${LEGEND}`
+      `| Probe | ✓ | ✓ | ✓ | ✓ |\n\n${LEGEND}`
     )
   })
 
-  it('numbers each distinct reason once and lists it under the table', () => {
+  it('shows only the mark and a footnote, numbering each distinct note once under the table', () => {
     const rows = [
       feature({
         cells: {
           ...allCells(BY_HAND),
+          'devtools-service': { ...BY_HAND, label: 'Detail.' },
           'selenium-devtools': {
             support: 'partial',
             label: 'with BiDi',
@@ -263,13 +264,15 @@ describe('renderTable', () => {
       [
         '| Feature | WebdriverIO | Selenium | Nightwatch | Python |',
         '|---|---|---|---|---|',
-        '| Probe | ✅ | ⚠️ with BiDi ¹ | ⚠️ ¹ | ❌ n/a ² |',
+        '| Probe | ✓ ¹ | ◐ ² | ◐ ² | ✕ ³ |',
         '',
         LEGEND,
         '',
-        '¹ Same.',
+        '¹ Detail.',
         '',
-        '² Other.'
+        '² Same.',
+        '',
+        '³ Other.'
       ].join('\n')
     )
   })
@@ -311,7 +314,7 @@ describe('renderParity', () => {
         'Features not supported by every adapter: 1 of 2',
         '',
         'gap: Gap',
-        '  Nightwatch: ⚠️ opt-in. Why.',
+        '  Nightwatch: ◐ opt-in. Why.',
         '',
         'Cells: 3 conformance-tested, 0 unit-tested, 4 checked by hand, 1 partial or unsupported'
       ].join('\n')
