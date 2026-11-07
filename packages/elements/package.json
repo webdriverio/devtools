@@ -44,7 +44,6 @@
     "@types/node": "26.6.4",
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
-    "@wdio/globals": "10.2.0",
     "@wdio/snapshot": "^10.2.0",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",

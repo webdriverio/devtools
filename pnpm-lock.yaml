@@ -279,7 +279,7 @@ importers:
         specifier: workspace:^
         version: link:../script
       '@wdio/logger':
-        specifier: ^10.2.0
+        specifier: ^10.0.0
         version: 10.2.0
       fastify:
         specifier: ^5.12.5
@@ -451,9 +451,6 @@ importers:
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
-      '@wdio/globals':
-        specifier: 10.2.0
-        version: 10.2.0(expect-webdriverio@8.0.0(@wdio/types@10.2.0)(webdriverio@10.2.0(supports-color@11.0.0)(yauzl@2.10.0)))(webdriverio@10.2.0(supports-color@11.0.0)(yauzl@2.10.0))
       '@wdio/snapshot':
         specifier: ^10.2.0
         version: 10.2.0(supports-color@11.0.0)(webdriverio@10.2.0(supports-color@11.0.0)(yauzl@2.10.0))(yauzl@2.10.0)
@@ -479,7 +476,7 @@ importers:
         specifier: workspace:*
         version: link:../script
       '@wdio/logger':
-        specifier: ^10.2.0
+        specifier: ^10.0.0
         version: 10.2.0
       '@xmldom/xmldom':
         specifier: ^0.9.12
@@ -494,7 +491,7 @@ importers:
         specifier: ^0.1.11
         version: 0.1.11
       webdriverio:
-        specifier: ^10.2.0
+        specifier: ^10.0.2
         version: 10.2.0(supports-color@11.0.0)(yauzl@2.10.0)
       ws:
         specifier: ^8.22.0
@@ -555,7 +552,7 @@ importers:
         specifier: workspace:*
         version: link:../script
       '@wdio/logger':
-        specifier: ^10.2.0
+        specifier: ^10.0.0
         version: 10.2.0
       '@xmldom/xmldom':
         specifier: ^0.9.12
@@ -564,7 +561,7 @@ importers:
         specifier: ^0.1.11
         version: 0.1.11
       webdriverio:
-        specifier: ^10.2.0
+        specifier: ^10.0.2
         version: 10.2.0(supports-color@11.0.0)(yauzl@2.10.0)
       ws:
         specifier: ^8.22.0
