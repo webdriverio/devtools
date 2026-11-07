@@ -178,7 +178,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       await service.before({} as any, [], mockBrowser)
     })
 
-    it('defaults to the viewport and passes an explicit inViewportOnly through', async () => {
+    it('passes the caller options through unchanged', async () => {
       elementsMock.getSnapshot.mockResolvedValue({
         format: 'legacy',
         text: 'T',
@@ -186,51 +186,30 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       })
 
       await getSnapshotCommand()()
-      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
-        viewport: true
-      })
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(
+        mockBrowser,
+        undefined
+      )
 
       await getSnapshotCommand()({ inViewportOnly: false })
       expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
-        viewport: false
+        inViewportOnly: false
       })
     })
 
-    it('reports the legacy failure value without refs', async () => {
-      elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+    it.each(['legacy', 'snapshot'] as const)(
+      'reports nothing rendered as legacy while %s is the configured renderer',
+      async (renderer) => {
+        elementsMock.snapshotRenderer.mockReturnValue(renderer)
+        elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
 
-      await expect(getSnapshotCommand()()).resolves.toEqual({
-        format: 'legacy',
-        text: '[Snapshot unavailable]',
-        elements: {}
-      })
-    })
-
-    it('reports the renderer that ran when the attempt flipped it to legacy', async () => {
-      elementsMock.snapshotRenderer.mockReturnValue('snapshot')
-      elementsMock.getSnapshot.mockImplementation(async () => {
-        elementsMock.snapshotRenderer.mockReturnValue('legacy')
-        throw new Error('@wdio/snapshot failed to load')
-      })
-
-      await expect(getSnapshotCommand()()).resolves.toEqual({
-        format: 'legacy',
-        text: '[Snapshot unavailable]',
-        elements: {}
-      })
-    })
-
-    it('reports the snapshot failure value with empty refs', async () => {
-      elementsMock.snapshotRenderer.mockReturnValue('snapshot')
-      elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
-
-      await expect(getSnapshotCommand()()).resolves.toEqual({
-        format: 'snapshot',
-        text: '[Snapshot unavailable]',
-        elements: {},
-        refs: []
-      })
-    })
+        await expect(getSnapshotCommand()()).resolves.toEqual({
+          format: 'legacy',
+          text: '[Snapshot unavailable]',
+          elements: {}
+        })
+      }
+    )
   })
 
   // Regression: a request the app made after the test's last command was left out of that test's trace.

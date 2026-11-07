@@ -58,12 +58,7 @@ import {
 import { ScreencastLifecycle } from './screencast-lifecycle.js'
 import { attachBidiListeners } from './bidi-listeners.js'
 import { type ServiceOptions, TraceType } from './types.js'
-import type {
-  GetSnapshotOptions,
-  GetSnapshotResult,
-  SnapshotFormat
-} from '@wdio/elements'
-import type * as Elements from '@wdio/elements'
+import type { GetSnapshotOptions, GetSnapshotResult } from '@wdio/elements'
 import {
   CONTEXT_CHANGE_COMMANDS,
   HOOKS_SETTLE_TIMEOUT_MS,
@@ -318,20 +313,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     browser.addCommand(
       'getSnapshot',
       async (options?: GetSnapshotOptions): Promise<GetSnapshotResult> => {
-        let elements: typeof Elements | undefined
         try {
-          elements = await import('@wdio/elements')
-          // Viewport-only keeps the tree small enough for an agent loop to call repeatedly.
-          return await elements.getSnapshot(browser, {
-            viewport: options?.viewport ?? options?.inViewportOnly ?? true
-          })
+          const { getSnapshot } = await import('@wdio/elements')
+          return await getSnapshot(browser, options)
         } catch (err) {
           log.warn(`getSnapshot failed: ${errorMessage(err)}`)
-          const format: SnapshotFormat =
-            elements?.snapshotRenderer() ?? 'legacy'
-          return format === 'snapshot'
-            ? { format, text: '[Snapshot unavailable]', elements: {}, refs: [] }
-            : { format, text: '[Snapshot unavailable]', elements: {} }
+          return {
+            format: 'legacy',
+            text: '[Snapshot unavailable]',
+            elements: {}
+          }
         }
       }
     )
