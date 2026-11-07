@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { mapCommandToAction } from '@wdio/devtools-core'
+import { mapCommandToAction, withTimeout } from '@wdio/devtools-core'
 
 import { INTERNAL_COMMANDS } from './constants.js'
 
@@ -44,6 +44,41 @@ export function runAsServiceWork<T>(work: () => Promise<T>): Promise<T> {
 
 export function isServiceWork(): boolean {
   return serviceWork.getStore() === true
+}
+
+const noop = () => {}
+
+/** The service's own command hooks still running: one outliving its test holds WDIO's hook flag into the next test's first command. */
+export class HooksInFlight {
+  #running = new Set<Promise<void>>()
+
+  /** Returns `hook` itself, so WDIO awaits exactly what it did before; only an observer is attached. */
+  track<T>(hook: Promise<T>): Promise<T> {
+    const done = hook.then(noop, noop)
+    this.#running.add(done)
+    void done.then(() => this.#running.delete(done))
+    return hook
+  }
+
+  /** True once every tracked hook settled within `ms`; a wedged driver must not hold the test's end. */
+  async settled(ms: number): Promise<boolean> {
+    const settled = await withTimeout(
+      this.#drain().then(() => true),
+      ms,
+      false
+    )
+    if (!settled) {
+      // A hook that never settles would otherwise cost every later test end the full ceiling again.
+      this.#running.clear()
+    }
+    return settled
+  }
+
+  async #drain(): Promise<void> {
+    while (this.#running.size > 0) {
+      await Promise.all(this.#running)
+    }
+  }
 }
 
 /** The commands that become rows: the spec's top-of-stack command, and inside a wait each command the wait issued directly. */
@@ -159,6 +194,13 @@ export class CommandStack {
       frame: wait.frame,
       nesting: { id: wait.id, parentId: this.parentId }
     }
+  }
+
+  /** The waits still open, innermost first, forgetting them and every frame: WDIO skips a wait's afterCommand when its timer fires while another hook runs. */
+  takeOpenWaits(): number[] {
+    const ids = this.#waits.map((wait) => wait.id).reverse()
+    this.reset()
+    return ids
   }
 
   reset(): void {
