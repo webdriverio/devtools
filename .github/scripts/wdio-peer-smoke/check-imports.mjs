@@ -58,12 +58,11 @@ async function checkEntryPoints() {
       'WebdriverIO 9 renderer'
     )
   } else if (major === '10') {
-    // Arrives transitively: @wdio/cli 10.2 -> @wdio/session -> @wdio/snapshot.
     assert.ok(
       installedVersions('@wdio/snapshot').some(
         (v) => v.startsWith('10.') && Number(v.split('.')[1]) >= 2
       ),
-      '@wdio/cli 10.2 brings @wdio/snapshot through @wdio/session'
+      'run.sh installs @wdio/snapshot 10.2+ on WebdriverIO 10'
     )
     assert.equal(
       elements.snapshotRenderer(),

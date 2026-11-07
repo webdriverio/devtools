@@ -63,13 +63,6 @@ type Reply = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-const FIXED_REPLIES: Record<string, unknown> = {
-  '/screenshot': BLANK_PNG,
-  '/window/rect': { x: 0, y: 0, width: 1280, height: 720 },
-  '/window': WINDOW_HANDLE,
-  '/window/handles': [WINDOW_HANDLE]
-}
-
 /** A W3C WebDriver over a two-page model with one late-rendered element; without a preload its collector anchors only when a drain forces it. */
 export class FakeWebDriver {
   readonly origin: string
@@ -235,7 +228,19 @@ export class FakeWebDriver {
     if (method === 'POST' && path.startsWith('/execute/')) {
       return this.#executeReply(params)
     }
-    return { value: FIXED_REPLIES[path] ?? null }
+    if (path === '/screenshot') {
+      return { value: BLANK_PNG }
+    }
+    if (path === '/window/rect') {
+      return { value: { x: 0, y: 0, width: 1280, height: 720 } }
+    }
+    if (path === '/window') {
+      return { value: WINDOW_HANDLE }
+    }
+    if (path === '/window/handles') {
+      return { value: [WINDOW_HANDLE] }
+    }
+    return { value: null }
   }
 
   async #navigate(path: string): Promise<Reply> {

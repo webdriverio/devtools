@@ -293,7 +293,7 @@ describe('the fake network', () => {
 
 describe('the fake WebDriver', () => {
   // WebdriverIO 10.1 destructures this before every BiDi execute; a null answer made every script throw unsent.
-  it('answers GET /timeouts with the W3C timeouts object', async () => {
+  it('answers GET /timeouts with the W3C defaults and a POST with null, as Set Timeouts does', async () => {
     const driver = await start('live')
     await session(driver)
     expect(await call(driver, 'GET', '/session/conformance/timeouts')).toEqual({
