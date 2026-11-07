@@ -57,7 +57,7 @@ describe('resolvesWdioSnapshot warnings', () => {
     expect(console.warn).not.toHaveBeenCalled()
   })
 
-  it('warns when the resolved @wdio/snapshot is below 10.2, once', async () => {
+  it('warns when the resolved @wdio/snapshot is outside 10.x from 10.2, once', async () => {
     const { packageVersionOf } = await import('../src/package-version.js')
     const { resolvesWdioSnapshot } = await import('../src/wdio-snapshot.js')
     vi.mocked(packageVersionOf).mockReturnValueOnce('10.1.0')
@@ -66,7 +66,7 @@ describe('resolvesWdioSnapshot warnings', () => {
     expect(resolvesWdioSnapshot()).toBe(false)
     expect(console.warn).toHaveBeenCalledTimes(1)
     expect(vi.mocked(console.warn).mock.calls[0][0]).toContain(
-      '@wdio/snapshot 10.1.0 is installed but the snapshot renderer needs 10.2 or later'
+      '@wdio/snapshot 10.1.0 is installed but the snapshot renderer supports 10.x from 10.2'
     )
   })
 })

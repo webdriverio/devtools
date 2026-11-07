@@ -31,21 +31,3 @@ export interface SnapshotRef {
   name?: string
   candidates: SnapshotCandidate[]
 }
-
-export interface SnapshotNode {
-  role: string
-  name?: string
-  ref?: string
-  value?: string
-  states?: string[]
-  url?: string
-  box?: number[]
-  note?: string
-  hint?: string
-  intent?: string
-  hidden?: boolean
-  interactive?: boolean
-  selector?: string
-  selectorPositional?: boolean
-  children?: SnapshotNode[]
-}

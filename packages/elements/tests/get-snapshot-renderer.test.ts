@@ -71,9 +71,8 @@ describe('getSnapshot renderer routing', () => {
 
   it.each([
     [{}, true],
-    [{ inViewportOnly: false }, false],
-    [{ viewport: false }, false],
-    [{ viewport: true, inViewportOnly: false }, true]
+    [{ inViewportOnly: true }, true],
+    [{ inViewportOnly: false }, false]
   ])(
     'maps options %j to the legacy viewport flag %s',
     async (options, expected) => {
@@ -119,9 +118,8 @@ describe('getSnapshot on the @wdio/snapshot renderer', () => {
 
   it.each([
     [{}, true],
-    [{ inViewportOnly: false }, false],
-    [{ viewport: false }, false],
-    [{ viewport: true, inViewportOnly: false }, true]
+    [{ inViewportOnly: true }, true],
+    [{ inViewportOnly: false }, false]
   ])('maps options %j to the viewport flag %s', async (options, expected) => {
     await getSnapshot(browser, options)
 

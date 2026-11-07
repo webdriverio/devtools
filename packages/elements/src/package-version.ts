@@ -22,8 +22,9 @@ export function packageVersionOf(
           name?: string
           version?: string
         }
-        if (pkg.name === name) {
-          return pkg.version
+        // A nameless manifest (`{"type":"module"}` in build/) sits inside the package; a named one is its root.
+        if (pkg.name) {
+          return pkg.name === name ? pkg.version : undefined
         }
       }
       const parent = dirname(dir)

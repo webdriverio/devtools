@@ -15,8 +15,6 @@ const frameHint = (ref: string) => `wdio session frame ${ref}`
 
 const NATIVE_PLATFORMS = new Set(['android', 'ios', 'mac', 'windows'])
 
-const CLASSIC_FAILURES_BEFORE_BIDI = 2
-
 let loadFailureLogged = false
 
 let loadFailed = false
@@ -33,7 +31,7 @@ export function resolvesWdioSnapshot(): boolean {
       }
       if (version) {
         console.warn(
-          `@wdio/elements: @wdio/snapshot ${version} is installed but the snapshot renderer needs 10.2 or later, using the legacy snapshot renderer`
+          `@wdio/elements: @wdio/snapshot ${version} is installed but the snapshot renderer supports 10.x from 10.2, using the legacy snapshot renderer`
         )
       }
       return false
@@ -158,23 +156,26 @@ function collectPrintedSelectors(
   node.children?.forEach((child) => collectPrintedSelectors(child, printed))
 }
 
-const classicFailures = new WeakMap<WebdriverIO.Browser, number>()
+// Keyed by session id: reloadSession() keeps the browser object but starts a session that may support classic.
+const classicUnavailableIn = new WeakMap<WebdriverIO.Browser, string>()
 
 async function collectWebTree(
   snapshot: WdioSnapshotModule,
   browser: WebdriverIO.Browser,
   viewport: boolean
 ) {
-  const failures = classicFailures.get(browser) ?? 0
-  const classic = browser.isBidi && failures < CLASSIC_FAILURES_BEFORE_BIDI
+  const latched =
+    classicUnavailableIn.has(browser) &&
+    classicUnavailableIn.get(browser) === browser.sessionId
+  const classic = browser.isBidi && !latched
   const result = await snapshot.collectWeb(
     browser,
     { counter: 0, all: false, boxes: false, viewport, assignRefs: 'ephemeral' },
-    // 'bidi' is browser.execute; 'classic-first' applies only under BiDi, until executeScript fails CLASSIC_FAILURES_BEFORE_BIDI times in a row.
+    // Same latch as @wdio/session's collectTop: one classic failure sends every later call straight to execute.
     { transport: classic ? 'classic-first' : 'bidi' }
   )
-  if (classic) {
-    classicFailures.set(browser, result.classicUnavailable ? failures + 1 : 0)
+  if (result.classicUnavailable) {
+    classicUnavailableIn.set(browser, browser.sessionId)
   }
   return result
 }
@@ -213,6 +214,7 @@ async function collectNative(
   if (!size?.width || !size?.height) {
     return parsed
   }
+  // An empty cut renders the whole tree, as `wdio session snapshot` does.
   const tree =
     snapshot.inViewport(parsed.tree, size.width, size.height) ?? parsed.tree
   const shown = refIds(tree)

@@ -3,14 +3,14 @@ import { installedWebdriverioVersion } from '../src/webdriverio-version.js'
 import { rendersWithWdioSnapshot } from '../src/snapshot-version.js'
 
 describe('rendersWithWdioSnapshot', () => {
-  it.each(['9.32.0', '10.1.0', '10.1.9'])(
+  it.each(['9.32.0', '10.1.0', '10.1.9', '11.0.0', '11.0.0-alpha.1'])(
     'keeps the legacy renderer on %s',
     (version) => {
       expect(rendersWithWdioSnapshot(version)).toBe(false)
     }
   )
 
-  it.each(['10.2.0-beta.1', '10.2.0-rc.1', '10.2.0', '11.0.0'])(
+  it.each(['10.2.0-beta.1', '10.2.0-rc.1', '10.2.0', '10.11.3'])(
     'renders with @wdio/snapshot on %s',
     (version) => {
       expect(rendersWithWdioSnapshot(version)).toBe(true)

@@ -69,7 +69,7 @@ describe('getSnapshot (web)', () => {
 
   it('passes viewport through, and uses the bidi transport on a classic session', async () => {
     const b = browser({ isBidi: false })
-    await getSnapshot(b, { viewport: true })
+    await getSnapshot(b, { inViewportOnly: true })
 
     expect(snap.collectWeb).toHaveBeenCalledWith(
       b,
@@ -78,7 +78,7 @@ describe('getSnapshot (web)', () => {
     )
   })
 
-  it('stops trying classic execute on a BiDi browser after two failures in a row', async () => {
+  it('stops trying classic execute on a BiDi browser after one failure, as the CLI does', async () => {
     const actual = await vi.importActual<typeof snap>('@wdio/snapshot')
     vi.mocked(snap.collectWeb).mockImplementation(actual.collectWeb)
     const executeScript = vi.fn().mockRejectedValue(new Error('unsupported'))
@@ -91,45 +91,38 @@ describe('getSnapshot (web)', () => {
     await getSnapshot(b)
     await getSnapshot(b)
 
-    expect(executeScript).toHaveBeenCalledTimes(2)
+    expect(executeScript).toHaveBeenCalledTimes(1)
     expect(execute).toHaveBeenCalledTimes(3)
     expect(
       vi.mocked(snap.collectWeb).mock.calls.map((call) => call[2])
     ).toEqual([
       { transport: 'classic-first' },
-      { transport: 'classic-first' },
+      { transport: 'bidi' },
       { transport: 'bidi' }
     ])
   })
 
-  it('resets the classic failure count when classic execute succeeds', async () => {
+  it('tries classic again after reloadSession starts a new session on the same browser', async () => {
     const actual = await vi.importActual<typeof snap>('@wdio/snapshot')
     vi.mocked(snap.collectWeb).mockImplementation(actual.collectWeb)
-    const failure = new Error('unsupported')
-    const executeScript = vi
-      .fn()
-      .mockRejectedValueOnce(failure)
-      .mockResolvedValueOnce({ tree: TREE, refs: REFS, counter: 1 })
-      .mockRejectedValueOnce(failure)
-      .mockRejectedValueOnce(failure)
     const b = browser({
       isBidi: true,
-      executeScript,
+      sessionId: 'first',
+      executeScript: vi.fn().mockRejectedValue(new Error('unsupported')),
       execute: vi.fn().mockResolvedValue({ tree: TREE, refs: REFS, counter: 1 })
     })
 
-    for (let call = 0; call < 5; call++) {
-      await getSnapshot(b)
-    }
+    await getSnapshot(b)
+    await getSnapshot(b)
+    ;(b as { sessionId: string }).sessionId = 'second'
+    await getSnapshot(b)
 
     expect(
       vi.mocked(snap.collectWeb).mock.calls.map((call) => call[2])
     ).toEqual([
       { transport: 'classic-first' },
-      { transport: 'classic-first' },
-      { transport: 'classic-first' },
-      { transport: 'classic-first' },
-      { transport: 'bidi' }
+      { transport: 'bidi' },
+      { transport: 'classic-first' }
     ])
   })
 
@@ -293,7 +286,7 @@ describe('getSnapshot (native)', () => {
 
   it('renders the full page source when viewport is false', async () => {
     const b = nativeBrowser()
-    await getSnapshot(b, { viewport: false })
+    await getSnapshot(b, { inViewportOnly: false })
 
     expect(b.getWindowSize).not.toHaveBeenCalled()
     expect(snap.inViewport).not.toHaveBeenCalled()
@@ -303,10 +296,12 @@ describe('getSnapshot (native)', () => {
   it('cuts to the window size when viewport is set, keeping the tree if nothing remains', async () => {
     const b = nativeBrowser()
     vi.mocked(snap.inViewport).mockReturnValue(undefined)
-    await getSnapshot(b, { viewport: true })
+    await getSnapshot(b, { inViewportOnly: true })
 
     expect(snap.inViewport).toHaveBeenCalledWith(expect.anything(), 1080, 2400)
     const rendered = vi.mocked(snap.formatSnapshot).mock.calls[0][0]
+    const parsed = vi.mocked(snap.parseNativeSource).mock.results[0].value
+    expect(rendered).toBe(parsed.tree)
     expect(rendered).toBe(vi.mocked(snap.attachSelectors).mock.calls[0][0])
   })
 
@@ -351,7 +346,9 @@ describe('getSnapshot (native)', () => {
       children: [{ role: 'button', ref: 'e2' }]
     })
 
-    const { refs = [] } = await getSnapshot(nativeBrowser(), { viewport: true })
+    const { refs = [] } = await getSnapshot(nativeBrowser(), {
+      inViewportOnly: true
+    })
 
     expect(refs.map((ref) => ref.id)).toEqual(['e2'])
   })
@@ -373,7 +370,7 @@ describe('getSnapshot (native)', () => {
       getWindowSize: vi.fn().mockResolvedValue({ width: 0, height: 0 })
     })
 
-    const { refs = [] } = await getSnapshot(b, { viewport: true })
+    const { refs = [] } = await getSnapshot(b, { inViewportOnly: true })
 
     expect(snap.inViewport).not.toHaveBeenCalled()
     expect(refs.map((ref) => ref.id)).toEqual(['e1', 'e2'])

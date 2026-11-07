@@ -1,4 +1,4 @@
-/** Legacy renderer: used when @wdio/snapshot is absent or below 10.2. */
+/** Legacy renderer: used unless `snapshotRenderer()` (get-snapshot.ts) picks `snapshot` and @wdio/snapshot then loads. */
 
 import type { SnapshotResult } from '@wdio/devtools-core/element-types'
 import {
@@ -22,10 +22,6 @@ export async function getSnapshot(
   }
   return getWebSnapshot(browser, inViewportOnly)
 }
-
-// ---------------------------------------------------------------------------
-// Web
-// ---------------------------------------------------------------------------
 
 async function getWebSnapshot(
   browser: WebdriverIO.Browser,
@@ -55,10 +51,6 @@ function buildWebHeader(title?: string, url?: string): string {
   h += ']'
   return h
 }
-
-// ---------------------------------------------------------------------------
-// Mobile
-// ---------------------------------------------------------------------------
 
 async function getMobileSnapshot(
   browser: WebdriverIO.Browser,
@@ -113,10 +105,6 @@ function buildMobileHeader(
   h += ']'
   return h
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function getDeviceName(browser: WebdriverIO.Browser): string {
   try {

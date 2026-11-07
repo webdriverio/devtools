@@ -13,8 +13,6 @@ export type SnapshotFormat = 'legacy' | 'snapshot'
 export interface GetSnapshotOptions {
   /** Only include what intersects the viewport (default true on both renderers). */
   inViewportOnly?: boolean
-  /** Same as `inViewportOnly`; wins when both are set. */
-  viewport?: boolean
 }
 
 export interface GetSnapshotResult {
@@ -26,7 +24,7 @@ export interface GetSnapshotResult {
   refs?: SnapshotRef[]
 }
 
-/** `snapshot` when WebdriverIO and @wdio/snapshot are both 10.2 or later, else `legacy`. */
+/** `snapshot` when WebdriverIO and @wdio/snapshot are both 10.x from 10.2, else `legacy`. */
 export function snapshotRenderer(): SnapshotFormat {
   return usesWdioSnapshot() &&
     resolvesWdioSnapshot() &&
@@ -40,7 +38,7 @@ export async function getSnapshot(
   browser: WebdriverIO.Browser,
   options: GetSnapshotOptions = {}
 ): Promise<GetSnapshotResult> {
-  const viewport = options.viewport ?? options.inViewportOnly ?? true
+  const viewport = options.inViewportOnly ?? true
   const rendered =
     snapshotRenderer() === 'snapshot'
       ? await renderWdioSnapshot(browser, viewport)

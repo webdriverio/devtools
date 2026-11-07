@@ -21,10 +21,29 @@ describe('packageVersionOf', () => {
     expect(packageVersionOf(entry, '@wdio/snapshot')).toBe('10.1.0')
   })
 
-  it('returns undefined when the nearest package has another name', () => {
-    const entry = fixturePackage('@wdio/other', '10.2.0')
+  it('stops at the nearest named package even when an outer one matches', () => {
+    const outer = dirname(dirname(fixturePackage('@wdio/snapshot', '10.2.0')))
+    const inner = join(outer, 'node_modules', '@wdio', 'other')
+    mkdirSync(join(inner, 'build'), { recursive: true })
+    writeFileSync(
+      join(inner, 'package.json'),
+      JSON.stringify({ name: '@wdio/other', version: '1.0.0' })
+    )
+    writeFileSync(join(inner, 'build', 'index.js'), '')
 
-    expect(packageVersionOf(entry, '@wdio/snapshot')).toBeUndefined()
+    expect(
+      packageVersionOf(join(inner, 'build', 'index.js'), '@wdio/snapshot')
+    ).toBeUndefined()
+  })
+
+  it('walks past a nameless nested manifest to the package root', () => {
+    const entry = fixturePackage('@wdio/snapshot', '10.2.0')
+    writeFileSync(
+      join(dirname(entry), 'package.json'),
+      JSON.stringify({ type: 'module' })
+    )
+
+    expect(packageVersionOf(entry, '@wdio/snapshot')).toBe('10.2.0')
   })
 
   it('warns and returns undefined when the manifest cannot be parsed', () => {

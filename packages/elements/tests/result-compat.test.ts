@@ -26,3 +26,22 @@ describe('GetSnapshotResult compatibility', () => {
     expect(usesPreFormatTypes).toBeTypeOf('function')
   })
 })
+
+describe('public entry', () => {
+  it('exports only the 1.x values plus the renderer additions', async () => {
+    const entry = await import('../src/index.js')
+    expect(Object.keys(entry).sort()).toEqual(
+      [
+        'getInteractableBrowserElements',
+        'getBrowserAccessibilityTree',
+        'getMobileVisibleElements',
+        'getElements',
+        'serializeWebSnapshot',
+        'serializeMobileSnapshot',
+        'getSnapshot',
+        'snapshotRenderer',
+        'SnapshotError'
+      ].sort()
+    )
+  })
+})

@@ -22,13 +22,7 @@ export type { VisibleElementsResult } from './get-elements.js'
 
 export type { JSONElement } from './locators/index.js'
 
-export {
-  serializeWebSnapshot,
-  serializeMobileSnapshot,
-  buildSnapshot,
-  accessibilityNodesToSnapshotNodes,
-  jsonElementToSnapshotNodes
-} from './snapshot.js'
+export { serializeWebSnapshot, serializeMobileSnapshot } from './snapshot.js'
 export type {
   WebSnapshotOptions,
   MobileSnapshotOptions,
@@ -46,6 +40,5 @@ export { SnapshotError } from './snapshot-error.js'
 export type {
   CandidateKind,
   SnapshotCandidate,
-  SnapshotNode,
   SnapshotRef
 } from './snapshot-types.js'
