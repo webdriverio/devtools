@@ -19,7 +19,7 @@ Every manifest you pass is pushed as one run. Use `--run-id` to name the run in 
 
 ## Recording side
 
-Record with `mode: 'trace'`, `traceGranularity: 'test'` and `tracePolicy: 'on'`, with `emitArtifactsManifest: true`. The option is off by default; WebdriverIO and Selenium still write the manifest when they detect an Allure reporter, Nightwatch only with the option. `'test'` granularity gives each test its own zip; with session or spec granularity the zips are shared, so those tests get their log record but no trace (with a warning). `tracePolicy: 'on'` keeps every zip. See the NOT SUPPORTED section for why.
+Record with `mode: 'trace'`, `traceGranularity: 'test'` and `tracePolicy: 'on'`, with `emitArtifactsManifest: true`. The option is off by default; WebdriverIO still writes the manifest when `@wdio/allure-reporter` is configured and Selenium when an allure-js-commons runtime is active; Nightwatch writes it only with the option. `'test'` granularity gives each test its own zip; with session or spec granularity the zips are shared, so those tests get their log record but no trace (with a warning). `tracePolicy: 'on'` keeps every zip. See the NOT SUPPORTED section for why.
 
 ## Configuration
 
