@@ -134,7 +134,7 @@ The provisioned dashboard currently filters on `service_name="devtools-tests"`. 
 
 ## Sample queries
 
-These are starting points to adapt, not tested dashboards. Loki stores the record's attributes as structured metadata, and the names below assume dots are sanitized to underscores (`test.case.result.status` becomes `test_case_result_status`). That has not been verified. Check the actual names in Grafana Explore and adjust.
+These are starting points to adapt, not tested dashboards. Loki stores the record's attributes as structured metadata with dots sanitized to underscores (`test.case.result.status` becomes `test_case_result_status`), and `service_name` is the only stream label.
 
 **LogQL**
 
