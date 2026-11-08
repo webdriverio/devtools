@@ -184,6 +184,17 @@ function deriveAncestorKind(
   return 'suite'
 }
 
+// SuiteStats carries no retry count; a scenario's steps are stamped with the scenario's attempt.
+function scenarioAttempt(suite: SuiteStats): number {
+  let attempt = 0
+  for (const entry of suite.tests ?? []) {
+    if (typeof entry === 'object' && entry !== null) {
+      attempt = Math.max(attempt, entry.retries ?? 0)
+    }
+  }
+  return attempt
+}
+
 /**
  * Recursive walk over suite trees collecting every test's metadata entry —
  * uid → title/specFile/state/attempt plus the ancestor chain (outermost
@@ -214,6 +225,7 @@ export function collectSuiteTestMetadata(
         title: suite.title,
         specFile: suite.file,
         state: suite.state,
+        attempt: scenarioAttempt(suite),
         ancestry: ancestors
       })
     }
