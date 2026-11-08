@@ -254,6 +254,95 @@ describe('pushRun span tree', () => {
     expect(root.attributes[attr.ATTR_ERROR_MESSAGE]).toBe('not visible')
   })
 
+  it('attributes a failed test to its failed wait, not a poll the wait retried past', async () => {
+    const events = [
+      contextOptions,
+      {
+        type: 'before',
+        callId: 'w',
+        startTime: 1000,
+        class: 'Element',
+        method: 'waitForDisplayed',
+        pageId: 'p',
+        params: { locator: '#dashboard' },
+        title: 'Element.waitForDisplayed',
+        apiName: 'element.waitForDisplayed'
+      },
+      {
+        type: 'before',
+        callId: 'poll',
+        startTime: 1010,
+        class: 'Element',
+        method: 'isDisplayed',
+        pageId: 'p',
+        params: { locator: '#dashboard' },
+        title: 'Element.isDisplayed',
+        apiName: 'element.isDisplayed',
+        parentId: 'w'
+      },
+      {
+        type: 'after',
+        callId: 'poll',
+        endTime: 1020,
+        error: { message: 'no' }
+      },
+      { type: 'after', callId: 'w', endTime: 1100 },
+      {
+        type: 'before',
+        callId: 'c',
+        startTime: 1200,
+        class: 'Element',
+        method: 'click',
+        pageId: 'p',
+        params: { locator: '#go' },
+        title: 'Element.click',
+        apiName: 'element.click'
+      },
+      { type: 'after', callId: 'c', endTime: 1300, error: { message: 'boom' } }
+    ]
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, await zipOf(events)]])
+    })
+    const root = byName(spans, 'logs in')
+    const erroredActions = spans
+      .filter(
+        (span) =>
+          span.spanContext().spanId !== root.spanContext().spanId &&
+          span.status.code === SpanStatusCode.ERROR
+      )
+      .map((span) => span.name)
+    expect(erroredActions).toEqual(['Element.click'])
+    expect(root.attributes[attr.ATTR_FAILED_ACTION]).toBe('click #go')
+    expect(root.attributes[attr.ATTR_ERROR_MESSAGE]).toBe('boom')
+  })
+
+  it('attributes a failed test to a wait that resolved false', async () => {
+    const events = [
+      contextOptions,
+      {
+        type: 'before',
+        callId: 'w',
+        startTime: 1000,
+        class: 'Element',
+        method: 'waitForDisplayed',
+        pageId: 'p',
+        params: { locator: '#dashboard' },
+        title: 'Element.waitForDisplayed',
+        apiName: 'element.waitForDisplayed'
+      },
+      { type: 'after', callId: 'w', endTime: 1500, result: false }
+    ]
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, await zipOf(events)]])
+    })
+    const wait = byName(spans, 'Element.waitForDisplayed')
+    const root = byName(spans, 'logs in')
+    expect(wait.status.code).toBe(SpanStatusCode.ERROR)
+    expect(root.attributes[attr.ATTR_FAILED_ACTION]).toBe(
+      'waitForDisplayed #dashboard'
+    )
+  })
+
   it('stamps each action with a normalized key and its chronological index', async () => {
     const { spans } = await push()
     const click = byName(spans, 'Element.click')
