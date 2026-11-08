@@ -2,12 +2,13 @@ import fs from 'fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { parse } from '@babel/parser'
+import type { NodePath, Visitor } from '@babel/traverse'
 import type {
-  Node as BabelNode,
-  NodePath,
-  TraverseOptions
-} from '@babel/traverse'
-import type { CallExpression, Identifier, MemberExpression } from '@babel/types'
+  CallExpression,
+  Identifier,
+  MemberExpression,
+  Node as BabelNode
+} from '@babel/types'
 
 import {
   PARSE_PLUGINS,
@@ -24,7 +25,7 @@ import type { StepDef } from '../types.js'
 const require = createRequire(import.meta.url)
 const traverse = (
   require('@babel/traverse') as {
-    default: (parent: BabelNode, opts?: TraverseOptions) => void
+    default: (parent: BabelNode, opts?: Visitor) => void
   }
 ).default
 
