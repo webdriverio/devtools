@@ -936,6 +936,31 @@ describe('pushRun timing', () => {
   })
 })
 
+describe('pushRun error message', () => {
+  it('caps the failure message it pushes', async () => {
+    const manifest = manifestOf({
+      artifacts: [],
+      tests: [
+        {
+          uid: 'uid-long',
+          title: 'long failure',
+          specFile: 'specs/a.spec.ts',
+          state: 'failed',
+          attempt: 0,
+          endTime: EPOCH_2025,
+          error: 'x'.repeat(10_000)
+        }
+      ]
+    })
+    const { logs } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }]
+    })
+    expect(logs[0].attributes[attr.ATTR_ERROR_MESSAGE]).toBe(
+      `${'x'.repeat(4096)}…`
+    )
+  })
+})
+
 describe('pushRun export failure', () => {
   const threeTests = () =>
     manifestOf({

@@ -352,6 +352,32 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(entry?.error).toBeUndefined()
   })
 
+  it("keeps a Cucumber failure's message and drops its stack trace", async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'failing scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'failing scenario' } },
+      {
+        passed: false,
+        error:
+          'AssertionError: expected 2\n+ actual 1\n    at World.<anonymous> (steps.ts:4:9)\n    at run (cucumber.js:1:1)\nCaused by: Error: inner\n    at x (y.ts:1:1)'
+      }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(
+      deterministicUid(uri, 'failing scenario')
+    )
+    expect(entry?.error).toBe('AssertionError: expected 2\n+ actual 1')
+  })
+
   it('stamps a Cucumber scenario state in afterScenario', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
