@@ -480,10 +480,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Stamp final state + the resolved 0-based attempt onto the test's metadata
    *  entry, taking the max of the tracker count and WDIO's retry field. */
-  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
+  #stampOutcome(
+    uid: string,
+    result: TestOutcomeResult | undefined,
+    endTime: number
+  ): void {
     const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
     const attempt = resolveTestAttempt(result, fallback)
-    stampTestState(this.#testMetadata, uid, result, attempt, Date.now())
+    stampTestState(this.#testMetadata, uid, result, attempt, endTime)
     // Feed the per-attempt ledger so session/spec retention sees this attempt's
     // real outcome, not just the final state that overwrites #testMetadata.
     this.#attemptTracker.recordOutcome(
@@ -499,6 +503,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     },
     result?: TestOutcomeResult
   ) {
+    // Read before the hook settle below, which is the service's teardown, not the scenario's.
+    const endTime = Date.now()
     await this.#closeOpenWaits(result?.error)
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     const uid =
@@ -506,7 +512,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (uid) {
       // WDIO's cucumber result.duration is the nanos field of the last step's
       // Duration, not the scenario's span, so the measured wall time stands in.
-      this.#stampOutcome(uid, result && { ...result, duration: undefined })
+      this.#stampOutcome(
+        uid,
+        result && { ...result, duration: undefined },
+        endTime
+      )
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
@@ -517,12 +527,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
+    const endTime = Date.now()
     await this.#closeOpenWaits(result?.error)
     this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      this.#stampOutcome(uid, result, endTime)
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
