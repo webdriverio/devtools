@@ -200,7 +200,13 @@ function emitTree(
       )
       span.end(new Date(child.group.endTime))
     } else {
-      startActionSpan(tracer, actions[child.commandIndex], parent)
+      const span = startActionSpan(tracer, actions[child.commandIndex], parent)
+      emitTree(
+        tracer,
+        child.children ?? [],
+        actions,
+        trace.setSpan(parent, span)
+      )
     }
   }
 }
