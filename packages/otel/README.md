@@ -15,7 +15,7 @@ devtools-otel push out/devtools-artifacts-*.json \
 | `--run-id <id>` | Run identity stamped as `devtools.run.id`. Default: the pushed manifests' sessionIds, sorted and joined with `+`. |
 | `--dry-run` | Print spans and log records to stdout instead of exporting. Needs no collector. |
 
-Every manifest you pass is pushed as one run. Use `--run-id` to name the run in CI. Input problems fail before anything is exported: preflight reads and parses every manifest and every zip it names, and if any is missing or unparseable, nothing is pushed, every problem is listed, and the exit is non-zero. An export failure mid-run is a partial push: the records before the failed one are already pushed, the error reports the count (`<n> of <total> test(s) were pushed before the export failed`), and the exit is non-zero. Rerunning after fixing the collector pushes the whole set again, so the already-pushed records are duplicated.
+Every manifest you pass is pushed as one run. Use `--run-id` to name the run in CI. Input problems fail before anything is exported: preflight reads and parses every manifest and every zip it names, and if any is missing or unparseable, nothing is pushed, every problem is listed, and the exit is non-zero. Records are exported in batches and flushed once at the end, so an export failure can be a partial push: the error names the run size (`the export of <total> test(s) failed`), the exit is non-zero, and some batches may already have reached the collector. Rerunning after fixing the collector pushes the whole set again, so any record already pushed is duplicated.
 
 ## Recording side
 

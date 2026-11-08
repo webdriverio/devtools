@@ -521,19 +521,17 @@ export function planPush(input: PushInput): PushPlan {
     async emit(sink) {
       const ordered = [...prepared].sort((a, b) => a.timeMs - b.timeMs)
       warnIfOutsideLokiWindow(ordered, input.nowMs, input.warn)
-      let pushed = 0
       for (const item of ordered) {
         emitPrepared(sink, item)
-        try {
-          await sink.flush()
-        } catch (error) {
-          throw new Error(
-            `${pushed} of ${ordered.length} test(s) were pushed before the export failed: ${describe(error)}`
-          )
-        }
-        pushed++
       }
-      return pushed
+      try {
+        await sink.flush()
+      } catch (error) {
+        throw new Error(
+          `the export of ${ordered.length} test(s) failed, so some may not have reached the collector: ${describe(error)}`
+        )
+      }
+      return ordered.length
     }
   }
 }
