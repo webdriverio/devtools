@@ -3,13 +3,15 @@ import {
   ConsoleSpanExporter,
   SimpleSpanProcessor,
   TracerProvider,
-  type ReadableSpan
+  type ReadableSpan,
+  type SpanExporter
 } from '@opentelemetry/sdk-trace'
 import {
   BatchLogRecordProcessor,
   ConsoleLogRecordExporter,
   LoggerProvider,
   SimpleLogRecordProcessor,
+  type LogRecordExporter,
   type ReadableLogRecord
 } from '@opentelemetry/sdk-logs'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
@@ -27,7 +29,17 @@ const DEFAULT_SERVICE_NAME = 'devtools-tests'
 const EXPORT_SUCCESS_CODE = 0
 
 // A push emits the whole run synchronously and flushes once, so a bounded queue (2048 by default) silently drops the overflow.
-export const BATCH_LIMITS = { maxQueueSize: Number.MAX_SAFE_INTEGER }
+const BATCH_LIMITS = { maxQueueSize: Number.MAX_SAFE_INTEGER }
+
+export function batchedProcessors(
+  spanExporter: SpanExporter,
+  logExporter: LogRecordExporter
+): { span: BatchSpanProcessor; log: BatchLogRecordProcessor } {
+  return {
+    span: new BatchSpanProcessor({ exporter: spanExporter, ...BATCH_LIMITS }),
+    log: new BatchLogRecordProcessor({ exporter: logExporter, ...BATCH_LIMITS })
+  }
+}
 
 /**
  * The batch processors discard a failed export, so each exporter records its
@@ -80,31 +92,29 @@ export interface Telemetry {
 
 export function createTelemetry(options: { dryRun: boolean }): Telemetry {
   const failures: Error[] = []
+  const batched = options.dryRun
+    ? undefined
+    : batchedProcessors(
+        new FailureRecordingTraceExporter(failures),
+        new FailureRecordingLogExporter(failures)
+      )
   const resource = resourceFromAttributes({
     'service.name': DEFAULT_SERVICE_NAME
   }).merge(detectResources({ detectors: [envDetector] }))
   const tracerProvider = new TracerProvider({
     resource,
     spanProcessors: [
-      options.dryRun
-        ? new SimpleSpanProcessor({ exporter: new ConsoleSpanExporter() })
-        : new BatchSpanProcessor({
-            exporter: new FailureRecordingTraceExporter(failures),
-            ...BATCH_LIMITS
-          })
+      batched?.span ??
+        new SimpleSpanProcessor({ exporter: new ConsoleSpanExporter() })
     ]
   })
   const loggerProvider = new LoggerProvider({
     resource,
     processors: [
-      options.dryRun
-        ? new SimpleLogRecordProcessor({
-            exporter: new ConsoleLogRecordExporter()
-          })
-        : new BatchLogRecordProcessor({
-            exporter: new FailureRecordingLogExporter(failures),
-            ...BATCH_LIMITS
-          })
+      batched?.log ??
+        new SimpleLogRecordProcessor({
+          exporter: new ConsoleLogRecordExporter()
+        })
     ]
   })
   return {
