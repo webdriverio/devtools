@@ -39,15 +39,34 @@ export function cucumberScenarioUid(
 // WDIO's cucumber result.error is Cucumber's formatted stackTrace string, not a message.
 const FRAME_START = /^\s+at /
 const FRAME_LOCATION = /:\d+(?::\d+)?\)?$/
+const CAUSED_BY = /^\s*Caused by:/
 
-function isStackFrame(line: string): boolean {
-  return FRAME_START.test(line) && FRAME_LOCATION.test(line.trimEnd())
+// A stack is a contiguous tail of "at" lines (up to a "Caused by:") holding at least one located frame, so an
+// "at" line inside the message, or a run with no location at all, is never mistaken for one.
+function stackStart(lines: readonly string[]): number {
+  let start = lines.length
+  let tailIsFrames = true
+  let located = false
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!
+    if (CAUSED_BY.test(line)) {
+      tailIsFrames = true
+      located = false
+    } else if (!FRAME_START.test(line)) {
+      tailIsFrames = false
+    } else if (tailIsFrames) {
+      located ||= FRAME_LOCATION.test(line.trimEnd())
+      if (located) {
+        start = i
+      }
+    }
+  }
+  return start
 }
 
 function failureMessage(error: unknown): string {
   const lines = errorMessage(error).split('\n')
-  const frame = lines.findIndex(isStackFrame)
-  return (frame === -1 ? lines : lines.slice(0, frame)).join('\n')
+  return lines.slice(0, stackStart(lines)).join('\n')
 }
 
 /** Canonical test state from a WDIO afterTest/afterScenario result. */
