@@ -2,11 +2,11 @@ services:
   lgtm:
     image: grafana/otel-lgtm:0.37.0
     ports:
-      - "3000:3000"
-      - "4317:4317"
-      - "4318:4318"
-      - "3200:3200"
-      - "3100:3100"
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+      - "127.0.0.1:3200:3200"
+      - "127.0.0.1:3100:3100"
     volumes:
       - lgtm-data:/data
       - ./grafana/devtools-provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/devtools.yaml:ro
@@ -15,8 +15,8 @@ services:
   s3:
     image: rustfs/rustfs:1.0.1
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       RUSTFS_ACCESS_KEY: devtools
       RUSTFS_SECRET_KEY: devtools-secret
