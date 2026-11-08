@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import type { SuiteStats, TestStats } from '@wdio/devtools-shared'
+import { buildArtifactsManifest } from '../../core/src/artifacts-manifest.js'
+import { collectSuiteTestMetadata } from '../../core/src/suite-helpers.js'
 import {
   hasRetentionFilter,
   parseManifest,
@@ -131,5 +134,63 @@ describe('hasRetentionFilter', () => {
       artifacts: [{ ...valid.artifacts[0], retained: false }]
     }
     expect(hasRetentionFilter(filtered)).toBe(true)
+  })
+})
+
+describe('a manifest written from a cucumber suite tree', () => {
+  const step = (uid: string, retries: number): TestStats => ({
+    uid,
+    cid: '0-0',
+    title: uid,
+    fullTitle: `checkout ${uid}`,
+    parent: 'scenario',
+    state: 'passed',
+    start: new Date(0),
+    end: new Date(1),
+    type: 'test',
+    file: '/a.feature',
+    retries,
+    _duration: 1
+  })
+  const suite = (
+    uid: string,
+    tests: TestStats[],
+    suites: SuiteStats[] = []
+  ): SuiteStats => ({
+    uid,
+    cid: '0-0',
+    title: uid,
+    fullTitle: uid,
+    type: 'suite',
+    file: '/a.feature',
+    start: new Date(0),
+    state: 'passed',
+    tests,
+    suites,
+    hooks: [],
+    _duration: 0
+  })
+
+  it('is accepted, with the scenario as the one test on its own attempt', () => {
+    const tree = suite(
+      'feature',
+      [],
+      [suite('scenario', [step('given', 1), step('then', 1)])]
+    )
+    const manifest = buildArtifactsManifest({
+      sessionId: 's1',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([tree])
+    })
+
+    const parsed = parseManifest(
+      JSON.parse(JSON.stringify(manifest)),
+      'manifest.json'
+    )
+
+    expect(parsed.tests).toEqual([
+      expect.objectContaining({ uid: 'scenario', state: 'passed', attempt: 1 })
+    ])
   })
 })
