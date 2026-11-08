@@ -26,6 +26,9 @@ const SCOPE_NAME = '@wdio/devtools-otel'
 const DEFAULT_SERVICE_NAME = 'devtools-tests'
 const EXPORT_SUCCESS_CODE = 0
 
+// A push emits the whole run synchronously and flushes once, so a bounded queue (2048 by default) silently drops the overflow.
+export const BATCH_LIMITS = { maxQueueSize: Number.MAX_SAFE_INTEGER }
+
 /**
  * The batch processors discard a failed export, so each exporter records its
  * failure for `flush` to rethrow, which is what makes the CLI exit non-zero.
@@ -86,7 +89,8 @@ export function createTelemetry(options: { dryRun: boolean }): Telemetry {
       options.dryRun
         ? new SimpleSpanProcessor({ exporter: new ConsoleSpanExporter() })
         : new BatchSpanProcessor({
-            exporter: new FailureRecordingTraceExporter(failures)
+            exporter: new FailureRecordingTraceExporter(failures),
+            ...BATCH_LIMITS
           })
     ]
   })
@@ -98,7 +102,8 @@ export function createTelemetry(options: { dryRun: boolean }): Telemetry {
             exporter: new ConsoleLogRecordExporter()
           })
         : new BatchLogRecordProcessor({
-            exporter: new FailureRecordingLogExporter(failures)
+            exporter: new FailureRecordingLogExporter(failures),
+            ...BATCH_LIMITS
           })
     ]
   })
