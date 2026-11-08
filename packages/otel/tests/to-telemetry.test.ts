@@ -399,6 +399,36 @@ describe('pushRun span tree', () => {
     )
   })
 
+  it("caps a failing action's span status and exception message", async () => {
+    const long = 'y'.repeat(10_000)
+    const events = [
+      contextOptions,
+      {
+        type: 'before',
+        callId: 'c',
+        startTime: 1000,
+        class: 'Element',
+        method: 'click',
+        pageId: 'p',
+        params: { locator: '#go' },
+        title: 'Element.click',
+        apiName: 'element.click'
+      },
+      { type: 'after', callId: 'c', endTime: 1100, error: { message: long } }
+    ]
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, await zipOf(events)]])
+    })
+    const click = byName(spans, 'Element.click')
+    const capped = `${'y'.repeat(4096)}…`
+    expect(click.status.message).toBe(capped)
+    expect(
+      click.events.find((event) => event.name === 'exception')?.attributes?.[
+        'exception.message'
+      ]
+    ).toBe(capped)
+  })
+
   it('stamps each action with a normalized key and its chronological index', async () => {
     const { spans } = await push()
     const click = byName(spans, 'Element.click')
