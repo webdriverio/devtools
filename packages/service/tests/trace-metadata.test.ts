@@ -352,6 +352,47 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(entry?.error).toBeUndefined()
   })
 
+  async function stampedError(error: string): Promise<string | undefined> {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const file = '/proj/specs/stack.spec.ts'
+    service.beforeTest({ file, title: 'fails' } as never)
+    await service.afterTest({ file, title: 'fails' }, undefined, {
+      passed: false,
+      error
+    })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    return ctx.testMetadata.get(deterministicUid(file, 'fails'))?.error
+  }
+
+  it('cuts at a stack whose first frame has no file location', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n    at new Promise (<anonymous>)\n    at foo (a.js:1:2)'
+      )
+    ).toBe('Error: x')
+  })
+
+  it('keeps a located-looking "at" line in the middle of the message', async () => {
+    expect(
+      await stampedError(
+        'Expected:\n  at index 5:10\nReceived: 1\n    at foo (a.js:1:2)'
+      )
+    ).toBe('Expected:\n  at index 5:10\nReceived: 1')
+  })
+
+  it('keeps a trailing "at" line when no located frame follows', async () => {
+    expect(await stampedError('Expected:\n  at least 2')).toBe(
+      'Expected:\n  at least 2'
+    )
+  })
+
   it('keeps a message line that starts with "at" but is not a stack frame', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
