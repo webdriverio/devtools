@@ -105,11 +105,12 @@ function actionInfos(commands: CommandLog[]): ActionInfo[] {
   const retried = retriedRows(commands)
   const infos = new Array<ActionInfo>(commands.length)
   chronological.forEach(({ command, index }, ordinal) => {
+    const failure = effectiveFailure(command, retried)
     infos[index] = {
       command,
       key: actionKey(command),
       ordinal,
-      failure: effectiveFailure(command, retried)
+      failure: failure && { message: capLength(failure.message) }
     }
   })
   return infos
@@ -125,8 +126,8 @@ function status(state: string): string {
   return state
 }
 
-function capLength(message: string | undefined): string | undefined {
-  return message && message.length > MAX_ERROR_MESSAGE_LENGTH
+function capLength(message: string): string {
+  return message.length > MAX_ERROR_MESSAGE_LENGTH
     ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
     : message
 }
@@ -334,7 +335,8 @@ function prepareTest(
       }
     : undefined
   const span = evidence?.span
-  const errorMessage = capLength(test.error ?? failure?.failure?.message)
+  const errorMessage =
+    test.error === undefined ? failure?.failure?.message : capLength(test.error)
   const manifestDurationMs =
     test.startTime !== undefined && test.endTime !== undefined
       ? test.endTime - test.startTime
