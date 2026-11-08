@@ -1,7 +1,7 @@
-// Copied from @opentelemetry/semantic-conventions/incubating (1.43.0), which
-// is not imported: incubating names move between releases, and a consumer of
-// this package should not inherit that churn. tests/attributes.test.ts pins
-// each value to the installed export.
+// Copied from @opentelemetry/semantic-conventions/incubating, which is not
+// imported: incubating names move between releases, and a consumer of this
+// package should not inherit that churn. tests/attributes.test.ts pins each
+// value to the installed export.
 export const ATTR_TEST_CASE_NAME = 'test.case.name'
 export const ATTR_TEST_SUITE_NAME = 'test.suite.name'
 export const ATTR_TEST_CASE_RESULT_STATUS = 'test.case.result.status'
