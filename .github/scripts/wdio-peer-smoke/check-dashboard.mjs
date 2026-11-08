@@ -6,6 +6,7 @@ import path from 'node:path'
 
 const STARTUP_TIMEOUT_MS = 20_000
 const POLL_INTERVAL_MS = 250
+const REQUEST_TIMEOUT_MS = 5_000
 const SCRIPT_DIR = 'node_modules/@wdio/devtools-script'
 
 function freePort() {
@@ -26,7 +27,10 @@ async function waitForPage(url, backend) {
       throw new Error(`the backend exited with code ${backend.exitCode}`)
     }
     try {
-      return await fetch(url)
+      // A backend that accepts and never answers must not outlast the deadline.
+      return await fetch(url, {
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now()))
+      })
     } catch {
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
     }
@@ -54,13 +58,16 @@ async function checkDashboard() {
     assert.match(html, /<title>/, 'GET / has no <title>')
     const bundle = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1]
     assert.ok(bundle, 'the dashboard page names no /assets/*.js bundle')
-    const asset = await fetch(`${base}${bundle}`)
+    const asset = await fetch(`${base}${bundle}`, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    })
     assert.equal(asset.status, 200, `GET ${bundle} answered ${asset.status}`)
   } catch (err) {
     console.error(`backend log:\n${log}`)
     throw err
   } finally {
-    backend.kill()
+    // SIGTERM can be handled and ignored; the job would then wait on the child.
+    backend.kill('SIGKILL')
   }
 }
 
