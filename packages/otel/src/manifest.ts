@@ -65,7 +65,7 @@ function isTest(value: unknown): value is ManifestTest {
   )
 }
 
-/** Cucumber step entries sit in `tests[]` beside their scenario, without a `state`. */
+/** Manifests written before steps were filtered out list each WDIO Cucumber step in `tests[]`, without a `state`. */
 function isStepEntry(value: unknown): boolean {
   return (
     isRecord(value) &&
