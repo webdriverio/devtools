@@ -930,8 +930,8 @@ describe('pushRun timing', () => {
 })
 
 describe('pushRun export failure', () => {
-  it('reports how many records were pushed before a flush failed', async () => {
-    const manifest = manifestOf({
+  const threeTests = () =>
+    manifestOf({
       artifacts: [],
       tests: [0, 1, 2].map((i) => ({
         uid: `uid-${i}`,
@@ -942,19 +942,28 @@ describe('pushRun export failure', () => {
         endTime: EPOCH_2025 + i * 1000
       }))
     })
+
+  it('flushes once for the whole run, so the batch processors batch', async () => {
     let flushes = 0
+    await push({
+      manifests: [{ file: MANIFEST_FILE, manifest: threeTests() }],
+      flush: async () => {
+        flushes++
+      }
+    })
+    expect(flushes).toBe(1)
+  })
+
+  it('names the run size when the flush fails', async () => {
     await expect(
       push({
-        manifests: [{ file: MANIFEST_FILE, manifest }],
+        manifests: [{ file: MANIFEST_FILE, manifest: threeTests() }],
         flush: async () => {
-          flushes++
-          if (flushes === 2) {
-            throw new Error('collector unreachable')
-          }
+          throw new Error('collector unreachable')
         }
       })
     ).rejects.toThrow(
-      '1 of 3 test(s) were pushed before the export failed: collector unreachable'
+      'the export of 3 test(s) failed, so some may not have reached the collector: collector unreachable'
     )
   })
 })
