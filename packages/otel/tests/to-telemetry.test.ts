@@ -430,6 +430,13 @@ describe('pushRun span tree', () => {
       (event) => event.name === attr.EVENT_CONSOLE
     ).length
     expect(consoleCount).toBe(100)
+    const firstConsole = root.events.find(
+      (event) => event.name === attr.EVENT_CONSOLE
+    )
+    expect(firstConsole?.attributes).toEqual({
+      'devtools.console.type': 'error',
+      'devtools.console.message': 'boom 0'
+    })
     const failed = root.events.filter(
       (event) => event.name === attr.EVENT_REQUEST_FAILED
     )
