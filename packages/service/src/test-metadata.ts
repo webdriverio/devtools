@@ -36,6 +36,15 @@ export function cucumberScenarioUid(
     : deterministicUid(uri, name)
 }
 
+// WDIO's cucumber result.error is Cucumber's formatted stackTrace string, not a message.
+const STACK_FRAME_LINE = /\n\s+at /
+
+function failureMessage(error: unknown): string {
+  const message = errorMessage(error)
+  const frame = message.search(STACK_FRAME_LINE)
+  return frame === -1 ? message : message.slice(0, frame)
+}
+
 /** Canonical test state from a WDIO afterTest/afterScenario result. */
 export function resultToState(result: {
   passed?: boolean
@@ -76,7 +85,7 @@ export function stampTestState(
       (entry.startTime === undefined ? undefined : endTime - entry.startTime)
     entry.error =
       isFailedResult(result) && result.error
-        ? errorMessage(result.error)
+        ? failureMessage(result.error)
         : undefined
     if (attempt !== undefined) {
       entry.attempt = attempt

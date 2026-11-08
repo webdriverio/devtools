@@ -26,6 +26,7 @@ const STATE_PASSED = 'passed'
 const STATE_FAILED = 'failed'
 const LOKI_LATE_RECORD_WINDOW_MS = 60 * 60 * 1000
 const RETRY_DIR_SUFFIX = /-retry(\d+)$/
+const MAX_ERROR_MESSAGE_LENGTH = 4096
 
 export interface ManifestInput {
   file: string
@@ -122,6 +123,12 @@ function status(state: string): string {
     return attr.TEST_CASE_RESULT_STATUS_FAIL
   }
   return state
+}
+
+function capLength(message: string | undefined): string | undefined {
+  return message && message.length > MAX_ERROR_MESSAGE_LENGTH
+    ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
+    : message
 }
 
 function stringifyArg(arg: unknown): string {
@@ -327,7 +334,7 @@ function prepareTest(
       }
     : undefined
   const span = evidence?.span
-  const errorMessage = test.error ?? failure?.failure?.message
+  const errorMessage = capLength(test.error ?? failure?.failure?.message)
   const manifestDurationMs =
     test.startTime !== undefined && test.endTime !== undefined
       ? test.endTime - test.startTime

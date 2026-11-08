@@ -72,7 +72,7 @@ These become filterable resource attributes on every log record and span. In the
 | `devtools.test.attempt` | log, root span | Attempt number of the final result |
 | `devtools.duration_ms` | log, root span | The framework-reported duration when the manifest has one; else its `endTime` minus `startTime`; else first action or group start to last action or group end (absent without any of these) |
 | `devtools.time_source` | log, root span | Where the record's timestamp came from: `manifest` (the manifest's `endTime`), `trace` (the zip's first action), or `manifest-file` (the manifest file's mtime, when neither exists) |
-| `error.message` | log, root span | For a failed test: the manifest's failure message when present, else the first failing action's error. On a passing test only the manifest's message, if any; a caught or retried command's error is never used |
+| `error.message` | log, root span | For a failed test: the manifest's failure message when present, else the first failing action's error. On a passing test only the manifest's message, if any; a caught or retried command's error is never used. Capped at 4096 characters |
 | `devtools.failed_action` | log, root span | For a failed test: key of the first failing action in the final attempt's zip. Absent on a passing test |
 | `devtools.run.id` | log, root span | Run identity |
 | `devtools.artifact.url` | log, root span | URL of the retained trace zip |
