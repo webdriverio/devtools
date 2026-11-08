@@ -15,6 +15,7 @@ import path from 'node:path'
 import type {
   ArtifactManifestTest,
   ArtifactsManifest,
+  TestMetadataEntry,
   TestMetadataMap,
   TraceArtifact,
   TraceFormat
@@ -28,10 +29,17 @@ export function artifactsManifestFilename(sessionId: string): string {
   return `devtools-artifacts-${sessionId}.json`
 }
 
-// Steps stay in testMetadata so the trace's step groups can resolve them, but they are not test units.
-function isStepEntry(uid: string, metadata: TestMetadataMap): boolean {
+// Steps stay in testMetadata for the trace's step groups but are not test units; WDIO keys one off its scenario's uid, Selenium and Nightwatch nest it as a test under a scenario suite.
+function isStepEntry(
+  uid: string,
+  meta: TestMetadataEntry,
+  metadata: TestMetadataMap
+): boolean {
   const owner = stepOwnerUid(uid)
-  return owner !== undefined && metadata.has(owner)
+  return (
+    (owner !== undefined && metadata.has(owner)) ||
+    meta.ancestry?.at(-1)?.kind === 'scenario'
+  )
 }
 
 /** Assemble the manifest from the artifacts collected across the run and the
@@ -44,7 +52,7 @@ export function buildArtifactsManifest(input: {
 }): ArtifactsManifest {
   const tests: ArtifactManifestTest[] = []
   for (const [uid, meta] of input.testMetadata) {
-    if (isStepEntry(uid, input.testMetadata)) {
+    if (isStepEntry(uid, meta, input.testMetadata)) {
       continue
     }
     tests.push({

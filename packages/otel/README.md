@@ -81,7 +81,7 @@ These become filterable resource attributes on every log record and span. In the
 
 Error action spans carry status `ERROR` and an exception event. Console `warn`/`error` lines are span events on the root span, with `messageType`. Failed requests (status 0 or 400+) are span events with only the URL pathname (no origin, query or fragment). Each is capped at 100 per test.
 
-Log records share the root span's trace id when a zip exists, so a log links to its trace. Tests with no retained zip, or whose zip covers several tests, still emit a log record, without a trace context; the latter is skipped with a warning on stderr. Cucumber step entries in the manifest (entries without a `state`) are not tests: they get no record of their own, and a scenario zip that also lists its step uids still counts as that one scenario's zip.
+Log records share the root span's trace id when a zip exists, so a log links to its trace. Tests with no retained zip, or whose zip covers several tests, still emit a log record, without a trace context; the latter is skipped with a warning on stderr. Cucumber steps are not tests: the manifest lists only scenarios, so a step gets no record of its own, and a scenario zip that also lists its step uids still counts as that one scenario's zip.
 
 ## Timestamps and late records
 
