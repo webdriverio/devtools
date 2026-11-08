@@ -352,6 +352,28 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(entry?.error).toBeUndefined()
   })
 
+  it('keeps a message line that starts with "at" but is not a stack frame', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const file = '/proj/specs/cart.spec.ts'
+    service.beforeTest({ file, title: 'counts items' } as never)
+    await service.afterTest({ file, title: 'counts items' }, undefined, {
+      passed: false,
+      error:
+        'Expected:\n  at least 2\nReceived: 1\n    at async Context.<anonymous> (cart.spec.ts:4:9)'
+    })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    expect(
+      ctx.testMetadata.get(deterministicUid(file, 'counts items'))?.error
+    ).toBe('Expected:\n  at least 2\nReceived: 1')
+  })
+
   it("keeps a Cucumber failure's message and drops its stack trace", async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
