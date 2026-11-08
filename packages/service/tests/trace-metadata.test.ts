@@ -329,6 +329,29 @@ describe('DevtoolsService - afterTest state stamping', () => {
     }
   })
 
+  it('leaves no failure message on a failed scenario that reported no error', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'pending scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'pending scenario' } },
+      { passed: false }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(
+      deterministicUid(uri, 'pending scenario')
+    )
+    expect(entry?.state).toBe('failed')
+    expect(entry?.error).toBeUndefined()
+  })
+
   it('stamps a Cucumber scenario state in afterScenario', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
