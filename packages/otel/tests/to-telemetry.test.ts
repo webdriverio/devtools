@@ -254,6 +254,62 @@ describe('pushRun span tree', () => {
     expect(root.attributes[attr.ATTR_ERROR_MESSAGE]).toBe('not visible')
   })
 
+  it("nests a wait's polls under its span, a retried poll not marked ERROR", async () => {
+    const events = [
+      contextOptions,
+      {
+        type: 'before',
+        callId: 'g1',
+        startTime: 1000,
+        class: 'Tracing',
+        method: 'tracingGroup',
+        pageId: 'p',
+        params: {},
+        title: 'Login',
+        apiName: 'tracing.group'
+      },
+      {
+        type: 'before',
+        callId: 'w',
+        startTime: 1100,
+        class: 'Element',
+        method: 'waitForDisplayed',
+        pageId: 'p',
+        params: { locator: '#dashboard' },
+        title: 'Element.waitForDisplayed',
+        apiName: 'element.waitForDisplayed',
+        parentId: 'g1'
+      },
+      {
+        type: 'before',
+        callId: 'poll',
+        startTime: 1110,
+        class: 'Element',
+        method: 'isDisplayed',
+        pageId: 'p',
+        params: { locator: '#dashboard' },
+        title: 'Element.isDisplayed',
+        apiName: 'element.isDisplayed',
+        parentId: 'w'
+      },
+      {
+        type: 'after',
+        callId: 'poll',
+        endTime: 1120,
+        error: { message: 'no' }
+      },
+      { type: 'after', callId: 'w', endTime: 1200 },
+      { type: 'after', callId: 'g1', endTime: 1300 }
+    ]
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, await zipOf(events)]])
+    })
+    const wait = byName(spans, 'Element.waitForDisplayed')
+    const poll = byName(spans, 'Element.isDisplayed')
+    expect(poll.parentSpanContext?.spanId).toBe(wait.spanContext().spanId)
+    expect(poll.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
   it('attributes a failed test to its failed wait, not a poll the wait retried past', async () => {
     const events = [
       contextOptions,
