@@ -78,8 +78,17 @@ These become filterable resource attributes on every log record and span. In the
 | `devtools.artifact.url` | log, root span | URL of the retained trace zip |
 | `devtools.action.key` | action span | Method plus its normalized selector; stable across runs, so passing and failing runs line up |
 | `devtools.action.index` | action span | Ordinal of the action within the test |
+| `devtools.action.method` | action span | The command the action ran (`click`, `waitForDisplayed`) |
+| `devtools.action.selector` | action span | Its normalized selector; absent when the command took none |
 
-Error action spans carry status `ERROR` and an exception event. Console `warn`/`error` lines are span events on the root span, with `messageType`. Failed requests (status 0 or 400+) are span events with only the URL pathname (no origin, query or fragment). Each is capped at 100 per test.
+A failed action span carries status `ERROR` and an exception event. A poll that a passing wait retried past is not failed. The commands a wait issued are child spans of the wait's span.
+
+Two span events are added to the root span, each capped at 100 per test:
+
+| Event | Attributes | Recorded for |
+|---|---|---|
+| `console` | `messageType`, `message` | Console `warn` and `error` lines |
+| `http.request.failed` | `url.path`, `http.request.method`, `devtools.network.status` | Requests with status 0 or 400+; the URL is reduced to its pathname (no origin, query or fragment) |
 
 Log records share the root span's trace id when a zip exists, so a log links to its trace. Tests with no retained zip, or whose zip covers several tests, still emit a log record, without a trace context; the latter is skipped with a warning on stderr. Cucumber steps are not tests: the manifest lists only scenarios, so a step gets no record of its own, and a scenario zip that also lists its step uids still counts as that one scenario's zip.
 
