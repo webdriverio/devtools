@@ -19,12 +19,19 @@ import type {
   TraceArtifact,
   TraceFormat
 } from '@wdio/devtools-shared'
+import { stepOwnerUid } from './uid.js'
 
 export type { ArtifactManifestTest, ArtifactsManifest }
 
 /** Deterministic manifest filename for a session (used by writers and readers). */
 export function artifactsManifestFilename(sessionId: string): string {
   return `devtools-artifacts-${sessionId}.json`
+}
+
+// Steps stay in testMetadata so the trace's step groups can resolve them, but they are not test units.
+function isStepEntry(uid: string, metadata: TestMetadataMap): boolean {
+  const owner = stepOwnerUid(uid)
+  return owner !== undefined && metadata.has(owner)
 }
 
 /** Assemble the manifest from the artifacts collected across the run and the
@@ -37,6 +44,9 @@ export function buildArtifactsManifest(input: {
 }): ArtifactsManifest {
   const tests: ArtifactManifestTest[] = []
   for (const [uid, meta] of input.testMetadata) {
+    if (isStepEntry(uid, input.testMetadata)) {
+      continue
+    }
     tests.push({
       uid,
       title: meta.title,
