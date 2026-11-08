@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid } from '@wdio/devtools-core'
+import { HooksInFlight } from '../src/command-stack.js'
 import type { TestMetadataEntry, TestMetadataMap } from '@wdio/devtools-shared'
 import {
   cucumberScenarioUid,
@@ -281,6 +282,51 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(entry?.durationMs).toBe(
       (entry?.endTime ?? NaN) - (entry?.startTime ?? NaN)
     )
+  })
+
+  it('ends a test before the service waits for its own command hooks', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const settle = vi
+      .spyOn(HooksInFlight.prototype, 'settled')
+      .mockImplementation(async () => {
+        vi.setSystemTime(13_000)
+        return true
+      })
+    try {
+      const service = new DevToolsHookService({
+        mode: 'trace',
+        tracePolicy: 'retain-on-failure'
+      })
+      await service.before({} as never, [], mockBrowser)
+      const uri = '/proj/features/cart.feature'
+      const file = '/proj/specs/cart.spec.ts'
+      vi.setSystemTime(1_000)
+      service.beforeScenario({ pickle: { uri, name: 'settling scenario' } })
+      service.beforeTest({ file, title: 'settling test' } as never)
+      vi.setSystemTime(3_000)
+      await service.afterScenario(
+        { pickle: { uri, name: 'settling scenario' } },
+        { passed: true }
+      )
+      vi.setSystemTime(3_000)
+      await service.afterTest({ file, title: 'settling test' }, undefined, {
+        passed: true,
+        duration: 2_000
+      })
+      await service.after()
+      const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+        testMetadata: TestMetadataMap
+      }
+      const scenario = ctx.testMetadata.get(
+        deterministicUid(uri, 'settling scenario')
+      )
+      const test = ctx.testMetadata.get(deterministicUid(file, 'settling test'))
+      expect(scenario).toMatchObject({ endTime: 3_000, durationMs: 2_000 })
+      expect(test?.endTime).toBe(3_000)
+    } finally {
+      settle.mockRestore()
+      vi.useRealTimers()
+    }
   })
 
   it('stamps a Cucumber scenario state in afterScenario', async () => {
