@@ -9,11 +9,13 @@ import {
 } from '@opentelemetry/api'
 import { SeverityNumber, type Logger } from '@opentelemetry/api-logs'
 import { parseTraceZip } from '@wdio/devtools-trace/trace-reader'
-import type {
-  CommandLog,
-  NetworkRequest,
-  TraceActionChild,
-  TracePlayerData
+import {
+  effectiveFailure,
+  retriedRows,
+  type CommandLog,
+  type NetworkRequest,
+  type TraceActionChild,
+  type TracePlayerData
 } from '@wdio/devtools-shared'
 import * as attr from './attributes.js'
 import type { Manifest, ManifestArtifact, ManifestTest } from './manifest.js'
@@ -55,6 +57,7 @@ interface ActionInfo {
   command: CommandLog
   key: string
   ordinal: number
+  failure: { message: string } | undefined
 }
 
 interface Bounds {
@@ -98,9 +101,15 @@ function actionInfos(commands: CommandLog[]): ActionInfo[] {
       (a, b) =>
         actionStart(a.command) - actionStart(b.command) || a.index - b.index
     )
+  const retried = retriedRows(commands)
   const infos = new Array<ActionInfo>(commands.length)
   chronological.forEach(({ command, index }, ordinal) => {
-    infos[index] = { command, key: actionKey(command), ordinal }
+    infos[index] = {
+      command,
+      key: actionKey(command),
+      ordinal,
+      failure: effectiveFailure(command, retried)
+    }
   })
   return infos
 }
@@ -159,12 +168,12 @@ function startActionSpan(
     },
     parent
   )
-  if (command.error) {
+  if (info.failure) {
     span.setStatus({
       code: SpanStatusCode.ERROR,
-      message: command.error.message
+      message: info.failure.message
     })
-    span.recordException({ message: command.error.message })
+    span.recordException({ message: info.failure.message })
   }
   span.end(new Date(Math.max(command.timestamp, actionStart(command))))
   return span
@@ -300,13 +309,13 @@ function prepareTest(
   const failure =
     test.state === STATE_FAILED
       ? actions
-          .filter((action) => action.command.error)
+          .filter((action) => action.failure)
           .sort((a, b) => a.ordinal - b.ordinal)[0]
       : undefined
   const span = data
     ? bounds(actions, data.groups ?? [], data.startTime)
     : undefined
-  const errorMessage = test.error ?? failure?.command.error?.message
+  const errorMessage = test.error ?? failure?.failure?.message
   const manifestDurationMs =
     test.startTime !== undefined && test.endTime !== undefined
       ? test.endTime - test.startTime
