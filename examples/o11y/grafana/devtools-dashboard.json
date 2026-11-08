@@ -56,7 +56,7 @@
         {
           "refId": "A",
           "queryType": "instant",
-          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"pass\" [$__range])) / sum(count_over_time({service_name=\"devtools-tests\"} [$__range]))"
+          "expr": "sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=\"pass\" [$__range])) / sum(count_over_time({service_name=\"devtools-tests\"} | test_case_result_status=~\"pass|fail\" [$__range]))"
         }
       ],
       "id": 1

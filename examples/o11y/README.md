@@ -138,12 +138,12 @@ These are starting points to adapt, not tested dashboards. Loki stores the recor
 
 **LogQL**
 
-Pass rate over the last day:
+Pass rate over the last day, out of the tests that passed or failed (skipped and pending tests keep their own state and are left out):
 
 ```logql
 sum(count_over_time({service_name="devtools-tests"} | test_case_result_status="pass" [1d]))
 /
-sum(count_over_time({service_name="devtools-tests"} [1d]))
+sum(count_over_time({service_name="devtools-tests"} | test_case_result_status=~"pass|fail" [1d]))
 ```
 
 Flaky tests (passed after an in-process retry; `specFileRetries` retries run in a fresh worker and are not counted):
