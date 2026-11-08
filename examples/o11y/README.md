@@ -134,7 +134,7 @@ The provisioned dashboard currently filters on `service_name="devtools-tests"`. 
 
 ## Sample queries
 
-These are starting points to adapt, not tested dashboards. Loki stores the record's attributes as structured metadata with dots sanitized to underscores (`test.case.result.status` becomes `test_case_result_status`), and `service_name` is the only stream label.
+These are starting points to adapt, not tested dashboards. Loki stores the record's attributes as structured metadata with dots sanitized to underscores (`test.case.result.status` becomes `test_case_result_status`). `service_name` is a stream label; `service_namespace` and `deployment_environment_name` become stream labels too when the push sets them through `OTEL_RESOURCE_ATTRIBUTES` (see `packages/otel/README.md`).
 
 **LogQL**
 
