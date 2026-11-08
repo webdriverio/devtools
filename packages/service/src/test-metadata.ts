@@ -37,12 +37,17 @@ export function cucumberScenarioUid(
 }
 
 // WDIO's cucumber result.error is Cucumber's formatted stackTrace string, not a message.
-const STACK_FRAME_LINE = /\n\s+at /
+const FRAME_START = /^\s+at /
+const FRAME_LOCATION = /:\d+(?::\d+)?\)?$/
+
+function isStackFrame(line: string): boolean {
+  return FRAME_START.test(line) && FRAME_LOCATION.test(line.trimEnd())
+}
 
 function failureMessage(error: unknown): string {
-  const message = errorMessage(error)
-  const frame = message.search(STACK_FRAME_LINE)
-  return frame === -1 ? message : message.slice(0, frame)
+  const lines = errorMessage(error).split('\n')
+  const frame = lines.findIndex(isStackFrame)
+  return (frame === -1 ? lines : lines.slice(0, frame)).join('\n')
 }
 
 /** Canonical test state from a WDIO afterTest/afterScenario result. */
