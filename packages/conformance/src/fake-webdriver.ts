@@ -19,6 +19,7 @@ import {
   PAGE_TITLES,
   PAGES,
   PERFORMANCE_SIGNATURE,
+  SESSION_TIMEOUTS,
   SUBRESOURCES,
   WINDOW_HANDLE
 } from './constants.js'
@@ -177,12 +178,18 @@ export class FakeWebDriver {
   ): Reply | undefined {
     if (method === 'POST' && path === '/session') {
       const wantsBidi = JSON.stringify(params).includes('"webSocketUrl":true')
-      const capabilities: Record<string, unknown> = { browserName: 'chrome' }
+      const capabilities: Record<string, unknown> = {
+        browserName: 'chrome',
+        timeouts: { ...SESSION_TIMEOUTS }
+      }
       if (this.#bidi !== 'off' && wantsBidi) {
         capabilities.webSocketUrl = `${this.origin.replace('http', 'ws')}${BIDI_PATH}`
         this.#bidiServed = true
       }
       return { value: { sessionId: 'conformance', capabilities } }
+    }
+    if (method === 'GET' && path === '/timeouts') {
+      return { value: { ...SESSION_TIMEOUTS } }
     }
     if (method === 'DELETE' && path === '') {
       // A browser drops its BiDi socket with the session; one left open holds the adapter's process.

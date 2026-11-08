@@ -10,7 +10,8 @@ import {
   ELEMENT_KEY,
   ELEMENT_TEXT,
   RENDERED_AFTER_MS,
-  RULES
+  RULES,
+  SESSION_TIMEOUTS
 } from '../src/constants.js'
 import { FakeWebDriver } from '../src/fake-webdriver.js'
 import { runAdapter, runScenario } from '../src/harness.js'
@@ -172,6 +173,20 @@ describe('the fake BiDi endpoint', () => {
     ])
     expect(truth.actions.navigate).toHaveLength(2)
     expect(truth.failedNavigations).toHaveLength(1)
+  })
+})
+
+describe('the fake session', () => {
+  // Regression: GET /timeouts answered null, and WebdriverIO 10.1+ failed every BiDi execute on it.
+  it('answers the W3C default timeouts, in the capabilities and over GET /timeouts', async () => {
+    const driver = await start('silent')
+    const { capabilities } = (await session(driver)) as {
+      capabilities: { timeouts?: unknown }
+    }
+    expect(capabilities.timeouts).toEqual(SESSION_TIMEOUTS)
+    expect(await call(driver, 'GET', '/session/conformance/timeouts')).toEqual(
+      SESSION_TIMEOUTS
+    )
   })
 })
 
