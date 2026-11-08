@@ -19,7 +19,7 @@ on:
         default: 'patch'
 
 env:
-  # pnpm 11 publishes without npm and reads no NPM_CONFIG_* variable; without this a failed OIDC exchange publishes with no provenance.
+  # pnpm 11 publishes without npm and ignores NPM_CONFIG_PROVENANCE; without this a failed OIDC exchange publishes with no provenance.
   PNPM_CONFIG_PROVENANCE: true
 
 jobs:
