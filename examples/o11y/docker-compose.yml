@@ -16,7 +16,6 @@ services:
     image: rustfs/rustfs:1.0.1
     ports:
       - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
     environment:
       RUSTFS_ACCESS_KEY: devtools
       RUSTFS_SECRET_KEY: devtools-secret

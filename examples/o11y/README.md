@@ -49,7 +49,7 @@ The plan for the future is to emit telemetry for every test while the local zips
    Add `--dry-run` first if you want to see what would be sent.
 5. Open Grafana at http://localhost:3000. The "WebdriverIO DevTools - Test Results" dashboard is provisioned automatically from `grafana/`.
 
-The OTLP endpoints are `localhost:4317` (gRPC) and `localhost:4318` (HTTP). The local bucket is served by [RustFS](https://github.com/rustfs/rustfs), an S3-compatible store, because MinIO no longer publishes Docker images. Any S3-compatible store works in its place. Its S3 API is on `localhost:9000` with credentials `devtools` / `devtools-secret` (local use only). Port 9001 is published for the RustFS console, but it answers 403 with this configuration.
+The OTLP endpoints are `localhost:4317` (gRPC) and `localhost:4318` (HTTP). The local bucket is served by [RustFS](https://github.com/rustfs/rustfs), an S3-compatible store, because MinIO no longer publishes Docker images. Any S3-compatible store works in its place. Its S3 API is on `localhost:9000` with credentials `devtools` / `devtools-secret` (local use only).
 
 Image tags: `grafana/otel-lgtm:0.37.0`, `rustfs/rustfs:1.0.1`, `amazon/aws-cli:2.37.13`.
 
