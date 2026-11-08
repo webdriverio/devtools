@@ -136,6 +136,49 @@ describe('artifacts manifest', () => {
     )
   })
 
+  it('leaves out a step nested as a test under a scenario suite', () => {
+    const feature = { uid: 'f1', title: 'Cart', kind: 'feature' as const }
+    const scenario = { uid: 's1', title: 'checkout', kind: 'scenario' as const }
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        's1',
+        {
+          title: 'checkout',
+          specFile: '/a.feature',
+          state: 'passed',
+          ancestry: [feature]
+        }
+      ],
+      [
+        'step-1',
+        {
+          title: 'Given a cart',
+          specFile: '/a.feature',
+          state: 'passed',
+          attempt: 0,
+          ancestry: [feature, scenario]
+        }
+      ],
+      [
+        'mocha-test',
+        {
+          title: 'plain test',
+          specFile: '/a.spec.ts',
+          state: 'passed',
+          attempt: 0,
+          ancestry: [{ uid: 'd1', title: 'describe', kind: 'suite' as const }]
+        }
+      ]
+    ])
+    const manifest = buildArtifactsManifest({
+      sessionId: 's',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(manifest.tests.map((t) => t.uid)).toEqual(['s1', 'mocha-test'])
+  })
+
   it("leaves a scenario's steps out of tests[]", () => {
     const testMetadata: TestMetadataMap = new Map([
       [
