@@ -44,12 +44,12 @@ The plan for the future is to emit telemetry for every test while the local zips
 4. Push the telemetry right after the run. Loki silently drops records about an hour behind the newest in a stream, and the push reports success when it does (see `packages/otel/README.md`, Timestamps and late records):
    ```sh
    npx devtools-otel push devtools-output/devtools-artifacts-*.json \
-     --artifact-base-url http://localhost:9000/traces/<run-id> --run-id <run-id>
+     --artifact-base-url http://127.0.0.1:9000/traces/<run-id> --run-id <run-id>
    ```
    Add `--dry-run` first if you want to see what would be sent.
-5. Open Grafana at http://localhost:3000. The "WebdriverIO DevTools - Test Results" dashboard is provisioned automatically from `grafana/`.
+5. Open Grafana at http://127.0.0.1:3000. The "WebdriverIO DevTools - Test Results" dashboard is provisioned automatically from `grafana/`.
 
-The OTLP endpoints are `localhost:4317` (gRPC) and `localhost:4318` (HTTP). The local bucket is served by [RustFS](https://github.com/rustfs/rustfs), an S3-compatible store, because MinIO no longer publishes Docker images. Any S3-compatible store works in its place. Its S3 API is on `localhost:9000` with credentials `devtools` / `devtools-secret` (local use only).
+The stack listens on IPv4 loopback only, so its addresses are written as `127.0.0.1`: a client that resolves `localhost` to `::1` first and does not fall back would be refused. The OTLP endpoints are `127.0.0.1:4317` (gRPC) and `127.0.0.1:4318` (HTTP). The local bucket is served by [RustFS](https://github.com/rustfs/rustfs), an S3-compatible store, because MinIO no longer publishes Docker images. Any S3-compatible store works in its place. Its S3 API is on `127.0.0.1:9000` with credentials `devtools` / `devtools-secret` (local use only).
 
 Image tags: `grafana/otel-lgtm:0.37.0`, `rustfs/rustfs:1.0.1`, `amazon/aws-cli:2.37.13`.
 
@@ -65,7 +65,7 @@ The access model is **network-private**. Anyone who can reach the bucket host ca
 
 **The replay host is an opt-in.** `player_base` (the dashboard's "Replay host" variable, default `https://player.vibium.dev`, the Vibium player) is the one setting that chooses where Replay opens a zip. Its default is this example's choice today; a dedicated hosted viewer can replace it later by changing that value. Choosing a host grants it two things: CORS read access to the bucket, so its page can fetch the zips, and the zip URL (bucket host and path) in its own URL, so the host sees every URL it is sent. Point `player_base` only at a viewer you trust with both. To change the default for everyone, edit the `player_base` variable in `grafana/devtools-dashboard.json`. This is POC-grade: it is meant for a private network and has had no security review.
 
-Chrome may prompt for local network access when player.vibium.dev fetches from `localhost` or a private IP address. Allow it, or the replay will not load.
+Chrome may prompt for local network access when player.vibium.dev fetches from a loopback (`127.0.0.1`) or private IP address. Allow it, or the replay will not load.
 
 Rows pushed with an `s3://` base URL are listed but their Replay link cannot be opened in a browser.
 
@@ -77,7 +77,7 @@ Whatever the access policy, treat a trace zip as sensitive as the run that produ
 
 ```sh
 AWS_ACCESS_KEY_ID=devtools AWS_SECRET_ACCESS_KEY=devtools-secret \
-  aws --endpoint-url http://localhost:9000 s3 cp --recursive ./devtools-output/ s3://traces/<run-id>/
+  aws --endpoint-url http://127.0.0.1:9000 s3 cp --recursive ./devtools-output/ s3://traces/<run-id>/
 ```
 
 **Amazon S3:**
