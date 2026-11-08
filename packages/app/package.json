@@ -9,6 +9,9 @@
     "directory": "packages/devtools-app"
   },
   "exports": "./src/index.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
