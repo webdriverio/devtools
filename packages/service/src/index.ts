@@ -473,7 +473,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
-    await this.#closeOpenWaits(result?.error)
+    await this.#closeOpenWaits(result?.error, Date.now())
     this.#currentStepUid = undefined
     this.#assertionTracker.handleOutcome(result?.error)
   }
@@ -505,7 +505,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   ) {
     // Read before the hook settle below, which is the service's teardown, not the scenario's.
     const endTime = Date.now()
-    await this.#closeOpenWaits(result?.error)
+    await this.#closeOpenWaits(result?.error, endTime)
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     const uid =
       uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
@@ -528,7 +528,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     result?: TestOutcomeResult
   ) {
     const endTime = Date.now()
-    await this.#closeOpenWaits(result?.error)
+    await this.#closeOpenWaits(result?.error, endTime)
     this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
@@ -693,14 +693,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   /** Before the outcome marks a row and the slice is flushed, so the wait carries the failure rather than its last poll. */
-  async #closeOpenWaits(error: unknown) {
+  async #closeOpenWaits(error: unknown, endedAt: number) {
     if (!(await this.#hooksInFlight.settled(HOOKS_SETTLE_TIMEOUT_MS))) {
       log.warn(
         `a command hook was still running ${HOOKS_SETTLE_TIMEOUT_MS} ms after its test ended`
       )
     }
     for (const id of this.#commandStack.takeOpenWaits()) {
-      this.#sessionCapturer.closeOpenWait(id, error)
+      this.#sessionCapturer.closeOpenWait(id, error, endedAt)
     }
   }
 
