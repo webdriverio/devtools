@@ -318,9 +318,15 @@ function prepareTest(
           .filter((action) => action.failure)
           .sort((a, b) => a.ordinal - b.ordinal)[0]
       : undefined
-  const span = data
-    ? bounds(actions, data.groups ?? [], data.startTime)
+  const evidence: TraceEvidence | undefined = data
+    ? {
+        data,
+        actions,
+        failure,
+        span: bounds(actions, data.groups ?? [], data.startTime)
+      }
     : undefined
+  const span = evidence?.span
   const errorMessage = test.error ?? failure?.failure?.message
   const manifestDurationMs =
     test.startTime !== undefined && test.endTime !== undefined
@@ -347,15 +353,16 @@ function prepareTest(
     timeMs: timing.timeMs,
     attributes,
     errorMessage,
-    trace: data && span ? { data, actions, failure, span } : undefined
+    trace: evidence
   }
 }
 
-function emitRoot(tracer: Tracer, item: PreparedTest): Span {
-  const { test, attributes, errorMessage, trace: evidence } = item
-  if (!evidence) {
-    throw new Error(`no trace evidence for ${test.uid}`)
-  }
+function emitRoot(
+  tracer: Tracer,
+  item: PreparedTest,
+  evidence: TraceEvidence
+): Span {
+  const { test, attributes, errorMessage } = item
   const root = tracer.startSpan(
     test.title,
     { startTime: new Date(evidence.span.startMs), attributes },
@@ -380,7 +387,7 @@ function emitRoot(tracer: Tracer, item: PreparedTest): Span {
 
 function emitPrepared(sink: TelemetrySink, item: PreparedTest): void {
   const { test, timeMs, attributes } = item
-  const root = item.trace ? emitRoot(sink.tracer, item) : undefined
+  const root = item.trace ? emitRoot(sink.tracer, item, item.trace) : undefined
   const failed = test.state === STATE_FAILED
   sink.logger.emit({
     body: test.title,
