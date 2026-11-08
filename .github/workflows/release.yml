@@ -42,7 +42,6 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: true
       - name: Git Setup
         run: |

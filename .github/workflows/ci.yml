@@ -33,7 +33,6 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -87,7 +86,6 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -126,7 +124,6 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -168,7 +165,6 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -252,7 +248,6 @@ jobs:
             ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
-          version: 10.26.1
           run_install: false
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
