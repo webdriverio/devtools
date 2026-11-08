@@ -194,6 +194,13 @@ export const BIDI_RESULTS: Record<string, unknown> = {
 /** The one top-level browsing context, as a window handle and as a BiDi context id. */
 export const WINDOW_HANDLE = 'window-1'
 
+/** The W3C default timeouts, which a driver returns in the new session's capabilities and over GET /timeouts. */
+export const SESSION_TIMEOUTS = {
+  implicit: 0,
+  pageLoad: 300_000,
+  script: 30_000
+}
+
 /** Every scenario run dumps its stream here, and the HTML report is rebuilt from what is present. */
 export const OUT_DIR = path.join(REPO_ROOT, 'packages/conformance/out')
 
