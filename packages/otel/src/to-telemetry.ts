@@ -219,8 +219,8 @@ function addTestEvents(span: Span, data: TracePlayerData): void {
       span.addEvent(
         attr.EVENT_CONSOLE,
         {
-          [attr.ATTR_MESSAGE_TYPE]: log.type,
-          [attr.ATTR_MESSAGE]: log.args.map(stringifyArg).join(' ')
+          [attr.ATTR_CONSOLE_TYPE]: log.type,
+          [attr.ATTR_CONSOLE_MESSAGE]: log.args.map(stringifyArg).join(' ')
         },
         new Date(log.timestamp)
       )

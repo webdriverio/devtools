@@ -87,7 +87,7 @@ Two span events are added to the root span, each capped at 100 per test:
 
 | Event | Attributes | Recorded for |
 |---|---|---|
-| `console` | `messageType`, `message` | Console `warn` and `error` lines |
+| `console` | `devtools.console.type`, `devtools.console.message` | Console `warn` and `error` lines |
 | `http.request.failed` | `url.path`, `http.request.method`, `devtools.network.status` | Requests with status 0 or 400+; the URL is reduced to its pathname (no origin, query or fragment) |
 
 Log records share the root span's trace id when a zip exists, so a log links to its trace. Tests with no retained zip, or whose zip covers several tests, still emit a log record, without a trace context; the latter is skipped with a warning on stderr. Cucumber steps are not tests: the manifest lists only scenarios, so a step gets no record of its own, and a scenario zip that also lists its step uids still counts as that one scenario's zip.
