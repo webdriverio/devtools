@@ -10,6 +10,7 @@ import {
 } from '../src/artifacts-manifest.js'
 import type { TraceArtifact } from '../src/trace-finalizer.js'
 import type { TestMetadataMap } from '@wdio/devtools-shared'
+import { stepMetadataUid } from '../src/uid.js'
 
 function metadata(): TestMetadataMap {
   return new Map([
@@ -133,6 +134,48 @@ describe('artifacts manifest', () => {
     expect(Object.keys(parsed.tests[0]).sort()).toEqual(
       ['attempt', 'specFile', 'state', 'title', 'uid'].sort()
     )
+  })
+
+  it("leaves a scenario's steps out of tests[]", () => {
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        'stable-abc',
+        {
+          title: 'checkout',
+          specFile: '/a.feature',
+          state: 'passed',
+          attempt: 0
+        }
+      ],
+      [
+        stepMetadataUid('stable-abc', 1),
+        { title: 'Given a cart', specFile: '/a.feature' }
+      ],
+      [
+        stepMetadataUid('stable-abc', 2),
+        { title: 'When I pay', specFile: '/a.feature' }
+      ]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-s',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests.map((t) => t.uid)).toEqual(['stable-abc'])
+  })
+
+  it('keeps a step-looking uid whose owner is not in the map', () => {
+    const testMetadata: TestMetadataMap = new Map([
+      ['orphan:step:1', { title: 'stray', specFile: '/a.feature' }]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-o',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests.map((t) => t.uid)).toEqual(['orphan:step:1'])
   })
 
   it('filename is deterministic per session', () => {
