@@ -22,8 +22,6 @@ import type {
 } from '@wdio/devtools-shared'
 import { stepOwnerUid } from './uid.js'
 
-export type { ArtifactManifestTest, ArtifactsManifest }
-
 /** Deterministic manifest filename for a session (used by writers and readers). */
 export function artifactsManifestFilename(sessionId: string): string {
   return `devtools-artifacts-${sessionId}.json`

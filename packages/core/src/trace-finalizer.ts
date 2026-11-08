@@ -39,8 +39,6 @@ import {
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
 
-export type { TraceArtifact }
-
 export interface TraceExportContext {
   mode?: DevToolsMode
   /** undefined → treated as `on` (always retain) by the retention evaluator. */

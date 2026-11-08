@@ -5,11 +5,13 @@ import { join } from 'node:path'
 import {
   buildArtifactsManifest,
   writeArtifactsManifest,
-  artifactsManifestFilename,
-  type ArtifactsManifest
+  artifactsManifestFilename
 } from '../src/artifacts-manifest.js'
-import type { TraceArtifact } from '../src/trace-finalizer.js'
-import type { TestMetadataMap } from '@wdio/devtools-shared'
+import type {
+  ArtifactsManifest,
+  TestMetadataMap,
+  TraceArtifact
+} from '@wdio/devtools-shared'
 import { stepMetadataUid } from '../src/uid.js'
 
 function metadata(): TestMetadataMap {
