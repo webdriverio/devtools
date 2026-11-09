@@ -663,6 +663,42 @@ describe('pushRun logs', () => {
     expect(warnings[0]).toContain("traceGranularity:'test' is required")
   })
 
+  it('skips the trace of tests sharing a spec-scope zip keyed by its spec file and warns', async () => {
+    const manifest = manifestOf({
+      artifacts: [
+        {
+          kind: 'trace',
+          path: 'traces/s1-login.zip',
+          key: 'specs/login.spec.ts',
+          testUids: ['uid-login', 'uid-other'],
+          retained: true
+        }
+      ],
+      tests: [
+        {
+          uid: 'uid-login',
+          title: 'logs in',
+          specFile: 'specs/login.spec.ts',
+          state: 'failed',
+          attempt: 0
+        },
+        {
+          uid: 'uid-other',
+          title: 'other',
+          specFile: 'specs/login.spec.ts',
+          state: 'passed',
+          attempt: 0
+        }
+      ]
+    })
+    const { spans, warnings } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }]
+    })
+    expect(spans).toHaveLength(0)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("traceGranularity:'test' is required")
+  })
+
   it('groups tests from several manifests under the one run id', async () => {
     const second: Manifest = manifestOf({
       sessionId: 's2',
