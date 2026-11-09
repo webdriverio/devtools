@@ -8,8 +8,18 @@ import { DevTools } from '@wdio/selenium-devtools'
 
 // mode defaults to 'live' (the demo default); set DEVTOOLS_MODE=trace to
 // produce a trace.zip from this same example.
+const MODE = ['trace', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'live'
+
 DevTools.configure({
-  mode: process.env.DEVTOOLS_MODE === 'trace' ? 'trace' : 'live',
-  screencast: { enabled: true, quality: 70, maxWidth: 1280, maxHeight: 720 },
+  mode: MODE,
+  // Live and telemetry modes warn that they ignore `enabled` (trace records via filmstrip/video).
+  screencast: {
+    ...(MODE === 'live' ? { enabled: true } : {}),
+    quality: 70,
+    maxWidth: 1280,
+    maxHeight: 720
+  },
   headless: true
 })

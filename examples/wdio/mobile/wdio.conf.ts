@@ -16,7 +16,11 @@ const { requireMobileToolchain } = createRequire(import.meta.url)(
   '../../mobile-preflight.cjs'
 )
 
-const MODE = process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace'
+const MODE =
+  process.env.DEVTOOLS_MODE === 'live' ||
+  process.env.DEVTOOLS_MODE === 'telemetry'
+    ? process.env.DEVTOOLS_MODE
+    : 'trace'
 
 const __dirname = path.resolve(path.dirname(new URL(import.meta.url).pathname))
 
@@ -66,7 +70,7 @@ export const config: WebdriverIO.Config = {
         // DEVTOOLS_MODE=live silently changes what a run produces — a UI window
         // and no zip instead of a zip and no window — so the mode is logged.
         mode: MODE,
-        traceGranularity: 'session',
+        ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
         // Filmstrip is OPT-IN on mobile, unlike the desktop demos, purely on
         // cost: the poller takes a screenshot every interval and a real device
         // screenshot is slow — a 3-command run against an emulator took 45 s.
@@ -76,7 +80,10 @@ export const config: WebdriverIO.Config = {
         // and at session creation too, so it is the image or the driver rather
         // than anything here — see examples/MOBILE.md.
         ...(process.env.DEVTOOLS_FILMSTRIP === '1'
-          ? { filmstrip: true, screencast: { pollIntervalMs: 2000 } }
+          ? { screencast: { pollIntervalMs: 2000 } }
+          : {}),
+        ...(MODE === 'trace' && process.env.DEVTOOLS_FILMSTRIP === '1'
+          ? { filmstrip: true }
           : {})
       }
     ]
@@ -86,10 +93,13 @@ export const config: WebdriverIO.Config = {
   // a prerequisite rather than as "make sure browser driver is running".
   onPrepare: async () => {
     console.log(
-      `devtools mobile: ${MODE} mode` +
-        (MODE === 'live'
-          ? ' — opens the dashboard, writes no trace zip'
-          : ' — writes a trace zip to test-results/, opens no window')
+      `devtools mobile: ${MODE} mode — ` +
+        {
+          live: 'opens the dashboard, writes no trace zip',
+          trace: 'writes a trace zip to test-results/, opens no window',
+          telemetry:
+            'writes only the artifacts manifest to test-results/, no trace zip and no window'
+        }[MODE]
     )
     await requireMobileToolchain()
   },

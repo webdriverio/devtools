@@ -2,6 +2,10 @@
 const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 
+const MODE = ['live', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'trace'
+
 module.exports = {
   // Resolve relative to this config file so the path holds regardless of CWD.
   src_folders: [path.resolve(__dirname, 'bdd')],
@@ -58,8 +62,9 @@ module.exports = {
         // per module (no per-`it` hook), so traceGranularity:'test' collapses to
         // a single session-scoped slice here. See CLAUDE.md § Known debt.
         // Trace by default (regen/demo); DEVTOOLS_MODE=live flips to live for live-parity recording.
-        mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
-        traceGranularity: 'session',
+        mode: MODE,
+        // Live and telemetry modes warn that they ignore this, so set it only for trace.
+        ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
         // tracePolicy: 'retain-on-first-failure',
         bidi: true
       })
