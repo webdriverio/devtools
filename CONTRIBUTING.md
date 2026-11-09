@@ -7,7 +7,10 @@ Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clon
 - **Node.js** 22.23.4, 24.22.1, 26.12.1 or a later release of these lines
 - **pnpm** 11, the exact version in the `packageManager` field of `package.json` (this is a pnpm workspace / monorepo). `corepack enable` selects it; Node.js 26 does not include Corepack, so install it first with `npm install -g corepack`.
 
-pnpm refuses a dependency version that is less than one day old (`minimumReleaseAge`), and the frozen install in CI fails on one. The WebdriverIO packages listed under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` are accepted on the day of their release.
+pnpm 11 has two install checks that can stop an install, in CI too:
+
+- **A dependency version less than one day old** (`minimumReleaseAge`). Wait one day, then install again. The packages under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` (`@wdio/*`, `create-wdio`, `webdriver`, `webdriverio`) are accepted on the day of their release, because WebdriverIO v10 releases often. The cost: a bad release of one of them is not held back for that day. Add a package to that list only with a comment that gives the reason.
+- **A new dependency with a build script** (`strictDepBuilds`). List the package under `allowBuilds` in `pnpm-workspace.yaml`. Set it to `false` unless the package does not work without its build script.
 
 ## Setup
 
