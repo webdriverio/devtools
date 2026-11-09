@@ -5,7 +5,11 @@ import { CACHE_ID } from './constants.js'
 /** Keeps the last trace a live socket delivered, for a reload while the backend is down. */
 export function cacheTrace(trace: TraceLog): void {
   try {
-    localStorage.setItem(CACHE_ID, JSON.stringify(trace))
+    // Without its stored stylesheets and fonts, which would crowd the quota out; a reload replays them live.
+    localStorage.setItem(
+      CACHE_ID,
+      JSON.stringify({ ...trace, pageResources: undefined })
+    )
   } catch (err) {
     console.warn(
       'Trace too large to cache in localStorage; skipping cache.',

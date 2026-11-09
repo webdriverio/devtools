@@ -26,6 +26,7 @@ import logging
 import os
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
+from . import page_resources
 from .collector_source import fetch_collector_source
 from .input_masking import capture_mask_prelude
 from .constants import LOGGER_NAME
@@ -168,6 +169,8 @@ class TracePayload(NamedTuple):
 
     mutations: List[Any]
     network_requests: List[Dict[str, Any]]
+    page_resources: List[Dict[str, Any]] = []
+    resource_re_reads: List[Dict[str, Any]] = []
 
 
 class SnapshotCapturer:
@@ -250,7 +253,8 @@ class SnapshotCapturer:
         collector is absent from the document, `_UNREADABLE` when the eval
         itself failed."""
         try:
-            return self._execute(self._scripts["collectorDrain"])
+            script, args = page_resources.drain_call(self._scripts)
+            return self._execute(script, *args)
         except BaseException as exc:  # noqa: BLE001
             if not _is_quiet_error(exc):
                 _warn(f"trace read failed: {exc}")
@@ -279,8 +283,12 @@ class SnapshotCapturer:
             data = self._drain()
             if data is _UNREADABLE:
                 return TracePayload([], [])
+        resources, re_reads = page_resources.take(data)
         return TracePayload(
-            normalize_mutations(data), normalize_network_requests(data)
+            normalize_mutations(data),
+            normalize_network_requests(data),
+            resources,
+            re_reads,
         )
 
 

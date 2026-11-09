@@ -10,6 +10,7 @@ import {
   readSmokeTrace,
   totalBytes
 } from './trace-expectations.js'
+import { readStoredResourceUrls } from './page-resources.js'
 import type { ExampleExpectations, SmokeTrace, TraceZip } from './types.js'
 
 const EXPECTATIONS_DIR = path.join(
@@ -50,7 +51,11 @@ function readZips(paths: string[]): {
   const zips: TraceZip[] = []
   const traces = paths.flatMap((zip) => {
     const bytes = fs.readFileSync(zip)
-    zips.push({ path: zip, bytes: bytes.length })
+    zips.push({
+      path: zip,
+      bytes: bytes.length,
+      storedResources: readStoredResourceUrls(bytes)
+    })
     return readSmokeTrace(zip, bytes)
   })
   return { zips, traces }

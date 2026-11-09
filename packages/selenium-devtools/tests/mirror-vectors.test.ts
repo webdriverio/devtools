@@ -15,6 +15,7 @@ import {
   deviceFromCapabilities,
   isNativeAppSession,
   resolveCaptureMask,
+  resourceUrlKey,
   RUNNER_ENV,
   type CaptureMaskOptions
 } from '@wdio/devtools-shared'
@@ -85,7 +86,8 @@ const RUNNERS = [
   'waitRowNaming',
   'finalFrameStamp',
   'captureTimingSummary',
-  'collectorMaskPrelude'
+  'collectorMaskPrelude',
+  'resourceUrlKey'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -464,6 +466,16 @@ describe('collectorMaskPrelude', () => {
   >('collectorMaskPrelude').cases) {
     it(c.name, () => {
       expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
+    })
+  }
+})
+
+describe('resourceUrlKey', () => {
+  for (const c of section<Named & { url: string; expect: string }>(
+    'resourceUrlKey'
+  ).cases) {
+    it(c.name, () => {
+      expect(resourceUrlKey(c.url)).toBe(c.expect)
     })
   }
 })

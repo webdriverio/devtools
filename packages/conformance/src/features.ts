@@ -18,33 +18,13 @@ import {
   unsupported
 } from './capability-helpers.js'
 import { RULES } from './constants.js'
+import * as REASONS from './capability-reasons.js'
 import type { Feature } from './types.js'
 
 const WDIO = ADAPTER_TESTS['devtools-service']
 const SELENIUM = ADAPTER_TESTS['selenium-devtools']
 const NIGHTWATCH = ADAPTER_TESTS['nightwatch-devtools']
 const PYTHON = ADAPTER_TESTS['selenium-devtools-py']
-
-const SAFARI_FOCUS_ONCE =
-  'Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.'
-const NO_SCREENSHOT_SWITCH = 'No option: every command row takes a screenshot.'
-const NO_TRACE_FORMAT_TEST =
-  "The writer is tested in `packages/trace/tests/trace-exporter.test.ts`; no test covers the adapter handing `traceFormat` on, so check by hand with `traceFormat: 'ndjson-directory'` on the example."
-const NO_HEADLESS_OPTION =
-  'No option: set headless in the browser capabilities, as for any run.'
-const WITHOUT_BIDI_ANCHOR =
-  'Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.'
-const WITHOUT_BIDI_DRAIN =
-  'Without BiDi a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.'
-const SELENIUM_JS_FILMSTRIP = 'Chromium streams over CDP; other browsers poll.'
-const NETWORK_FLOOR =
-  "Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari."
-const NO_CUCUMBER_STEP_RERUN = partial(
-  'Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.',
-  'no Cucumber step rerun'
-)
-const STARTUP_CAPS_ONLY =
-  "Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native."
 
 export const FEATURES = [
   {
@@ -64,8 +44,8 @@ export const FEATURES = [
     tables: ['readme-trace', 'cross-framework'],
     cells: {
       'devtools-service': tested(DOM_RULES),
-      'selenium-devtools': partial(WITHOUT_BIDI_ANCHOR, 'with BiDi'),
-      'nightwatch-devtools': partial(WITHOUT_BIDI_ANCHOR, 'with BiDi'),
+      'selenium-devtools': partial(REASONS.WITHOUT_BIDI_ANCHOR, 'with BiDi'),
+      'nightwatch-devtools': partial(REASONS.WITHOUT_BIDI_ANCHOR, 'with BiDi'),
       'selenium-devtools-py': tested(DOM_RULES)
     }
   },
@@ -75,12 +55,23 @@ export const FEATURES = [
     tables: ['readme-trace', 'cross-framework'],
     cells: {
       'devtools-service': tested(NETWORK_RULES),
-      'selenium-devtools': partial(WITHOUT_BIDI_DRAIN, 'with BiDi'),
+      'selenium-devtools': partial(REASONS.WITHOUT_BIDI_DRAIN, 'with BiDi'),
       'nightwatch-devtools': partial(
         "Without BiDi (`bidi: true`) or Chrome's performance log (`goog:loggingPrefs`), a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.",
         'with BiDi'
       ),
       'selenium-devtools-py': tested(NETWORK_RULES)
+    }
+  },
+  {
+    id: 'page-resources',
+    name: 'Stylesheets and fonts stored in the trace (`traceResources`, browser sessions)',
+    tables: ['readme-trace', 'cross-framework'],
+    cells: {
+      'devtools-service': covered(`${WDIO}session.test.ts`),
+      'selenium-devtools': covered(`${SELENIUM}session.test.ts`),
+      'nightwatch-devtools': covered(`${NIGHTWATCH}session.test.ts`),
+      'selenium-devtools-py': covered(`${PYTHON}test_page_resources.py`)
     }
   },
   {
@@ -94,7 +85,7 @@ export const FEATURES = [
       ),
       'selenium-devtools': covered(
         `${SELENIUM}screencast.test.ts`,
-        SELENIUM_JS_FILMSTRIP
+        REASONS.SELENIUM_JS_FILMSTRIP
       ),
       'nightwatch-devtools': partial(
         'Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.',
@@ -319,9 +310,18 @@ export const FEATURES = [
     name: 'Run, Rerun and Run all from the dashboard',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': NO_CUCUMBER_STEP_RERUN,
-      'selenium-devtools': NO_CUCUMBER_STEP_RERUN,
-      'nightwatch-devtools': NO_CUCUMBER_STEP_RERUN,
+      'devtools-service': partial(
+        REASONS.NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
+      ),
+      'selenium-devtools': partial(
+        REASONS.NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
+      ),
+      'nightwatch-devtools': partial(
+        REASONS.NO_CUCUMBER_STEP_RERUN,
+        'no Cucumber step rerun'
+      ),
       // pytest has no Gherkin steps to rerun.
       'selenium-devtools-py': covered(`${PYTHON}test_rerun.py`)
     }
@@ -366,8 +366,8 @@ export const FEATURES = [
       'selenium-devtools': byHand(
         'No unit test asserts that `captureScreenshots: false` skips the row screenshot; check on the Selenium example.'
       ),
-      'nightwatch-devtools': unsupported(NO_SCREENSHOT_SWITCH),
-      'selenium-devtools-py': unsupported(NO_SCREENSHOT_SWITCH)
+      'nightwatch-devtools': unsupported(REASONS.NO_SCREENSHOT_SWITCH),
+      'selenium-devtools-py': unsupported(REASONS.NO_SCREENSHOT_SWITCH)
     }
   },
   {
@@ -375,13 +375,13 @@ export const FEATURES = [
     name: 'Force the test browser headless (`headless`)',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': unsupported(NO_HEADLESS_OPTION),
+      'devtools-service': unsupported(REASONS.NO_HEADLESS_OPTION),
       'selenium-devtools': partial(
         'The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.',
         'Chrome only'
       ),
-      'nightwatch-devtools': unsupported(NO_HEADLESS_OPTION),
-      'selenium-devtools-py': unsupported(NO_HEADLESS_OPTION)
+      'nightwatch-devtools': unsupported(REASONS.NO_HEADLESS_OPTION),
+      'selenium-devtools-py': unsupported(REASONS.NO_HEADLESS_OPTION)
     }
   },
   {
@@ -389,13 +389,13 @@ export const FEATURES = [
     name: 'Safari kept frontmost so input lands (live mode)',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': partial(SAFARI_FOCUS_ONCE, 'once'),
+      'devtools-service': partial(REASONS.SAFARI_FOCUS_ONCE, 'once'),
       'selenium-devtools': byHand(
         'No test covers the Safari window switch before an input; check live on desktop Safari.',
         'Brings Safari to the front before each element click, type, clear and submit.'
       ),
-      'nightwatch-devtools': partial(SAFARI_FOCUS_ONCE, 'once'),
-      'selenium-devtools-py': partial(SAFARI_FOCUS_ONCE, 'once')
+      'nightwatch-devtools': partial(REASONS.SAFARI_FOCUS_ONCE, 'once'),
+      'selenium-devtools-py': partial(REASONS.SAFARI_FOCUS_ONCE, 'once')
     }
   },
   {
@@ -403,9 +403,9 @@ export const FEATURES = [
     name: "Unpacked trace output (`traceFormat: 'ndjson-directory'`)",
     tables: ['readme-trace', 'cross-framework'],
     cells: {
-      'devtools-service': byHand(NO_TRACE_FORMAT_TEST),
-      'selenium-devtools': byHand(NO_TRACE_FORMAT_TEST),
-      'nightwatch-devtools': byHand(NO_TRACE_FORMAT_TEST),
+      'devtools-service': byHand(REASONS.NO_TRACE_FORMAT_TEST),
+      'selenium-devtools': byHand(REASONS.NO_TRACE_FORMAT_TEST),
+      'nightwatch-devtools': byHand(REASONS.NO_TRACE_FORMAT_TEST),
       'selenium-devtools-py': unsupported(
         'The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.',
         'zip only'
@@ -435,10 +435,10 @@ export const FEATURES = [
     name: 'Network without BiDi (Safari, Appium mobile browsers)',
     tables: ['readme-trace', 'readme-mobile', 'cross-framework', 'mobile'],
     cells: {
-      'devtools-service': partial(NETWORK_FLOOR),
-      'selenium-devtools': partial(NETWORK_FLOOR),
-      'nightwatch-devtools': partial(NETWORK_FLOOR),
-      'selenium-devtools-py': partial(NETWORK_FLOOR)
+      'devtools-service': partial(REASONS.NETWORK_FLOOR),
+      'selenium-devtools': partial(REASONS.NETWORK_FLOOR),
+      'nightwatch-devtools': partial(REASONS.NETWORK_FLOOR),
+      'selenium-devtools-py': partial(REASONS.NETWORK_FLOOR)
     }
   },
   {
@@ -483,9 +483,9 @@ export const FEATURES = [
         "Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.",
         'string form only'
       ),
-      'selenium-devtools': partial(STARTUP_CAPS_ONLY),
-      'nightwatch-devtools': partial(STARTUP_CAPS_ONLY),
-      'selenium-devtools-py': partial(STARTUP_CAPS_ONLY)
+      'selenium-devtools': partial(REASONS.STARTUP_CAPS_ONLY),
+      'nightwatch-devtools': partial(REASONS.STARTUP_CAPS_ONLY),
+      'selenium-devtools-py': partial(REASONS.STARTUP_CAPS_ONLY)
     }
   },
   {

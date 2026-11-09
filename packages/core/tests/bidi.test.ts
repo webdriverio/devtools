@@ -185,6 +185,8 @@ describe('handleBidiRequestSent', () => {
       accept: 'application/json'
     })
     expect(pending.has('req-1')).toBe(true)
+    // The browser's own clock, which the trace writer matches page-resource reads on.
+    expect(networkRequests[0].wallTime).toBe(1234)
   })
 
   it('skips emission when no requestId is present', () => {

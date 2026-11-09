@@ -32,6 +32,10 @@ vi.mock('stack-trace', () => ({
   parse: () => stackMock.frames
 }))
 const mockSessionCapturerInstance = {
+  pageResourceStore: {
+    configure: vi.fn(),
+    settle: vi.fn().mockResolvedValue(undefined)
+  },
   afterCommand: vi.fn(),
   openWait: vi.fn(() => 42),
   sendUpstream: vi.fn(),
@@ -158,6 +162,19 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       })
       expect(true).toBe(true)
     })
+  })
+
+  it('configures the page-resource store from the run\u2019s options', async () => {
+    const traced = new DevToolsHookService({
+      mode: 'trace',
+      traceResources: 'none'
+    })
+    await traced.before({} as any, [], mockBrowser)
+    expect(
+      mockSessionCapturerInstance.pageResourceStore.configure
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'trace', traceResources: 'none' })
+    )
   })
 
   // Regression: a request the app made after the test's last command was left out of that test's trace.

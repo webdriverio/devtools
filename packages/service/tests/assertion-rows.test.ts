@@ -10,6 +10,10 @@ import {
 // there's no read to fold into, captureMatcherCommand (a fresh row). These tests
 // assert that routing; the fold itself is a capturer unit test (session.test).
 const capturer = vi.hoisted(() => ({
+  pageResourceStore: {
+    configure: vi.fn(),
+    settle: vi.fn().mockResolvedValue(undefined)
+  },
   captureAssertCommand: vi.fn(),
   captureMatcherCommand: vi.fn(),
   coalesceAssertionIntoLastRead: vi.fn(),

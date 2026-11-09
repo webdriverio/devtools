@@ -25,3 +25,7 @@ export const TIMEOUT_PATTERNS: readonly RegExp[] = [
 
 /** pytest's nodeid separator: a test group titled by nodeid matches its function name after the last one. */
 export const NODEID_SEPARATOR = '::'
+
+/** The stylesheet every fixture page links and the font face it declares, which a trace stores. */
+export const FIXTURE_STYLESHEET_PATH = '/css/fixture.css'
+export const FIXTURE_FONT_PATH = '/fonts/fixture-icons.woff2'

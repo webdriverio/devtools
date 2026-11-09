@@ -30,6 +30,7 @@ import {
   resolveAdapterOutputDir
 } from '@wdio/devtools-core'
 import { TraceType } from './types.js'
+import type { TraceResourcesMode } from '@wdio/devtools-shared'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
@@ -58,6 +59,7 @@ export interface SessionInitCtx {
   readonly screencastOptions: ScreencastOptions
   readonly bidiEnabled: boolean
   readonly mode: DevToolsMode
+  readonly traceResources: TraceResourcesMode
   readonly captureAssertions: boolean
   /** Derived from the cucumber flag, so one value answers both the metadata payload and the locator dialect. */
   readonly runner: TestRunnerId
@@ -410,14 +412,7 @@ export async function ensureSessionInitialized(
   await new Promise((resolve) =>
     setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
   )
-  // Trace mode: empty opts skip SessionCapturerBase's WS init — no backend
-  // to forward events to anyway.
-  ctx.sessionCapturer = new SessionCapturer(
-    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
-    browser
-  )
-  ctx.sessionCapturer.traceMode = ctx.mode
-  ctx.sessionCapturer.runner = ctx.runner
+  ctx.sessionCapturer = createRunCapturer(ctx, browser)
   if (ctx.mode !== 'trace') {
     const connected = await ctx.sessionCapturer.waitForConnection(3000)
     if (!connected) {
@@ -428,6 +423,25 @@ export async function ensureSessionInitialized(
   await broadcastSessionMetadata(ctx, browser)
   await armCaptureForSession(ctx, browser)
   await startScreencast(ctx, browser, browser.sessionId)
+}
+
+/** The run's one capturer, set up from the run's options. */
+export function createRunCapturer(
+  ctx: Pick<
+    SessionInitCtx,
+    'mode' | 'traceResources' | 'runner' | 'port' | 'hostname'
+  >,
+  browser: NightwatchBrowser
+): SessionCapturer {
+  // Trace mode: empty opts skip SessionCapturerBase's WS init; there is no backend to forward to.
+  const capturer = new SessionCapturer(
+    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
+    browser
+  )
+  capturer.traceMode = ctx.mode
+  capturer.pageResourceStore.configure(ctx)
+  capturer.runner = ctx.runner
+  return capturer
 }
 
 export async function finalizeCurrentScreencast(

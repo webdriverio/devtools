@@ -251,6 +251,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       wdioCaps['wdio:devtoolsOptions']
     )
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
+    this.#sessionCapturer.pageResourceStore.configure(this.#options)
     // The dashboard window took the front; Safari clicks reach nothing there.
     if ((this.#options.mode ?? 'live') === 'live') {
       const caps = browser.capabilities as
@@ -583,6 +584,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     return this.#assertionTracker.afterAssertion(params)
   }
 
+  /** Drains until the page's resource reads finish; true when any drain since the last action anchored a new document. */
+  async #settlePageResources(browser: WebdriverIO.Browser): Promise<boolean> {
+    const capturer = this.#sessionCapturer
+    let navigated = capturer.replacedDocumentInLastDrain
+    await capturer.pageResourceStore.settle(async () => {
+      await capturer.captureTrace(browser, true)
+      navigated ||= capturer.replacedDocumentInLastDrain
+    })
+    return navigated
+  }
+
   async #finalizePerScenario() {
     if (this.#options.mode !== 'trace' || !this.#browser) {
       return
@@ -594,6 +606,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // otherwise never be captured before teardown. forceAnchor: the destination's
     // async initial anchor may not have run yet, so anchor it synchronously here.
     await this.#sessionCapturer.captureTrace(this.#browser, true)
+    const navigated = await this.#settlePageResources(this.#browser)
     // Named after the action it captures, because that is what it is: every
     // other row's result comes from the NEXT action's pre-capture, so the last
     // action's has no successor and this is the only capture of it. A session
@@ -627,7 +640,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!alreadyCaptured) {
       await settleAfterLastAction(
         this.#browser,
-        this.#sessionCapturer.replacedDocumentInLastDrain,
+        navigated,
         this.#sessionCapturer.currentContext
       )
       const snap = await captureActionSnapshot(

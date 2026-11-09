@@ -3,6 +3,8 @@
 
 import { type ComponentChildren, type VNode, h, toChildArray } from 'preact'
 
+import { documentBaseUrl } from '@wdio/devtools-shared'
+import type { ResourceRewriter } from './archived-resources.js'
 import { isBooleanAttribute } from './boolean-attribute.js'
 import {
   isUnsafeReplayAttribute,
@@ -67,7 +69,34 @@ function withBooleanAttributeState(
   return resolved
 }
 
-export function transform(node: TransformInput): VNode<{}> {
+/** A stylesheet link, `<style>` text and style attributes, pointed at the trace's stored copies. */
+function withArchivedResources(
+  type: string | undefined,
+  props: Record<string, unknown>,
+  children: unknown[],
+  rewrite: ResourceRewriter
+): { props: Record<string, unknown>; children: unknown[] } {
+  const next = { ...props }
+  if (type === 'link' && typeof next.href === 'string') {
+    next.href = rewrite.href(next.href) ?? next.href
+  }
+  if (typeof next.style === 'string') {
+    next.style = rewrite.css(next.style)
+  }
+  const nextChildren =
+    type === 'style'
+      ? children.map((child) =>
+          typeof child === 'string' ? rewrite.css(child) : child
+        )
+      : children
+  return { props: next, children: nextChildren }
+}
+
+/** `rewrite` points stored stylesheets and fonts at the trace's copies; without it every URL stays live. */
+export function transform(
+  node: TransformInput,
+  rewrite?: ResourceRewriter
+): VNode<{}> {
   if (typeof node !== 'object' || node === null) {
     // Plain string/number text node — return as-is for Preact to render as text.
     return node as unknown as VNode<{}>
@@ -89,14 +118,23 @@ export function transform(node: TransformInput): VNode<{}> {
     !Array.isArray(children) &&
     children.type
   ) {
-    return transform(children)
+    return transform(children, rewrite)
   }
 
   const childrenRequired = children || []
-  const c = Array.isArray(childrenRequired)
+  const listed = Array.isArray(childrenRequired)
     ? childrenRequired
     : [childrenRequired]
-  return h(node.type as string, props, ...c.map(transform)) as VNode<{}>
+  const resolved = rewrite
+    ? withArchivedResources(node.type, props, listed, rewrite)
+    : { props, children: listed }
+  return h(
+    node.type as string,
+    resolved.props,
+    ...(resolved.children as TransformInput[]).map((child) =>
+      transform(child, rewrite)
+    )
+  ) as VNode<{}>
 }
 
 type WithChildren = { children?: ComponentChildren }
@@ -117,4 +155,14 @@ export function withBaseUrl(root: VNode<{}>, href: string): VNode<{}> {
     props.children = [h('head', {}, base), ...children]
   }
   return root
+}
+
+/** A captured document ready to render, its URLs resolved against its own `<base href>` as the trace writer resolves them. */
+export function replayDocument(
+  doc: TransformInput,
+  pageUrl: string,
+  rewriterFor: (baseUrl: string) => ResourceRewriter | undefined
+): VNode<{}> {
+  const base = documentBaseUrl(doc, pageUrl) ?? pageUrl
+  return withBaseUrl(transform(doc, rewriterFor(base)), base)
 }

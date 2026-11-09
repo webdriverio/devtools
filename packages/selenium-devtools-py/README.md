@@ -264,6 +264,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | live |
 | Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm` | `screencastFrames` | trace |
 | A11y tree + element rects | run the backend's page-side element scripts beside each action | `actionSnapshots` | trace |
+| Stylesheets + fonts | the page collector reads back what the page loaded, from the HTTP cache, when the drain asks (`collectorDrainResources`) | `pageResources`, `resourceReReads` | trace |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
@@ -528,6 +529,7 @@ per-command screenshots that both modes capture:
 | Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
 | A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
+| Stylesheets and fonts the pages used, stored once each by content hash so the replay does not load them from the site (images still do); the collector's reads of them are left out of the network rows | on | `DEVTOOLS_TRACE_RESOURCES=none`, `--devtools-trace-resources none`, ini `devtools_trace_resources = none`, or `enable(trace_resources="none")` |
 
 Two things worth knowing. **How many archives a run writes, and which are kept,**
 is set by `--devtools-trace-granularity` and `--devtools-trace-policy` (see

@@ -23,6 +23,7 @@ import { emitTestArtifacts } from './test-artifacts.js'
 import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import {
+  DEFAULT_TRACE_RESOURCES,
   REUSE_ENV,
   type CucumberPickle,
   type CucumberPickleStep
@@ -165,6 +166,7 @@ class NightwatchDevToolsPlugin {
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
       filmstrip,
+      traceResources: options.traceResources ?? DEFAULT_TRACE_RESOURCES,
       screenshot: options.screenshot ?? 'off',
       video,
       // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
@@ -208,6 +210,9 @@ class NightwatchDevToolsPlugin {
       },
       get mode() {
         return self.options.mode
+      },
+      get traceResources() {
+        return self.options.traceResources
       },
       get screencastOptions() {
         return self.#screencast.options

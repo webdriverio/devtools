@@ -137,7 +137,7 @@ Attach to that backend, do not open a second dashboard window, and when `DEVTOOL
 
 **Python.** `transport.py` `WSClient` (a dependency-free RFC 6455 client; `request_target` adds the run id), `run_id.py` `resolve_run_id` / `reset_run_id`, `backend.py` `reuse_target` and `launch_or_attach`, `rerun.py` (`configure_script`, `configure_pytest`, `_inherited_launch`, `_publish`, `_stamp_runner_cwd`), `lifecycle.py` `on_control`. `__init__.py` `enable()` shows the order: configure rerun commands, launch or attach, connect, install instrumentation.
 
-**Trace mode.** If your adapter offers trace archives, send any `screencastFrames` and `actionSnapshots` first (in batches), then `traceExport` with `{requestId, outputDir, sessionId, tracePolicy?, traceGranularity?}`, and wait for `traceExported` on the reader side. Never let a failed export fail the run. Python: `trace_export.py` (`send_frames`, `send_action_snapshots`, `export`, `on_result`) driven by `__init__.py` `export_trace`.
+**Trace mode.** If your adapter offers trace archives, drain the page collector with the `collectorDrainResources` page script (fall back to `collectorDrain` when an older backend serves none) and forward the drain's `pageResources` and `resourceReReads` under those scopes, so the archive stores the page's stylesheets and fonts and leaves the collector's reads of them out of the network rows; while a drain reports `pendingResources` above zero, drain again before the session ends, bounded (Python: `page_resources.py`). Send any `screencastFrames` and `actionSnapshots` first (in batches), then `traceExport` with `{requestId, outputDir, sessionId, tracePolicy?, traceGranularity?}`, and wait for `traceExported` on the reader side. Never let a failed export fail the run. Python: `trace_export.py` (`send_frames`, `send_action_snapshots`, `export`, `on_result`) driven by `__init__.py` `export_trace`.
 
 ## 3. The wire contract
 
@@ -155,6 +155,7 @@ Attach to that backend, do not open a second dashboard window, and when `DEVTOOL
 | `config` | `{configFile}` | Optional, once: a config file the backend can rerun through its framework path (WDIO, Nightwatch), as an alternative to `metadata.options.configFile`. |
 | `screencast` | `ScreencastInfo` (`sessionId`, `videoPath`, ...) | After you encode a session video. |
 | `screencastFrames`, `actionSnapshots`, `traceExport` | see `trace-export.ts` | Trace mode only. |
+| `pageResources`, `resourceReReads` | `PageResource[]`, `ResourceReRead[]` (`page-resources.ts`) | Trace mode only; whatever a trace drain returned. |
 
 `metadata.runner` must be a `TestRunnerId` (`TEST_RUNNER_IDS` in `shared/src/types.ts`). It selects the locator dialect for element scripts and how the backend treats the run. A protocol-level adapter currently reports `selenium-webdriver`; a new runner id is a `shared` change.
 

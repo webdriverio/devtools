@@ -66,6 +66,7 @@ Contains:
 - `buildGroupPath` — the suite/test/step hierarchy a row is nested under.
 - `buildImageFrameSnapshots` + `buildScreenshotResourceSnapshots` / `upsertRichestSnapshot` / `buildDenseScreencast` / `thinScreencastFrames` — filmstrip and per-action frame snapshots (each a page whose image is the stored screenshot, reached through a `resourceOverrides` entry and the one recorded response it patches).
 - `buildMutationsNdjson` / `reattributeDomAnchors` — the DOM mutation stream and its anchor repositioning.
+- `buildPageResourceEntries` / `withoutResourceReReads` (`trace-page-resources.ts`) and `buildNetworkEntries` (`trace-network.ts`): the stylesheets and fonts an archive's DOM stream references, each stored once under `resources/<sha1>` and indexed in `page-resources.ndjson` (one `{url, sha1, mimeType, kind, size}` line per URL), and the HAR stream without the rows the collector's own reads of them produced. A per-test slice is handed the whole run's resources and keeps what its own documents used.
 - `buildConsoleEvents`, `networkRequestToHar`, `buildSourceResources` / `sourceResourceName` / `callSourceToStack`, `generateTranscript`, `sha1Hex`.
 - `parseTraceZip` (`trace-reader.ts` and its `trace-reader-*` siblings) — the reverse direction: a `trace.zip`, ours or a foreign one, back into the `TracePlayerData` the player renders. Imported by subpath (`@wdio/devtools-trace/trace-reader`) and kept out of the package index, so adapters that reach `trace` through `core` never inline it. `parseTraceZip` is `unzipTraceZip` then `parseTraceEntries`, exported separately so the hosted player can report each as a phase. It reaches no Node built-in, because the hosted player runs it in the browser, in a Web Worker (`tests/trace-reader-browser-safe.test.ts` walks its imports); the disk read is `readTraceZip` in `read-trace-zip.ts`, and source paths are hashed with the pure `portableSha1Hex` so the reader needs no `node:crypto`; resource bytes keep native `sha1Hex`, ~30x faster.
 
@@ -180,7 +181,7 @@ Imports from: `shared`. Does not import: any adapter package, `backend` directly
 
 Browser-injected runtime — runs **inside the page under test**, not in Node.
 
-Contains: DOM mutation observers, page-side trace collection, a small logger. It's loaded into the page via `loadInjectableScript()` (which reads the built `dist/script.js`) and communicates back through the WebDriver bridge (`executeScript` / `getLog`), not directly to the backend.
+Contains: DOM mutation observers, page-side trace collection (including, when a trace-mode drain asks, the stylesheets and fonts the page loaded, read back from the HTTP cache), a small logger. It's loaded into the page via `loadInjectableScript()` (which reads the built `dist/script.js`) and communicates back through the WebDriver bridge (`executeScript` / `getLog`), not directly to the backend.
 
 The execution environment is the browser, not Node, so this package cannot import from `core` (Node-only) or from non-browser-safe parts of `shared`.
 

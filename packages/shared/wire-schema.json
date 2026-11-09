@@ -60,8 +60,20 @@
         "$ref": "#/$defs/NetworkRequest"
       }
     },
+    "pageResources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PageResource"
+      }
+    },
     "replaceCommand": {
       "$ref": "#/$defs/ReplaceCommandWsPayload"
+    },
+    "resourceReReads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResourceReRead"
+      }
     },
     "screencast": {
       "$ref": "#/$defs/ScreencastInfo"
@@ -651,6 +663,9 @@
           "enum": [
             "resource-timing"
           ]
+        },
+        "wallTime": {
+          "type": "number"
         }
       },
       "required": [
@@ -691,6 +706,38 @@
       "required": [],
       "additionalProperties": false
     },
+    "PageResource": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "stylesheet",
+            "font"
+          ]
+        },
+        "data": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "url",
+        "mimeType",
+        "kind",
+        "data",
+        "size"
+      ],
+      "additionalProperties": false
+    },
     "PageScriptsResponse": {
       "type": "object",
       "properties": {
@@ -701,6 +748,9 @@
           "type": "string"
         },
         "collectorDrain": {
+          "type": "string"
+        },
+        "collectorDrainResources": {
           "type": "string"
         },
         "capturePerformance": {
@@ -967,6 +1017,26 @@
       "required": [
         "oldTimestamp",
         "command"
+      ],
+      "additionalProperties": false
+    },
+    "ResourceReRead": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "loadedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "url",
+        "startedAt",
+        "loadedAt"
       ],
       "additionalProperties": false
     },
