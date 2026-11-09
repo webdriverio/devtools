@@ -21,6 +21,14 @@ describe('playerCsp', () => {
     expect(directive(policy, 'frame-ancestors')).toBe("'none'")
   })
 
+  it('lets the replay load archived stylesheets and fonts from blob URLs, and no script', () => {
+    const policy = playerCsp()
+
+    expect(directive(policy, 'style-src')?.split(' ')).toContain('blob:')
+    expect(directive(policy, 'font-src')?.split(' ')).toContain('blob:')
+    expect(directive(policy, 'script-src')).not.toContain('blob:')
+  })
+
   it('appends extra connection sources to connect-src alone', () => {
     const policy = playerCsp(['ws://localhost:3000'])
 

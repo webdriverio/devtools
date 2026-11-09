@@ -25,6 +25,10 @@ vi.mock('stack-trace', () => ({
 const commandsLog: { command: string; timestamp: number }[] = []
 let clock = 0
 const capturer = {
+  pageResourceStore: {
+    configure: vi.fn(),
+    settle: vi.fn().mockResolvedValue(undefined)
+  },
   afterCommand: vi.fn(async (_browser: unknown, command: string) => {
     commandsLog.push({ command, timestamp: ++clock })
   }),
@@ -652,5 +656,31 @@ describe('trace mode: one capture per action, taken before it', () => {
     expect(bodies.some((body) => body.includes('childElementCount'))).toBe(
       false
     )
+  })
+
+  it('waits for a navigated destination even when a resource-settle drain follows the one that saw it', async () => {
+    const browser = webBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    capturer.captureTrace.mockImplementation(async () => {
+      capturer.replacedDocumentInLastDrain = true
+    })
+    capturer.pageResourceStore.settle.mockImplementationOnce(
+      async (drain: () => Promise<unknown>) => {
+        capturer.captureTrace.mockImplementation(async () => {
+          capturer.replacedDocumentInLastDrain = false
+        })
+        await drain()
+      }
+    )
+    vi.mocked(browser.waitUntil).mockClear()
+
+    await service.after()
+
+    expect(browser.waitUntil).toHaveBeenCalledTimes(1)
+    capturer.captureTrace.mockReset()
+    capturer.captureTrace.mockResolvedValue(undefined)
   })
 })

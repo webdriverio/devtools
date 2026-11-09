@@ -37,13 +37,13 @@
   },
   "dependencies": {
     "@xmldom/xmldom": "^0.9.12",
-    "xpath": "^0.0.34"
+    "xpath": "^0.0.36"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.59.3",
-    "@types/node": "26.6.4",
+    "@types/node": "26.6.6",
     "@wdio/devtools-core": "workspace:^",
-    "@wdio/globals": "10.0.2",
+    "@wdio/globals": "10.2.0",
     "tsup": "^8.5.1",
     "typescript": "6.0.3",
     "vitest": "^5.0.2",

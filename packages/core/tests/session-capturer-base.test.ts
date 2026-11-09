@@ -25,6 +25,9 @@ class TestSessionCapturer extends SessionCapturerBase {
       consoleLogs?: unknown
       networkRequests?: unknown
       metadata?: unknown
+      pageResources?: unknown
+      resourceReReads?: unknown
+      pendingResources?: unknown
     },
     opts?: {
       skipConsoleLogs?: boolean
@@ -524,5 +527,31 @@ describe('processTracePayload network ids at scale', () => {
     } finally {
       capturer.cleanup()
     }
+  })
+})
+
+describe('processTracePayload: page resources', () => {
+  const css = {
+    url: 'https://x/site.css',
+    kind: 'stylesheet',
+    mimeType: 'text/css',
+    data: 'cHt9',
+    size: 3
+  }
+
+  it('keeps each stored resource once for the trace writer and sends none upstream', () => {
+    cap.process({
+      pageResources: [css, { url: 'broken' }],
+      resourceReReads: [{ url: css.url, startedAt: 5, loadedAt: 1 }],
+      pendingResources: 2
+    })
+    cap.process({ pageResources: [css], pendingResources: 0 })
+
+    expect(cap.pageResources).toEqual([css])
+    expect(cap.resourceReReads).toEqual([
+      { url: css.url, startedAt: 5, loadedAt: 1 }
+    ])
+    expect(cap.pageResourceStore.pending).toBe(0)
+    expect(cap.upstream.map((u) => u.scope)).not.toContain('pageResources')
   })
 })

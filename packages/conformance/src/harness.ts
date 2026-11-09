@@ -146,6 +146,8 @@ function unrunReport(
       failedNavigations: [],
       actions: { navigate: [], click: [], fill: [] },
       requests: [],
+      typed: [],
+      undeclaredMaskPolicies: 0,
       bidi,
       scenarioFile
     },

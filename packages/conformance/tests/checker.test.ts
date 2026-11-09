@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { MASKED_VALUE } from '@wdio/devtools-shared'
 
 import { checkConformance } from '../src/checker.js'
 import { LOAD_MS, REPO_ROOT, RULES } from '../src/constants.js'
@@ -25,6 +26,8 @@ const truth: GroundTruth = {
   failedNavigations: [{ url: BROKEN, message: 'net::ERR_FAILED at /broken' }],
   actions: { navigate: [110, 340, 360], click: [320], fill: [] },
   requests: [...loads(LOGIN, 100), ...loads(SECURE, 300)],
+  typed: [],
+  undeclaredMaskPolicies: 0,
   bidi: 'off',
   scenarioFile: { paths: [SPEC], lines: 40 }
 }
@@ -608,5 +611,71 @@ describe(RULES.callSiteInScenario, () => {
       scenarioFile: { paths: [SPEC, `/private${SPEC}`], lines: 40 }
     }
     expect(checkConformance(at(`/private${SPEC}:3`), aliased)).toEqual([])
+  })
+})
+
+describe(RULES.passwordMaskedInPage, () => {
+  const check = (
+    frames: WireFrame[],
+    typed: GroundTruth['typed'],
+    undeclaredMaskPolicies = 0
+  ) =>
+    checkConformance(frames, {
+      ...truth,
+      typed,
+      undeclaredMaskPolicies
+    }).filter((v) => v.rule === RULES.passwordMaskedInPage)
+  const fill = (args: unknown[]) => ({
+    scope: 'commands',
+    data: [row('sendKeys', args, 400, 410)]
+  })
+  const valueMutation = (target: string, attributeValue: string) => ({
+    scope: 'mutations',
+    data: [
+      { type: 'attributes', target, attributeName: 'value', attributeValue }
+    ]
+  })
+  const typed = [
+    { selector: '#username', text: 'tom' },
+    { selector: '#password', text: 'secret' }
+  ]
+
+  it('accepts rows carrying what was typed and a page masking only the password', () => {
+    const frames = [
+      ...conformingStream(),
+      fill(['tom']),
+      fill(['secret']),
+      valueMutation('#username', 'tom'),
+      valueMutation('#password', MASKED_VALUE)
+    ]
+    expect(check(frames, typed)).toEqual([])
+  })
+
+  it('reads a W3C payload and a value sent with special keys', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([{ text: 'tom', value: ['t', 'o', 'm'] }]),
+      fill(['secret\uE007'])
+    ]
+    expect(check(frames, typed)).toEqual([])
+  })
+
+  it('flags a password the replayed page carries', () => {
+    const frames = [
+      ...conformingStream(),
+      fill(['tom']),
+      fill(['secret']),
+      valueMutation('#password', 'secret')
+    ]
+    expect(check(frames, typed)).toHaveLength(1)
+  })
+
+  it('flags a row that masked what it typed', () => {
+    const frames = [...conformingStream(), fill(['tom']), fill([MASKED_VALUE])]
+    expect(check(frames, typed)).toHaveLength(1)
+  })
+
+  it('flags a collector loaded without the run’s mask policy', () => {
+    expect(check(conformingStream(), [], 1)).toHaveLength(1)
   })
 })

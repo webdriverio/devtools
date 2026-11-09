@@ -10,7 +10,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline' https: http:; img-src * data: blob:; font-src * data:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self' https: http:; form-action 'none'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self'; connect-src 'self' https:; style-src 'self' 'unsafe-inline' https: http: blob:; img-src * data: blob:; font-src * data: blob:; media-src 'self' data: blob:; object-src 'none'; base-uri 'self' https: http:; form-action 'none'; frame-ancestors 'none'"
         },
         {
           "key": "Referrer-Policy",

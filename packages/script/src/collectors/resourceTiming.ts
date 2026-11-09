@@ -8,6 +8,7 @@ import type { Collector } from './collector.js'
 import type { NetworkRequest } from '../../types.js'
 import { log } from '../logger.js'
 import { shouldIgnoreRequest } from './network-helpers.js'
+import type { PageResourceCollector } from './pageResources.js'
 
 /** `responseStatus` is Resource Timing Level 2 (Chromium 109+); the lib types
  *  lag the spec, and Safari reports nothing here at all. */
@@ -111,9 +112,14 @@ export class ResourceTimingCollector implements Collector<NetworkRequest> {
   #requests: NetworkRequest[] = []
   #navigationRecorded = false
   readonly #consumeClaim: ClaimConsumer
+  readonly #pageResources: PageResourceCollector | undefined
 
-  constructor(consumeClaim: ClaimConsumer) {
+  constructor(
+    consumeClaim: ClaimConsumer,
+    pageResources?: PageResourceCollector
+  ) {
     this.#consumeClaim = consumeClaim
+    this.#pageResources = pageResources
     this.#seed()
     this.#observe()
   }
@@ -167,6 +173,13 @@ export class ResourceTimingCollector implements Collector<NetworkRequest> {
     }
     if (shouldIgnoreRequest(entry.name)) {
       return
+    }
+    if (!isNavigation) {
+      // The collector's own read of a stylesheet is not a request the page made.
+      if (this.#pageResources?.isOwnRead(entry.name, entry.startTime)) {
+        return
+      }
+      this.#pageResources?.noteLoad(entry)
     }
     const request = this.#toRequest(entry, isNavigation)
     // The patch saw this fetch/XHR with its method, headers and body; this

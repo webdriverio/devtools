@@ -69,6 +69,9 @@ def fetch(host: str, port: int) -> Optional[PageScriptsResponse]:
                 "collectorDrain": body["collectorDrain"],
                 "capturePerformance": body["capturePerformance"],
             }
+            # Absent from a backend older than it; trace drains then read nothing back.
+            if isinstance(body.get("collectorDrainResources"), str):
+                scripts["collectorDrainResources"] = body["collectorDrainResources"]
         else:
             _log.warning("page scripts: unexpected response shape")
     except (urllib.error.URLError, OSError, ValueError) as exc:

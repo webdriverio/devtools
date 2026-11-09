@@ -13,6 +13,7 @@ import {
   resolveAdapterOutputDir,
   TestAttemptTracker,
   tracePolicyModeWarning,
+  configureInputMasking,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
@@ -22,6 +23,7 @@ import { emitTestArtifacts } from './test-artifacts.js'
 import { wireAssertCapture } from './helpers/assertCapture.js'
 import { stop as stopBackend } from '@wdio/devtools-backend'
 import {
+  DEFAULT_TRACE_RESOURCES,
   REUSE_ENV,
   type CucumberPickle,
   type CucumberPickleStep
@@ -164,12 +166,16 @@ class NightwatchDevToolsPlugin {
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
       filmstrip,
+      traceResources: options.traceResources ?? DEFAULT_TRACE_RESOURCES,
       screenshot: options.screenshot ?? 'off',
       video,
       // No live Allure signal in Nightwatch (produce-only), so no auto-detect:
       // off by default, opt-in via the option.
-      emitArtifactsManifest: options.emitArtifactsManifest ?? false
+      emitArtifactsManifest: options.emitArtifactsManifest ?? false,
+      maskInputs: options.maskInputs ?? true,
+      maskSelectors: options.maskSelectors ?? []
     }
+    configureInputMasking(this.options)
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
       log.warn(policyWarning)
@@ -204,6 +210,9 @@ class NightwatchDevToolsPlugin {
       },
       get mode() {
         return self.options.mode
+      },
+      get traceResources() {
+        return self.options.traceResources
       },
       get screencastOptions() {
         return self.#screencast.options

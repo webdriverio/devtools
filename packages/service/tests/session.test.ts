@@ -1,6 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { CAPTURE_PERFORMANCE_SCRIPT } from '@wdio/devtools-core'
-import type { CommandLog } from '@wdio/devtools-shared'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  type Mock
+} from 'vitest'
+import {
+  CAPTURE_PERFORMANCE_SCRIPT,
+  configureInputMasking
+} from '@wdio/devtools-core'
+import { resourceUrlKey, type CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
 import fs from 'node:fs/promises'
@@ -559,6 +570,23 @@ describe('SessionCapturer', () => {
       expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
     })
 
+    it('declares the run’s mask policy ahead of the preloaded collector', async () => {
+      configureInputMasking({ maskInputs: false, maskSelectors: ['.iban'] })
+      try {
+        const capturer = new SessionCapturer()
+        const browser = bidiBrowser()
+        await capturer.injectScript(browser)
+        const [{ functionDeclaration }] = vi.mocked(
+          browser.scriptAddPreloadScript
+        ).mock.calls[0] as [{ functionDeclaration: string }]
+        expect(functionDeclaration).toBe(
+          'async () => { var __wdioCaptureMask = {"inputs":false,"selectors":[".iban"]};\n// preload }'
+        )
+      } finally {
+        configureInputMasking()
+      }
+    })
+
     it('re-adds the preload script for the new session after a reload reset', async () => {
       const capturer = new SessionCapturer()
       const browser = bidiBrowser()
@@ -971,6 +999,30 @@ describe('SessionCapturer', () => {
     })
   })
 
+  describe('afterCommand: typed text', () => {
+    it('keeps what a fill typed on its row, after the element it typed into', async () => {
+      const capturer = new SessionCapturer()
+      await capturer.afterCommand(
+        mockBrowser,
+        '$' as any,
+        ['#password'],
+        {},
+        undefined
+      )
+      await capturer.afterCommand(
+        mockBrowser,
+        'setValue' as any,
+        ['S3cret pass'],
+        undefined,
+        undefined,
+        '/test/login.ts:3:5',
+        Date.now()
+      )
+      const row = capturer.commandsLog.find((c) => c.command === 'setValue')!
+      expect(row.args).toEqual(['#password', 'S3cret pass'])
+    })
+  })
+
   describe('coalesceAssertionIntoLastRead', () => {
     const isRead = (c: string) => c === 'getText'
 
@@ -1196,6 +1248,47 @@ describe('captureTrace and BiDi evidence', () => {
     })
     await capturer.captureTrace(advertisingBrowser())
     expect(capturer.networkRequests.map((r) => r.id)).toEqual(['p-1'])
+  })
+})
+
+describe('captureTrace and page resources', () => {
+  const css = {
+    url: 'https://example.com/site.css',
+    kind: 'stylesheet',
+    mimeType: 'text/css',
+    data: 'cHt9',
+    size: 3
+  }
+  const browser = () =>
+    ({
+      execute: vi.fn().mockResolvedValue({ pageResources: [css] }),
+      getUrl: vi.fn().mockResolvedValue('https://example.com'),
+      takeScreenshot: vi.fn().mockResolvedValue('screenshot')
+    }) as never
+
+  it('asks the page for its stylesheets and fonts only in a run that stores them, and keeps them', async () => {
+    const live = browser()
+    await new SessionCapturer().captureTrace(live)
+    expect((live as { execute: Mock }).execute.mock.calls[0].slice(1)).toEqual([
+      false,
+      'none',
+      expect.any(Array)
+    ])
+
+    const traced = browser()
+    const capturer = new SessionCapturer()
+    capturer.pageResourceStore.mode = 'styles'
+    await capturer.captureTrace(traced)
+    expect(
+      (traced as { execute: Mock }).execute.mock.calls[0].slice(1)
+    ).toEqual([false, 'styles', []])
+    expect(capturer.pageResources).toEqual([css])
+
+    // What is stored is named on the next drain, so a later document does not read it again.
+    await capturer.captureTrace(traced)
+    expect((traced as { execute: Mock }).execute.mock.calls[1][3]).toEqual([
+      resourceUrlKey(css.url)
+    ])
   })
 })
 

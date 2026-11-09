@@ -697,6 +697,9 @@ export class SessionCapturer extends SessionCapturerBase {
     // Anchored: a test ending on a navigation leaves the destination's async
     // initial anchor unrun, so its DOM would be absent from the slice.
     await this.captureTrace(browser, true)
+    await this.pageResourceStore.settle(() =>
+      this.drainCollector(browser, true)
+    )
   }
 
   private async drainCollector(
@@ -713,7 +716,11 @@ export class SessionCapturer extends SessionCapturerBase {
         drain: () =>
           webdriverExecute<Record<string, unknown> | null>(
             browser,
-            collectorDrainExpression(forceAnchor)
+            collectorDrainExpression(
+              forceAnchor,
+              this.pageResourceStore.mode,
+              this.pageResourceStore.storedKeys
+            )
           ),
         injectIntoCurrentDocument: () => this.injectScript(browser),
         currentUrl: () =>

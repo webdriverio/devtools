@@ -21,6 +21,8 @@ function run(overrides: Partial<RunReport> = {}): RunReport {
       failedNavigations: [],
       actions: { navigate: [], click: [], fill: [] },
       requests: [],
+      typed: [],
+      undeclaredMaskPolicies: 0,
       bidi: 'live',
       scenarioFile: { paths: [], lines: 0 }
     },

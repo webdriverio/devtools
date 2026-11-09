@@ -14,6 +14,10 @@ const finalizeTraceExport = vi.fn().mockResolvedValue([])
 vi.mock('stack-trace', () => ({ parse: () => [] }))
 
 const mockSessionCapturerInstance = {
+  pageResourceStore: {
+    configure: vi.fn(),
+    settle: vi.fn().mockResolvedValue(undefined)
+  },
   afterCommand: vi.fn(),
   sendUpstream: vi.fn(),
   mergeMetadata: vi.fn(),

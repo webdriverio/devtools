@@ -31,6 +31,7 @@ import {
 import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
 import { HOSTED_PLAYER } from './constants.js'
 import { cacheTrace, readCachedTrace } from './trace-cache.js'
+import { archivedResources } from '../components/browser/archived-resources.js'
 import { readTraceArchive } from './trace-archive.js'
 import { probeServedTrace } from './trace-serve.js'
 import type { TraceSource } from '../utils/trace-sources.js'
@@ -231,8 +232,8 @@ export class DataManagerController implements ReactiveController {
     this.framesContextProvider.setValue(data.frames)
     this.actionGroupsContextProvider.setValue(data.groups)
     this.transcriptContextProvider.setValue(data.transcript)
-    // Hosted, a cached trace would outlive the tab; the cache only backs a live socket.
-    this.loadTraceFile(data.trace, !HOSTED_PLAYER)
+    // The cache only backs a live socket; a player trace there would replay as the next live run.
+    this.loadTraceFile(data.trace, false)
     this.hasConnectionProvider.setValue(true)
     this.#host.requestUpdate()
   }
@@ -551,6 +552,7 @@ export class DataManagerController implements ReactiveController {
     if (cache) {
       cacheTrace(traceFile)
     }
+    archivedResources.load(traceFile.pageResources ?? [])
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )

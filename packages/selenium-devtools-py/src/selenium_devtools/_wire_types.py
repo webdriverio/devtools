@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, TypedDict, Union
 
-__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PageScriptsResponse', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TestStoppedWsPayload', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
+__all__ = ['AccessibilityNode', 'ActionSnapshot', 'BaselineClearedWsPayload', 'BaselineSavedWsPayload', 'ClearExecutionDataWsPayload', 'CommandLog', 'CommandLogPoint', 'ConsoleLog', 'DeviceInfo', 'DocumentInfo', 'DocumentInfoDocumentInfo', 'DocumentInfoHeaders', 'ElementScriptsResponse', 'Metadata', 'NetworkRequest', 'NetworkRequestResponse', 'NetworkTimings', 'PageResource', 'PageScriptsResponse', 'PerformanceData', 'PerformanceDataNavigation', 'PerformanceDataNavigationTiming', 'PerformanceDataResources', 'PreservedAttempt', 'PreservedAttemptTest', 'PreservedAttemptWindow', 'PreservedStep', 'ReplaceCommandWsPayload', 'ResourceReRead', 'ScreencastFrame', 'ScreencastInfo', 'SerializedError', 'SuiteStats', 'TestError', 'TestErrorMatcherResult', 'TestStats', 'TestStoppedWsPayload', 'TraceExportRequest', 'TraceExportResult', 'TraceMutation', 'Viewport']
 
 
 class _AccessibilityNodeRequired(TypedDict):
@@ -178,6 +178,7 @@ class NetworkRequest(_NetworkRequestRequired, total=False):
     size: float
     timings: NetworkTimings
     source: Literal['resource-timing']
+    wallTime: float
 
 
 class NetworkRequestResponse(TypedDict):
@@ -197,11 +198,23 @@ class NetworkTimings(TypedDict, total=False):
     receive: float
 
 
-class PageScriptsResponse(TypedDict):
+class PageResource(TypedDict):
+    url: str
+    mimeType: str
+    kind: Literal['stylesheet', 'font']
+    data: str
+    size: float
+
+
+class _PageScriptsResponseRequired(TypedDict):
     collectorReady: str
     collectorInject: str
     collectorDrain: str
     capturePerformance: str
+
+
+class PageScriptsResponse(_PageScriptsResponseRequired, total=False):
+    collectorDrainResources: str
 
 
 class PerformanceData(TypedDict, total=False):
@@ -282,6 +295,12 @@ class PreservedStep(_PreservedStepRequired, total=False):
 class ReplaceCommandWsPayload(TypedDict):
     oldTimestamp: float
     command: CommandLog
+
+
+class ResourceReRead(TypedDict):
+    url: str
+    startedAt: float
+    loadedAt: float
 
 
 class ScreencastFrame(TypedDict):

@@ -459,3 +459,30 @@ describe('captureOrReplaceCommand', () => {
     }
   })
 })
+
+describe('typed text', () => {
+  it('keeps what sendKeys typed on its row, and two fills from one helper line as two rows', async () => {
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    try {
+      for (const text of ['tomsmith', 'S3cret pass']) {
+        await captureOrReplaceCommand({
+          capturer,
+          retryTracker,
+          test,
+          cmd: command({
+            command: 'sendKeys',
+            args: [text],
+            callSource: '/helpers.js:4:9'
+          })
+        })
+      }
+      expect(capturer.commandsLog.map((row) => row.args)).toEqual([
+        ['tomsmith'],
+        ['S3cret pass']
+      ])
+    } finally {
+      capturer.cleanup()
+    }
+  })
+})

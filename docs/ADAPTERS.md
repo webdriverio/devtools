@@ -50,11 +50,13 @@ To enrich a row after the fact (navigation timings, for example), send `replaceC
 
 Find the equivalent chokepoint in your binding (Java's `CommandExecutor`, .NET's `ICommandExecutor`, Ruby's bridge `execute`) rather than wrapping each public method.
 
+**Typed text.** A row for an input command carries the text it typed, password included: masking is the collector's, applied to the replayed page only (see step 1 of the collector section). Never rewrite an input command's arguments before capturing its row.
+
 ### 2b. Collector injection and draining
 
 **Contract.** The collector lives in the page and buffers DOM mutations. A **DOM anchor** is a `childList` mutation carrying `url`; the collector stamps it with the document's own `performance.timeOrigin`, i.e. the document's birth time. Your adapter must:
 
-1. **Get the source** from `GET /api/collector`.
+1. **Get the source** from `GET /api/collector`, and put the run's mask policy ahead of it, as shared `captureMaskPrelude` writes it: `var __wdioCaptureMask = {"inputs":true,"selectors":[]};` followed by a newline. The bundle reads that variable from the wrapper it runs in; without it, password fields stay masked and no selector is masked.
 2. **Install it at document start when BiDi is available.** Request `webSocketUrl: true` in the new-session capabilities, then call BiDi `script.addPreloadScript` with **no browsing-context id** (global, so later contexts are covered) and the source wrapped as a function declaration: `async () => { <source> }`. Register it before the session's first navigation.
 3. **Fall back to `<script>` injection** when BiDi is absent: run `collectorInject` from `GET /api/page-scripts` with the source wrapped as `(async function() { <source> })()` as its one argument. It appends a `<script>` to the current document and answers whether the collector came up (`collectorReady` probes again). Repeat whenever a drain finds no collector.
 4. **Drain with a forced anchor.** Read the buffer with `collectorDrain` from `GET /api/page-scripts`, one atomic script that also anchors the current document:
@@ -135,7 +137,7 @@ Attach to that backend, do not open a second dashboard window, and when `DEVTOOL
 
 **Python.** `transport.py` `WSClient` (a dependency-free RFC 6455 client; `request_target` adds the run id), `run_id.py` `resolve_run_id` / `reset_run_id`, `backend.py` `reuse_target` and `launch_or_attach`, `rerun.py` (`configure_script`, `configure_pytest`, `_inherited_launch`, `_publish`, `_stamp_runner_cwd`), `lifecycle.py` `on_control`. `__init__.py` `enable()` shows the order: configure rerun commands, launch or attach, connect, install instrumentation.
 
-**Trace mode.** If your adapter offers trace archives, send any `screencastFrames` and `actionSnapshots` first (in batches), then `traceExport` with `{requestId, outputDir, sessionId, tracePolicy?, traceGranularity?}`, and wait for `traceExported` on the reader side. Never let a failed export fail the run. Python: `trace_export.py` (`send_frames`, `send_action_snapshots`, `export`, `on_result`) driven by `__init__.py` `export_trace`.
+**Trace mode.** If your adapter offers trace archives, drain the page collector with the `collectorDrainResources` page script (fall back to `collectorDrain` when an older backend serves none) and forward the drain's `pageResources` and `resourceReReads` under those scopes, so the archive stores the page's stylesheets and fonts and leaves the collector's reads of them out of the network rows; while a drain reports `pendingResources` above zero, drain again before the session ends, bounded (Python: `page_resources.py`). Send any `screencastFrames` and `actionSnapshots` first (in batches), then `traceExport` with `{requestId, outputDir, sessionId, tracePolicy?, traceGranularity?}`, and wait for `traceExported` on the reader side. Never let a failed export fail the run. Python: `trace_export.py` (`send_frames`, `send_action_snapshots`, `export`, `on_result`) driven by `__init__.py` `export_trace`.
 
 ## 3. The wire contract
 
@@ -153,6 +155,7 @@ Attach to that backend, do not open a second dashboard window, and when `DEVTOOL
 | `config` | `{configFile}` | Optional, once: a config file the backend can rerun through its framework path (WDIO, Nightwatch), as an alternative to `metadata.options.configFile`. |
 | `screencast` | `ScreencastInfo` (`sessionId`, `videoPath`, ...) | After you encode a session video. |
 | `screencastFrames`, `actionSnapshots`, `traceExport` | see `trace-export.ts` | Trace mode only. |
+| `pageResources`, `resourceReReads` | `PageResource[]`, `ResourceReRead[]` (`page-resources.ts`) | Trace mode only; whatever a trace drain returned. |
 
 `metadata.runner` must be a `TestRunnerId` (`TEST_RUNNER_IDS` in `shared/src/types.ts`). It selects the locator dialect for element scripts and how the backend treats the run. A protocol-level adapter currently reports `selenium-webdriver`; a new runner id is a `shared` change.
 
@@ -269,6 +272,7 @@ Defined in `src/checker.ts`, names in `RULES` (`src/constants.ts`):
 | `tests-end-as-designed` | Every test in `SCENARIO_TESTS` is in the stream's suite tree (the latest report of each), ending in the state the scenario designs: a passing test reported failed or skipped, or a test missing, breaks it. |
 | `every-test-has-rows` | Every scenario test the suite tree reports has at least one row. A row belongs to the test its `testUid` names, else to the last test started by then, where a `testUid` the tree never reports places all its rows by the first of them (`src/scenario-tests.ts`, the attribution the comparison uses). A test the tree never reports is left to `tests-end-as-designed`. |
 | `wait-row-parents-its-commands` | Each scenario test shows exactly the waits it writes (`SCENARIO_WAITS` in `src/constants.ts`, as normalized steps); each wait row carries an `id` and a `startTime` and is first sent running, at its start; every row that ran inside a wait's span (`startTime` to `timestamp`) in the same test carries that wait's `id` as `parentId`; and every `parentId` names a row sent before it (`src/wait-nesting.ts`). |
+| `password-masked-only-in-the-page` | Every collector source the page was handed starts with the run's mask policy (shared `captureMaskPrelude`); no `mutations` frame carries the text typed into a password field (`PASSWORD_FIELDS` in `src/constants.ts`); and every text an element received through Element Send Keys (special keys stripped) is, as a whole string, among some row's arguments (`src/password-masking.ts`). The fake page masks a password field's `value` unless the collector source it was handed declares `inputs: false` (in the script or a JSON-encoded argument), as `packages/script` does: the rule proves each adapter declares the policy and keeps its rows' arguments, while the masking itself is proven against the real collector by `packages/script/tests/masking.test.ts`. |
 | `failed-test-has-error-row` | Every scenario test reported failed, or designed to fail whatever it is reported, has a row that is a failed action by shared's `commandFailure`. An unmapped command's error does not count: a wait's polls error whether the wait passes or not, and the trace drops them. |
 | `call-site-names-the-scenario` | Every row carrying a `callSource` names the spec the runner executed (`scenarioFile` on the adapter's launch, as launched or with symlinks resolved), at a line inside it: never DevTools' own code, another file, or the `unknown:0` placeholder. |
 | `run-controls-are-served` | The dashboard offers every control the runner's defaults allow unless `metadata.options.runCapabilities` turns it off (shared `resolveRunCapabilities`, the dashboard's own rule), so a stream that advertises any control, by declaration or by silence, serves it: `launchCommand` or `rerunCommand` in the metadata (the backend's shell path, falling back from either to the other), `configFile` there, or a `config` frame (its framework path, which reruns a WDIO or Nightwatch config). With none, the backend falls back to the WebdriverIO binary, so the control runs the wrong tool. |
@@ -295,6 +299,7 @@ A failing test prints the `unexplained` violations, each `{rule, message, subjec
 - [ ] Commands intercepted at the binding's single chokepoint; `startTime` at invocation, `timestamp` at completion; failures produce an `error` row and rethrow.
 - [ ] Command names map through `ACTION_MAP`; optional fields omitted, never `null`.
 - [ ] Internal scripts and screenshots bypass capture.
+- [ ] Input commands' rows carry the text they typed, unmasked; the collector source carries the mask prelude.
 - [ ] `metadata` sent once per session before its first command, with `runner` and `options`.
 - [ ] Collector fetched from `/api/collector` and the probe, injection, drain and timing read from `/api/page-scripts`; BiDi `webSocketUrl: true` requested; global preload registered before the first navigation and re-registered per new session.
 - [ ] `<script>` fallback when BiDi is absent; drains force the anchor and recover once on `null`; drain after page-moving commands and at session end.

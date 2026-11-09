@@ -522,3 +522,54 @@ describe('withBaseUrl', () => {
     expect(holder.querySelector('body')?.textContent).toBe('page')
   })
 })
+
+describe('transform with archived resources', () => {
+  const rewrite = {
+    href: (url: string) => (url === '/site.css' ? 'blob:site' : undefined),
+    css: (text: string) => text.replace('/font.woff2', 'blob:font')
+  }
+
+  it('points a stylesheet link, <style> text and a style attribute at the stored copies', () => {
+    const host = document.createElement('div')
+    render(
+      transform(
+        {
+          type: 'div',
+          props: {
+            style: 'background:url(/font.woff2)',
+            children: [
+              { type: 'link', props: { rel: 'stylesheet', href: '/site.css' } },
+              { type: 'link', props: { rel: 'stylesheet', href: '/live.css' } },
+              {
+                type: 'style',
+                props: { children: '@font-face{src:url(/font.woff2)}' }
+              }
+            ]
+          }
+        },
+        rewrite
+      ),
+      host
+    )
+
+    const [stored, live] = Array.from(host.querySelectorAll('link'))
+    expect(stored.getAttribute('href')).toBe('blob:site')
+    expect(live.getAttribute('href')).toBe('/live.css')
+    expect(host.querySelector('style')?.textContent).toContain('blob:font')
+    expect(host.querySelector('div')?.getAttribute('style')).toContain(
+      'blob:font'
+    )
+  })
+
+  it('changes nothing without a rewriter', () => {
+    const host = document.createElement('div')
+    render(
+      transform({
+        type: 'link',
+        props: { rel: 'stylesheet', href: '/site.css' }
+      }),
+      host
+    )
+    expect(host.querySelector('link')?.getAttribute('href')).toBe('/site.css')
+  })
+})

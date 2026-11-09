@@ -21,7 +21,8 @@ import { booleanAttributeOn, isBooleanAttribute } from './boolean-attribute.js'
 
 import { render } from 'preact'
 import { customElement, query } from 'lit/decorators.js'
-import { transform, withBaseUrl } from './vnode-transform.js'
+import { replayDocument, transform } from './vnode-transform.js'
+import { archivedResources } from './archived-resources.js'
 import { isUnsafeReplayAttribute } from './replay-safety.js'
 import type { SimplifiedVNode } from '@wdio/devtools-script/types'
 // Type-only, like the `script/types` import above: the collector owns the
@@ -517,7 +518,12 @@ export class DevtoolsBrowser extends Element {
   }
 
   async #renderNewDocument(doc: SimplifiedVNode, baseUrl: string) {
-    render(withBaseUrl(transform(doc), baseUrl), this.#vdom)
+    render(
+      replayDocument(doc, baseUrl, (base) =>
+        archivedResources.rewriterFor(base)
+      ),
+      this.#vdom
+    )
   }
 
   #renderVdom() {
@@ -581,7 +587,7 @@ export class DevtoolsBrowser extends Element {
     if (!node) {
       return
     }
-    node.data = mutation.newTextContent || ''
+    node.data = archivedResources.textValue(el, mutation.newTextContent || '')
   }
 
   /** The Text node a characterData mutation addressed. `childIndex` counts the
@@ -627,10 +633,14 @@ export class DevtoolsBrowser extends Element {
       return
     }
 
-    const value = mutation.attributeValue
-    if (isUnsafeReplayAttribute(name, value)) {
+    if (isUnsafeReplayAttribute(name, mutation.attributeValue)) {
       return
     }
+    const value = archivedResources.attributeValue(
+      el,
+      name,
+      mutation.attributeValue
+    )
     el.setAttribute(name, value)
     // Form-field state lives on the PROPERTY, not just the attribute — mirror it
     // so a replayed input shows the captured value, including a field cleared
@@ -708,7 +718,7 @@ export class DevtoolsBrowser extends Element {
         el.insertBefore(document.createTextNode(node), before)
       } else {
         const holder = el.ownerDocument.createElement('div')
-        render(transform(node), holder)
+        render(transform(node, archivedResources.rewriterForNode(el)), holder)
         while (holder.firstChild) {
           el.insertBefore(holder.firstChild, before)
         }
