@@ -30,7 +30,8 @@ const SCOPE_NAME = '@wdio/devtools-otel'
 const DEFAULT_SERVICE_NAME = 'devtools-tests'
 const EXPORT_SUCCESS_CODE = 0
 
-// A push emits the whole run synchronously and flushes once, so a bounded queue (2048 by default) silently drops the overflow.
+// A push emits the whole run synchronously and flushes once, so a bounded queue (2048 by default) silently drops the overflow;
+// the cost is that a run's whole span set can sit in memory until that flush.
 const BATCH_LIMITS = { maxQueueSize: Number.MAX_SAFE_INTEGER }
 
 // Events are capped per kind before they are added; the SDK's own limit of 128 per span would drop the oldest of a
