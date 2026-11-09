@@ -41,18 +41,33 @@ const FRAME_START = /^\s+at /
 const FRAME_LOCATION = /:\d+(?::\d+)?\)?$/
 const CAUSED_BY = /^\s*Caused by:/
 
-// A stack is a contiguous tail of "at" lines (up to a "Caused by:", blank lines ignored, as a serialized stack's
-// trailing newline leaves one) holding at least one located frame, so an "at" line inside the message, or a run with
-// no location at all, is never mistaken for one.
+const isBlank = (line: string | undefined) => line?.trim() === ''
+const isLocatedFrame = (line: string | undefined) =>
+  line !== undefined &&
+  FRAME_START.test(line) &&
+  FRAME_LOCATION.test(line.trimEnd())
+
+// A stack is a contiguous tail of "at" lines (up to a "Caused by:") holding at least one located frame, so an "at"
+// line inside the message, or a run with no location at all, is never mistaken for one. A blank line is skipped only
+// at the very end, as a serialized stack's trailing newline leaves one, or below a located frame.
 function stackStart(lines: readonly string[]): number {
   let start = lines.length
   let tailIsFrames = true
   let located = false
+  let trailing = true
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!
-    if (line.trim() === '') {
+    if (isBlank(line)) {
+      let above = i - 1
+      while (isBlank(lines[above])) {
+        above--
+      }
+      if (!trailing && !isLocatedFrame(lines[above])) {
+        tailIsFrames = false
+      }
       continue
     }
+    trailing = false
     if (CAUSED_BY.test(line)) {
       tailIsFrames = true
       located = false
