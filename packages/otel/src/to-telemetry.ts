@@ -447,7 +447,12 @@ function traceArtifactFor(
     (artifact) =>
       artifact.kind === 'trace' && artifact.testUids.includes(test.uid)
   )
-  if (candidates.some((artifact) => artifact.key !== undefined)) {
+  // A spec-scope zip is keyed by its spec file, so only a per-test key (uid or uid-retryN) selects an exact attempt.
+  if (
+    candidates.some(
+      (artifact) => artifact.key?.replace(RETRY_DIR_SUFFIX, '') === test.uid
+    )
+  ) {
     return candidates.find((artifact) => artifact.key === attemptKeyOf(test))
   }
   return candidates.reduce<ManifestArtifact | undefined>(
