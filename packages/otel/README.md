@@ -83,7 +83,7 @@ These become filterable resource attributes on every log record and span. In the
 
 A failed action span carries status `ERROR` and an exception event. A poll that a passing wait retried past is not failed. The commands a wait issued are child spans of the wait's span.
 
-Two span events are added to the root span, each capped at 100 per test:
+Two span events are added to the root span, each capped at the first 100 per test:
 
 | Event | Attributes | Recorded for |
 |---|---|---|

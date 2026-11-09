@@ -4,7 +4,8 @@ import {
   SimpleSpanProcessor,
   TracerProvider,
   type ReadableSpan,
-  type SpanExporter
+  type SpanExporter,
+  type SpanProcessor
 } from '@opentelemetry/sdk-trace'
 import {
   BatchLogRecordProcessor,
@@ -12,6 +13,7 @@ import {
   LoggerProvider,
   SimpleLogRecordProcessor,
   type LogRecordExporter,
+  type LogRecordProcessor,
   type ReadableLogRecord
 } from '@opentelemetry/sdk-logs'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
@@ -30,6 +32,10 @@ const EXPORT_SUCCESS_CODE = 0
 
 // A push emits the whole run synchronously and flushes once, so a bounded queue (2048 by default) silently drops the overflow.
 const BATCH_LIMITS = { maxQueueSize: Number.MAX_SAFE_INTEGER }
+
+// Events are capped per kind before they are added; the SDK's own limit of 128 per span would drop the oldest of a
+// root's up to 200, so a test's first console errors vanished behind its failed requests.
+export const SPAN_LIMITS = { eventCountLimit: Number.POSITIVE_INFINITY }
 
 export function batchedProcessors(
   spanExporter: SpanExporter,
@@ -90,32 +96,21 @@ export interface Telemetry {
   shutdown(): Promise<void>
 }
 
-export function createTelemetry(options: { dryRun: boolean }): Telemetry {
-  const failures: Error[] = []
-  const batched = options.dryRun
-    ? undefined
-    : batchedProcessors(
-        new FailureRecordingTraceExporter(failures),
-        new FailureRecordingLogExporter(failures)
-      )
+export function telemetryWith(
+  processors: { span: SpanProcessor; log: LogRecordProcessor },
+  failures: readonly Error[]
+): Telemetry {
   const resource = resourceFromAttributes({
     'service.name': DEFAULT_SERVICE_NAME
   }).merge(detectResources({ detectors: [envDetector] }))
   const tracerProvider = new TracerProvider({
     resource,
-    spanProcessors: [
-      batched?.span ??
-        new SimpleSpanProcessor({ exporter: new ConsoleSpanExporter() })
-    ]
+    spanLimits: SPAN_LIMITS,
+    spanProcessors: [processors.span]
   })
   const loggerProvider = new LoggerProvider({
     resource,
-    processors: [
-      batched?.log ??
-        new SimpleLogRecordProcessor({
-          exporter: new ConsoleLogRecordExporter()
-        })
-    ]
+    processors: [processors.log]
   })
   return {
     tracer: tracerProvider.getTracer(SCOPE_NAME),
@@ -133,4 +128,24 @@ export function createTelemetry(options: { dryRun: boolean }): Telemetry {
       await loggerProvider.shutdown()
     }
   }
+}
+
+export function createTelemetry(options: { dryRun: boolean }): Telemetry {
+  const failures: Error[] = []
+  return telemetryWith(
+    options.dryRun
+      ? {
+          span: new SimpleSpanProcessor({
+            exporter: new ConsoleSpanExporter()
+          }),
+          log: new SimpleLogRecordProcessor({
+            exporter: new ConsoleLogRecordExporter()
+          })
+        }
+      : batchedProcessors(
+          new FailureRecordingTraceExporter(failures),
+          new FailureRecordingLogExporter(failures)
+        ),
+    failures
+  )
 }
