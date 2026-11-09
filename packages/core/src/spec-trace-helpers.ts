@@ -7,13 +7,14 @@
  */
 
 import path from 'node:path'
-import type {
-  ActionSnapshot,
-  CommandLog,
-  ScreencastFrame,
-  TestMetadataMap,
-  TraceFormat,
-  TraceGranularity
+import {
+  retryKeyOf,
+  type ActionSnapshot,
+  type CommandLog,
+  type ScreencastFrame,
+  type TestMetadataMap,
+  type TraceFormat,
+  type TraceGranularity
 } from '@wdio/devtools-shared'
 import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
 import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
@@ -333,9 +334,13 @@ export function recordSliceBoundary(
     const priorAttempts = ctx.specRanges.filter(
       (r) => r.testUid === testUid
     ).length
-    const key =
-      priorAttempts === 0 ? testUid : `${testUid}-retry${priorAttempts}`
-    return pushSliceRange(ctx, specFile, key, testUid, false)
+    return pushSliceRange(
+      ctx,
+      specFile,
+      retryKeyOf(testUid, priorAttempts),
+      testUid,
+      false
+    )
   }
   return null
 }

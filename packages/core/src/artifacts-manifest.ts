@@ -13,31 +13,45 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  ArtifactManifestTest,
+  ArtifactsManifest,
+  TestAttemptRecord,
   TestMetadataEntry,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat
 } from '@wdio/devtools-shared'
-import type { TraceArtifact } from './trace-finalizer.js'
-
-/** One test's outcome as recorded at export time. Field types track
- *  TestMetadataEntry in shared; adds the keying uid, drops trace-only ancestry. */
-export interface ArtifactManifestTest extends Pick<
-  TestMetadataEntry,
-  'title' | 'specFile' | 'state' | 'attempt'
-> {
-  uid: string
-}
-
-export interface ArtifactsManifest {
-  sessionId: string
-  format: TraceFormat
-  artifacts: TraceArtifact[]
-  tests: ArtifactManifestTest[]
-}
+import { stepOwnerUid } from './uid.js'
 
 /** Deterministic manifest filename for a session (used by writers and readers). */
 export function artifactsManifestFilename(sessionId: string): string {
   return `devtools-artifacts-${sessionId}.json`
+}
+
+// Steps stay in testMetadata for the trace's step groups but are not test units; WDIO keys one off its scenario's uid, Selenium and Nightwatch nest it as a test under a scenario suite.
+function isStepEntry(
+  uid: string,
+  meta: TestMetadataEntry,
+  metadata: TestMetadataMap
+): boolean {
+  const owner = stepOwnerUid(uid)
+  return (
+    (owner !== undefined && metadata.has(owner)) ||
+    meta.ancestry?.at(-1)?.kind === 'scenario'
+  )
+}
+
+/** Stamps `final` on the attempt the test ended on, else on the last one recorded: the manifest reader rejects a list with no final record. */
+function markFinalAttempt(
+  attempts: TestAttemptRecord[],
+  finalAttempt: number | undefined
+): TestAttemptRecord[] {
+  const final =
+    attempts.find((record) => record.attempt === finalAttempt) ??
+    attempts[attempts.length - 1]
+  return attempts.map((record) =>
+    record === final ? { ...record, final: true } : record
+  )
 }
 
 /** Assemble the manifest from the artifacts collected across the run and the
@@ -47,22 +61,39 @@ export function buildArtifactsManifest(input: {
   format: TraceFormat
   artifacts: readonly TraceArtifact[]
   testMetadata: TestMetadataMap
+  runId?: string
+  parent?: ArtifactsManifest['parent']
+  attemptsFor?: (uid: string) => TestAttemptRecord[]
 }): ArtifactsManifest {
   const tests: ArtifactManifestTest[] = []
   for (const [uid, meta] of input.testMetadata) {
-    tests.push({
+    if (isStepEntry(uid, meta, input.testMetadata)) {
+      continue
+    }
+    const test: ArtifactManifestTest = {
       uid,
       title: meta.title,
       specFile: meta.specFile,
       state: meta.state,
-      attempt: meta.attempt
-    })
+      attempt: meta.attempt,
+      startTime: meta.startTime,
+      endTime: meta.endTime,
+      durationMs: meta.durationMs,
+      error: meta.error
+    }
+    const attempts = input.attemptsFor?.(uid)
+    if (attempts && attempts.length > 0) {
+      test.attempts = markFinalAttempt(attempts, meta.attempt)
+    }
+    tests.push(test)
   }
   return {
     sessionId: input.sessionId,
     format: input.format,
     artifacts: [...input.artifacts],
-    tests
+    tests,
+    runId: input.runId,
+    parent: input.parent
   }
 }
 

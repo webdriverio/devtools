@@ -11,7 +11,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { TraceScreenshotPolicy } from '@wdio/devtools-shared'
 import { fileSlug } from './artifact-naming.js'
-import type { TraceArtifact } from './trace-finalizer.js'
+import type { TraceArtifact } from '@wdio/devtools-shared'
 
 /** Whether a per-test screenshot should be captured for this outcome. */
 export function shouldCaptureScreenshot(

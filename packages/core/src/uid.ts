@@ -35,6 +35,16 @@ export function isStepUidOf(uid: string, testUid: string): boolean {
   return uid.startsWith(`${testUid}${STEP_UID_SEPARATOR}`)
 }
 
+// Splits on the last separator, so a nested key resolves one level up.
+export function stepOwnerUid(uid: string): string | undefined {
+  const at = uid.lastIndexOf(STEP_UID_SEPARATOR)
+  if (at < 0) {
+    return undefined
+  }
+  const index = uid.slice(at + STEP_UID_SEPARATOR.length)
+  return /^\d+$/.test(index) ? uid.slice(0, at) : undefined
+}
+
 // Counter for disambiguating repeated (file, name) signatures within a single
 // test run. Cleared by resetSignatureCounters() between runs.
 const signatureCounters = new Map<string, number>()

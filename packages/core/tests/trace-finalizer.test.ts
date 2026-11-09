@@ -395,6 +395,11 @@ describe('finalizeTraceExport', () => {
       ])
     })
 
+    it('writes nothing in live mode, even when emitManifest is set', async () => {
+      await finalizeTraceExport(baseCtx({ mode: 'live', emitManifest: true }))
+      expect(await fs.readdir(outputDir)).toEqual([])
+    })
+
     it('includes eager-flushed slices the fan-out deduped away', async () => {
       const ctx = baseCtx({
         granularity: 'test',
@@ -522,7 +527,12 @@ describe('finalizeTraceExport', () => {
       // outcomes present but this scope's view is empty (e.g. an adapter that
       // didn't feed this scope): must use metadata, not fail-open into retaining
       // a passing test.
-      const emptyView = { all: () => [], forSpec: () => [], forTest: () => [] }
+      const emptyView = {
+        all: () => [],
+        forSpec: () => [],
+        forTest: () => [],
+        attemptsFor: () => []
+      }
       const result = await finalizeTraceExport(
         baseCtx({
           policy: 'retain-on-failure',

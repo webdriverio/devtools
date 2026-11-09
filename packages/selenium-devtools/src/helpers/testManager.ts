@@ -180,11 +180,7 @@ export class TestManager {
     // (passed) attempt and stops over-retaining, retain-on-first-failure on
     // attempt 0. Skipped for the synthetic session test (no recordStart).
     if (this.#currentRetryStableUid !== undefined) {
-      this.#attemptTracker.recordOutcome(
-        this.#currentRetryStableUid,
-        state,
-        test.retries
-      )
+      this.#attemptTracker.recordOutcome(this.#currentRetryStableUid, state)
       this.#currentRetryStableUid = undefined
     }
     this.testReporter.onTestEnd(test)

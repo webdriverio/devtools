@@ -16,6 +16,11 @@ export * from './action-snapshot.js'
 export * from './artifact-naming.js'
 export * from './capture-timing.js'
 export * from './artifacts-manifest.js'
+export type {
+  ArtifactManifestTest,
+  ArtifactsManifest,
+  TraceArtifact
+} from '@wdio/devtools-shared'
 export * from './allure-artifacts.js'
 export * from './attempt-tracker.js'
 export * from './screenshot-artifact.js'

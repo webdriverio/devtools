@@ -5,11 +5,14 @@ import { join } from 'node:path'
 import {
   buildArtifactsManifest,
   writeArtifactsManifest,
-  artifactsManifestFilename,
-  type ArtifactsManifest
+  artifactsManifestFilename
 } from '../src/artifacts-manifest.js'
-import type { TraceArtifact } from '../src/trace-finalizer.js'
-import type { TestMetadataMap } from '@wdio/devtools-shared'
+import type {
+  ArtifactsManifest,
+  TestMetadataMap,
+  TraceArtifact
+} from '@wdio/devtools-shared'
+import { stepMetadataUid } from '../src/uid.js'
 
 function metadata(): TestMetadataMap {
   return new Map([
@@ -78,6 +81,243 @@ describe('artifacts manifest', () => {
         attempt: 1
       }
     ])
+  })
+
+  it('copies per-test timing and failure when the metadata carries them', () => {
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        'u2',
+        {
+          title: 'fails',
+          specFile: '/a.spec.ts',
+          state: 'failed',
+          attempt: 1,
+          startTime: 1000,
+          endTime: 1500,
+          durationMs: 480,
+          error: 'boom'
+        }
+      ]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-t',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests).toEqual([
+      {
+        uid: 'u2',
+        title: 'fails',
+        specFile: '/a.spec.ts',
+        state: 'failed',
+        attempt: 1,
+        startTime: 1000,
+        endTime: 1500,
+        durationMs: 480,
+        error: 'boom'
+      }
+    ])
+  })
+
+  it('leaves timing and error keys out of the file when the metadata lacks them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'manifest-'))
+    dirs.push(dir)
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-u',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata()
+    })
+    const filePath = await writeArtifactsManifest(dir, m)
+    const parsed = JSON.parse(await readFile(filePath, 'utf8')) as {
+      tests: Record<string, unknown>[]
+    }
+    expect(Object.keys(parsed.tests[0]).sort()).toEqual(
+      ['attempt', 'specFile', 'state', 'title', 'uid'].sort()
+    )
+  })
+
+  it('leaves out a step nested as a test under a scenario suite', () => {
+    const feature = { uid: 'f1', title: 'Cart', kind: 'feature' as const }
+    const scenario = {
+      uid: 's1',
+      title: 'checkout',
+      kind: 'scenario' as const
+    }
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        's1',
+        {
+          title: 'checkout',
+          specFile: '/a.feature',
+          state: 'passed',
+          ancestry: [feature]
+        }
+      ],
+      [
+        'step-1',
+        {
+          title: 'Given a cart',
+          specFile: '/a.feature',
+          state: 'passed',
+          attempt: 0,
+          ancestry: [feature, scenario]
+        }
+      ],
+      [
+        'mocha-test',
+        {
+          title: 'plain test',
+          specFile: '/a.spec.ts',
+          state: 'passed',
+          attempt: 0,
+          ancestry: [{ uid: 'd1', title: 'describe', kind: 'suite' as const }]
+        }
+      ]
+    ])
+    const manifest = buildArtifactsManifest({
+      sessionId: 's',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(manifest.tests.map((t) => t.uid)).toEqual(['s1', 'mocha-test'])
+  })
+
+  it("leaves a scenario's steps out of tests[]", () => {
+    const testMetadata: TestMetadataMap = new Map([
+      [
+        'stable-abc',
+        {
+          title: 'checkout',
+          specFile: '/a.feature',
+          state: 'passed',
+          attempt: 0
+        }
+      ],
+      [
+        stepMetadataUid('stable-abc', 1),
+        { title: 'Given a cart', specFile: '/a.feature' }
+      ],
+      [
+        stepMetadataUid('stable-abc', 2),
+        { title: 'When I pay', specFile: '/a.feature' }
+      ]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-s',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests.map((t) => t.uid)).toEqual(['stable-abc'])
+  })
+
+  it('keeps a step-looking uid whose owner is not in the map', () => {
+    const testMetadata: TestMetadataMap = new Map([
+      ['orphan:step:1', { title: 'stray', specFile: '/a.feature' }]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-o',
+      format: 'zip',
+      artifacts: [],
+      testMetadata
+    })
+    expect(m.tests.map((t) => t.uid)).toEqual(['orphan:step:1'])
+  })
+
+  it('carries the run id, parent context and per-attempt records when given', () => {
+    const attempts = [
+      {
+        attempt: 1,
+        state: 'failed' as const,
+        startTime: 1,
+        endTime: 2,
+        traceId: '0af7651916cd43dd8448eb211c80319c',
+        spanId: 'b7ad6b7169203331'
+      }
+    ]
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-r',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata(),
+      runId: 'run-1',
+      parent: {
+        traceId: '0af7651916cd43dd8448eb211c80319c',
+        spanId: 'b7ad6b7169203331',
+        traceFlags: 1,
+        traceState: 'vendor=1'
+      },
+      attemptsFor: (uid) => (uid === 'u2' ? attempts : [])
+    })
+    expect(m.runId).toBe('run-1')
+    expect(m.parent?.traceState).toBe('vendor=1')
+    expect(m.tests[0]).not.toHaveProperty('attempts')
+    expect(m.tests[1]!.attempts).toEqual([{ ...attempts[0], final: true }])
+  })
+
+  it('leaves run id, parent and attempts out when not given', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'manifest-'))
+    dirs.push(dir)
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-n',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata()
+    })
+    const parsed = JSON.parse(
+      await readFile(await writeArtifactsManifest(dir, m), 'utf8')
+    ) as Record<string, unknown>
+    expect(parsed).not.toHaveProperty('runId')
+    expect(parsed).not.toHaveProperty('parent')
+    expect(m.tests.every((t) => !('attempts' in t))).toBe(true)
+  })
+
+  it('stamps final on the last recorded attempt when none matches the test attempt', () => {
+    const record = (attempt: number) => ({
+      attempt,
+      startTime: attempt,
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331'
+    })
+    const testMetadata: TestMetadataMap = new Map([
+      ['u1', { title: 'a', specFile: '/a.js', state: 'passed', attempt: 1 }],
+      ['u2', { title: 'b', specFile: '/a.js', state: 'passed', attempt: 5 }]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-f',
+      format: 'zip',
+      artifacts: [],
+      testMetadata,
+      attemptsFor: () => [record(0), record(1)]
+    })
+    expect(m.tests[0]!.attempts).toEqual([
+      record(0),
+      { ...record(1), final: true }
+    ])
+    expect(m.tests[1]!.attempts!.map((a) => a.final)).toEqual([undefined, true])
+  })
+
+  it('stamps final on the last recorded attempt when the test has no attempt number', () => {
+    const record = (attempt: number) => ({
+      attempt,
+      startTime: attempt,
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331'
+    })
+    const testMetadata: TestMetadataMap = new Map([
+      ['u1', { title: 'a', specFile: '/a.js', state: 'passed' }]
+    ])
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-l',
+      format: 'zip',
+      artifacts: [],
+      testMetadata,
+      attemptsFor: () => [record(0), record(1)]
+    })
+    expect(m.tests[0]!.attempts!.map((a) => a.final)).toEqual([undefined, true])
   })
 
   it('filename is deterministic per session', () => {

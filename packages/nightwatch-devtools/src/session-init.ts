@@ -88,6 +88,8 @@ export interface SessionInitCtx {
   buildMetadataOptions(): unknown
   /** Latest attempt recorded for `uid`, or undefined if it never started. */
   attemptFor(uid: string): number | undefined
+  /** Opens an attempt for uid; `specFile` enables spec-scoped retention. */
+  recordAttempt(uid: string, specFile?: string): number
   /** Stamps the terminal state onto uid's latest attempt, for the retry-aware retention policies. */
   recordOutcome(uid: string, state: TestStats['state']): void
   /** Drains the live recorder's frames into the run's filmstrip buffer, then
@@ -108,8 +110,10 @@ function initReporterChain(ctx: SessionInitCtx): void {
     },
     (uid) => ctx.attemptFor(uid)
   )
-  ctx.testManager = new TestManager(ctx.testReporter, (uid, state) =>
-    ctx.recordOutcome(uid, state)
+  ctx.testManager = new TestManager(
+    ctx.testReporter,
+    (uid, state) => ctx.recordOutcome(uid, state),
+    (uid, specFile) => ctx.recordAttempt(uid, specFile)
   )
   ctx.suiteManager = new SuiteManager(ctx.testReporter)
   ctx.browserProxy = new BrowserProxy(

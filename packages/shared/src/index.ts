@@ -2,6 +2,7 @@
 // across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
 export * from './action-mapping.js'
+export * from './artifacts-manifest.js'
 export * from './baseline.js'
 export * from './browser-schemes.js'
 export * from './call-source.js'
@@ -29,6 +30,7 @@ export * from './runner.js'
 export * from './snapshot-format.js'
 export * from './timing.js'
 export * from './trace-actions.js'
+export * from './trace-context.js'
 export * from './trace-export.js'
 export * from './trace-file.js'
 export * from './trace-player.js'

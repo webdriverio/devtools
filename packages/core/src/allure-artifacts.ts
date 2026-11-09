@@ -27,7 +27,7 @@ import {
   shouldRetainTrace,
   type TestOutcome
 } from '@wdio/devtools-trace/trace-retention'
-import type { TraceArtifact } from './trace-finalizer.js'
+import type { TraceArtifact } from '@wdio/devtools-shared'
 
 /** Adapter-supplied binding to the active Allure reporter. Attaches one file to
  *  the currently-executing test. Undefined = attach unsupported (produce-only). */

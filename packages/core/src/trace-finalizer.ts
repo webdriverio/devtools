@@ -11,6 +11,7 @@ import type {
   DevToolsMode,
   ScreencastFrame,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat,
   TraceGranularity,
   TraceRetentionPolicy
@@ -21,6 +22,8 @@ import {
   buildArtifactsManifest,
   writeArtifactsManifest
 } from './artifacts-manifest.js'
+import { resolveParentTraceContext } from './trace-context.js'
+import { resolveRunId } from './run-id.js'
 import {
   filterTestMetadataBySpec,
   filterTestMetadataByUid,
@@ -37,20 +40,6 @@ import {
   writeTraceZip,
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
-
-/** One artifact produced (or, when `retained` is false, decided-against) by a
- *  trace-mode run — a trace slice, a screencast video, or a per-test
- *  screenshot. */
-export interface TraceArtifact {
-  kind: 'trace' | 'video' | 'screenshot'
-  path: string
-  scope: 'session' | 'spec' | 'test'
-  /** specFile for spec scope, testUid for test scope. */
-  key?: string
-  testUids: string[]
-  /** false = decided-not-to-write (reported, not written). Always true today. */
-  retained: boolean
-}
 
 export interface TraceExportContext {
   mode?: DevToolsMode
@@ -505,7 +494,10 @@ async function maybeWriteManifest(
         sessionId: ctx.sessionId,
         format: ctx.format ?? 'zip',
         artifacts,
-        testMetadata: ctx.testMetadata
+        testMetadata: ctx.testMetadata,
+        runId: resolveRunId(),
+        parent: resolveParentTraceContext(),
+        attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes)
       })
     )
     ctx.log?.('info', `Artifacts manifest written to ${path}`)

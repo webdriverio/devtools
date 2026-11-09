@@ -294,9 +294,9 @@ export class SessionCapturer extends SessionCapturerBase {
   }
 
   /** Closes a wait left open when its test or step ended, with that test's failure or as passed; an assertion failure stays on its own row. */
-  closeOpenWait(id: number, testError: unknown): void {
+  closeOpenWait(id: number, testError: unknown, endedAt: number): void {
     this.#restoreWaitSelector(id)
-    this.#waitRows.closeOpen(id, toCommandError(testError))
+    this.#waitRows.closeOpen(id, toCommandError(testError), endedAt)
     this.#retryTracker.reset()
   }
 
