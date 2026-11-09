@@ -1,0 +1,5 @@
+---
+'@wdio/opentelemetry': minor
+---
+
+New `wdio-otel` CLI pushes the tests listed in devtools artifacts manifests to an OpenTelemetry collector as spans (the WebdriverIO, Selenium and Nightwatch adapters write a manifest in `mode: 'telemetry'`, or in trace mode with `emitArtifactsManifest: true`; WebdriverIO also writes one unasked when an Allure reporter is configured, and Selenium when an allure-js-commons runtime is active, unless `emitArtifactsManifest: false` is set). Each test attempt is a root span carrying its status, duration and failure, with the trace and span ids the run recorded when the attempt started, so re-pushing a manifest that carries attempt records produces the same spans, and a `TRACEPARENT` set on the run makes every attempt a child of the CI span. With `--trace-zips`, the actions of a retained trace zip become child spans; a missing zip warns and skips that test's actions. Manifests recorded under a retain policy are pushed in full, with the dropped zips left unlinked. The run id defaults to the manifests' `runId`. See the package README.
