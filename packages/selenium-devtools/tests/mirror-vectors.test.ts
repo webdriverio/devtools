@@ -11,9 +11,12 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
+  captureMaskPrelude,
   deviceFromCapabilities,
   isNativeAppSession,
-  RUNNER_ENV
+  resolveCaptureMask,
+  RUNNER_ENV,
+  type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
@@ -81,7 +84,8 @@ const RUNNERS = [
   'performancePayload',
   'waitRowNaming',
   'finalFrameStamp',
-  'captureTimingSummary'
+  'captureTimingSummary',
+  'collectorMaskPrelude'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -450,6 +454,16 @@ describe('captureTimingSummary', () => {
         summary,
         formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
       }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('collectorMaskPrelude', () => {
+  for (const c of section<
+    Named & { options: CaptureMaskOptions; expect: string }
+  >('collectorMaskPrelude').cases) {
+    it(c.name, () => {
+      expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
     })
   }
 })

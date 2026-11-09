@@ -27,6 +27,7 @@ import os
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
 from .collector_source import fetch_collector_source
+from .input_masking import capture_mask_prelude
 from .constants import LOGGER_NAME
 from .device import driver_is_native_app
 from .types import PageScriptsResponse
@@ -87,7 +88,7 @@ def collector_source_text(
     *,
     backend: Optional[tuple] = None,
 ) -> Optional[str]:
-    """The collector's RAW source, or None if it cannot be obtained.
+    """The collector's RAW source behind the run's mask policy, or None if it cannot be obtained.
 
     Raw rather than wrapped, because the two ways of installing it need
     different envelopes: a ``<script>`` body needs the async IIFE
@@ -104,7 +105,7 @@ def collector_source_text(
     if path is None and backend is not None:
         source = fetch_collector_source(*backend)
         if source is not None:
-            return source
+            return capture_mask_prelude() + source
     resolved = path or resolve_script_path()
     if not resolved:
         _warn(
@@ -114,7 +115,7 @@ def collector_source_text(
         return None
     try:
         with open(resolved, "r", encoding="utf-8") as handle:
-            return handle.read()
+            return capture_mask_prelude() + handle.read()
     except OSError as exc:
         _warn(f"could not read injected script ({resolved}): {exc}")
         return None

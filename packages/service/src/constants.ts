@@ -139,9 +139,7 @@ export const CONTEXT_CHANGE_COMMANDS = [
 export const PARSE_PLUGINS = [
   'typescript',
   'jsx',
-  'decorators-legacy',
-  'classProperties',
-  'dynamicImport'
+  'decorators-legacy'
 ] as const satisfies readonly ParserPlugin[]
 
 /**

@@ -1,7 +1,11 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { WS_SCOPE, type WsMessageScope } from '@wdio/devtools-shared'
+import {
+  CAPTURE_MASK_GLOBAL,
+  WS_SCOPE,
+  type WsMessageScope
+} from '@wdio/devtools-shared'
 
 import type { ScenarioTest } from './types.js'
 
@@ -47,6 +51,7 @@ export const RULES = {
   callSiteInScenario: 'call-site-names-the-scenario',
   testHasRows: 'every-test-has-rows',
   waitParentsItsRows: 'wait-row-parents-its-commands',
+  passwordMaskedInPage: 'password-masked-only-in-the-page',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -82,6 +87,12 @@ export const RESPONSIBILITIES = {
 
 /** The collector's own source assigns its global; an adapter's probes and drains only read it. */
 export const COLLECTOR_SIGNATURE = /wdioTraceCollector\s*=(?!=)/
+
+/** The declaration of the run's mask policy every collector source starts with (shared `captureMaskPrelude`). */
+export const MASK_DECLARATION = `var ${CAPTURE_MASK_GLOBAL} = `
+
+/** The declaration that turns the collector's password masking off. */
+export const MASK_INPUTS_OFF = `${MASK_DECLARATION}{"inputs":false`
 
 /** The page's own Performance API read, recognised by the call that reads its navigation timings however a script phrases it. */
 export const PERFORMANCE_SIGNATURE =
@@ -161,6 +172,9 @@ export const PAGES: Record<string, Record<string, string | null>> = {
   '/secure': { h2: null, '#flash': null, '#logout': '/login' }
 }
 
+/** The scenario's password fields, whose value the collector masks by default. */
+export const PASSWORD_FIELDS: ReadonlySet<string> = new Set(['#password'])
+
 /** Per page, the text an element reads back; an element not listed reads as empty. */
 export const ELEMENT_TEXT: Record<string, Record<string, string>> = {
   '/login': { h2: 'Login Page' },
@@ -200,6 +214,13 @@ export const BIDI_RESULTS: Record<string, unknown> = {
 
 /** The one top-level browsing context, as a window handle and as a BiDi context id. */
 export const WINDOW_HANDLE = 'window-1'
+
+/** The W3C default timeouts, which a driver returns in the new session's capabilities and over GET /timeouts. */
+export const SESSION_TIMEOUTS = {
+  implicit: 0,
+  pageLoad: 300_000,
+  script: 30_000
+}
 
 /** Every scenario run dumps its stream here, and the HTML report is rebuilt from what is present. */
 export const OUT_DIR = path.join(REPO_ROOT, 'packages/conformance/out')

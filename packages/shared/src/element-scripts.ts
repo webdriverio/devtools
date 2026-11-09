@@ -9,6 +9,7 @@
  * `@wdio/elements` — these are just the script bodies.
  */
 
+import { MASKED_VALUE } from './input-mask.js'
 import { locatorDialect } from './locator-dialect.js'
 import type { LocatorDialect, TextLocatorDialect } from './locator-dialect.js'
 import type { TestRunnerId } from './types.js'
@@ -86,14 +87,39 @@ const IS_VISIBLE_SCRIPT = `
     }
 `
 
+/** What the collector masks, so a snapshot names and locates an element as the DOM stream shows it; nothing without a collector. */
+const MASK_SCRIPT = `
+    var MASK_SELECTOR = (function () {
+      try {
+        var c = window.wdioTraceCollector
+        return c && typeof c.maskSelector === 'function' ? c.maskSelector() : null
+      } catch (e) { return null }
+    })()
+    function isMasked(el) { return MASK_SELECTOR !== null && el.closest(MASK_SELECTOR) !== null }
+    function holdsMasked(el) { return MASK_SELECTOR !== null && el.querySelector(MASK_SELECTOR) !== null }
+    var MASKED_NAME = ${JSON.stringify(MASKED_VALUE)}
+    // textContent would read a masked descendant's text into its ancestor's name.
+    function unmaskedText(node) {
+      if (MASK_SELECTOR === null) { return node.textContent || '' }
+      if (node.nodeType === 3) { return node.data }
+      if (node.nodeType !== 1) { return '' }
+      if (node.matches(MASK_SELECTOR)) { return MASKED_NAME }
+      var text = ''
+      for (var i = 0; i < node.childNodes.length; i++) { text += unmaskedText(node.childNodes[i]) }
+      return text
+    }
+    function textName(el) { return isMasked(el) ? MASKED_NAME : (unmaskedText(el).trim().replace(/\\s+/g, ' ') || '').slice(0, 200) }
+`
+
 /** Naming steps both scripts share; null means none applied, which an empty alt or label does not. */
 const EXPLICIT_NAME_SCRIPT = `
     function getExplicitName(el) {
+      if (isMasked(el)) { return MASKED_NAME }
       var ariaLabel = el.getAttribute('aria-label')
       if (ariaLabel) { return ariaLabel.trim() }
       var labelledBy = el.getAttribute('aria-labelledby')
       if (labelledBy) {
-        var texts = labelledBy.split(/\\s+/).map(function(id) { return (document.getElementById(id)?.textContent || '').trim() }).filter(Boolean)
+        var texts = labelledBy.split(/\\s+/).map(function(id) { var ref = document.getElementById(id); return ref ? unmaskedText(ref).trim() : '' }).filter(Boolean)
         if (texts.length > 0) { return texts.join(' ').slice(0, 200) }
       }
       var tag = el.tagName.toLowerCase()
@@ -105,13 +131,13 @@ const EXPLICIT_NAME_SCRIPT = `
         var id = el.getAttribute('id')
         if (id) {
           var label = document.querySelector('label[for="' + CSS.escape(id) + '"]')
-          if (label) { return (label.textContent || '').trim() }
+          if (label) { return unmaskedText(label).trim() }
         }
         var parentLabel = el.closest('label')
         if (parentLabel) {
           var clone = parentLabel.cloneNode(true)
           clone.querySelectorAll('input,select,textarea').forEach(function(n) { n.remove() })
-          var lt = (clone.textContent || '').trim()
+          var lt = unmaskedText(clone).trim()
           if (lt) { return lt }
         }
       }
@@ -225,6 +251,7 @@ function textLocatorExpression(dialect: TextLocatorDialect): string {
 function textSelectorScript(dialect: TextLocatorDialect): string {
   return `
     function textSelector(element, tag) {
+      if (isMasked(element) || holdsMasked(element)) { return null }
       var text = (element.textContent || '').trim().replace(/\\s+/g, ' ')
       if (!text || text.length > 120) { return null }
       var sameTagElements = document.querySelectorAll(tag)
@@ -248,6 +275,7 @@ function getSelectorScript(dialect: LocatorDialect): string {
       ? ['textSelector(element, tag)', 'semanticCssSelector(element, tag)']
       : ['semanticCssSelector(element, tag)', 'textSelector(element, tag)']
   return `
+    ${MASK_SCRIPT}
     ${XPATH_TEXT_LITERAL_SCRIPT}
     ${SEMANTIC_CSS_SELECTOR_SCRIPT}
     ${POSITIONAL_SELECTOR_SCRIPT}
@@ -334,7 +362,7 @@ export function accessibilityTreeScript(
         if (imgAlt) { return imgAlt.trim() }
       }
       if (role && CONTAINER_ROLES.has(role)) { return '' }
-      return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
+      return textName(el)
     }
 
     ${getSelectorScript(locatorDialect(runner))}
@@ -434,7 +462,7 @@ export function elementsScript(
     function getAccessibleName(el) {
       var explicitName = getExplicitName(el)
       if (explicitName !== null) { return explicitName }
-      return ((el.textContent || '').trim().replace(/\\s+/g, ' ') || '').slice(0, 200)
+      return textName(el)
     }
 
     ${getSelectorScript(locatorDialect(runner))}

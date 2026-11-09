@@ -128,6 +128,8 @@ const report = (adapter: AdapterId, frames: WireFrame[]): RunReport => ({
     failedNavigations: [],
     actions: { navigate: [], click: [], fill: [] },
     requests: [],
+    typed: [],
+    undeclaredMaskPolicies: 0,
     bidi: 'live',
     scenarioFile: { paths: [], lines: 0 }
   },
