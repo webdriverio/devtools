@@ -29,6 +29,7 @@ import {
   remoteValue,
   type FakeBidi
 } from './fake-bidi.js'
+import { FakeMaskPolicy } from './fake-mask-policy.js'
 import {
   anchorOf,
   rendered,
@@ -83,6 +84,7 @@ export class FakeWebDriver {
     fill: []
   }
   #elements = new Map<string, Element>()
+  #mask = new FakeMaskPolicy()
   #lastFailedNavigation: string | undefined
 
   private constructor(server: Server, bidi: BidiMode) {
@@ -121,6 +123,8 @@ export class FakeWebDriver {
         fill: [...this.#actions.fill]
       },
       requests: [...this.#requests],
+      typed: [...this.#mask.typed],
+      undeclaredMaskPolicies: this.#mask.undeclared,
       bidi: this.#bidiServed ? this.#bidi : 'off'
     }
   }
@@ -346,12 +350,16 @@ export class FakeWebDriver {
         value: { error: 'stale element reference', message: id, stacktrace: '' }
       }
     }
+    const value =
+      action === 'value'
+        ? this.#mask.type(el.selector, String(params.text ?? ''))
+        : ''
     if (action === 'value' && el.document.collector) {
       el.document.buffer.push({
         type: 'attributes',
         target: el.selector,
         attributeName: 'value',
-        attributeValue: String(params.text ?? ''),
+        attributeValue: value,
         addedNodes: [],
         removedNodes: [],
         timestamp: Date.now()
@@ -400,6 +408,7 @@ export class FakeWebDriver {
       return null
     }
     if (COLLECTOR_SIGNATURE.test(script) || COLLECTOR_SIGNATURE.test(args)) {
+      this.#mask.noteSource(script, args)
       // A fresh collector starts unanchored, as the real one does, so injecting twice can anchor twice.
       doc.collector = true
       doc.anchored = false
@@ -449,7 +458,9 @@ export class FakeWebDriver {
   ): Promise<BidiAnswer> {
     if (method === 'script.addPreloadScript') {
       // Only the collector's own source counts; an unrelated preload instruments nothing.
-      if (COLLECTOR_SIGNATURE.test(String(params.functionDeclaration ?? ''))) {
+      const declaration = String(params.functionDeclaration ?? '')
+      if (COLLECTOR_SIGNATURE.test(declaration)) {
+        this.#mask.noteSource(declaration)
         this.#preloaded = true
       }
       return { result: { script: `preload-${++this.#preloads}` } }

@@ -65,6 +65,8 @@ ENV_OPT_IN = "DEVTOOLS_ENABLE"
 ENV_BIDI = "DEVTOOLS_BIDI"  # "0"/"false"/"no"/"off" disables BiDi auto-enable
 ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-open
 ENV_CAPTURE_TIMING = "DEVTOOLS_CAPTURE_TIMING"  # times each trace capture; see capture_timing.py
+ENV_MASK_INPUTS = "DEVTOOLS_MASK_INPUTS"  # "0"/"false"/"no"/"off" leaves password fields unmasked in the replayed page
+ENV_MASK_SELECTORS = "DEVTOOLS_MASK_SELECTORS"  # comma-separated CSS selectors masked too
 
 # ── Backend launch ───────────────────────────────────────────────────────────
 # Pinned backend version fetched via npx from a published install. There is no

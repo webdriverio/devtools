@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from page_scripts_fixture import PAGE_SCRIPTS
+from selenium_devtools import input_masking
 from selenium_devtools.snapshot import (
     SnapshotCapturer,
     TracePayload,
@@ -57,7 +58,7 @@ class TestWrapAndLoad(unittest.TestCase):
             out = load_injectable_script(temp)
         finally:
             os.unlink(temp)
-        self.assertEqual(out, "(async function() { BODY })()")
+        self.assertEqual(out, f"(async function() {{ {input_masking.capture_mask_prelude()}BODY }})()")
 
     def test_load_missing_file_returns_none(self):
         self.assertIsNone(load_injectable_script("/no/such/script.js"))
@@ -101,7 +102,10 @@ class TestSnapshotCapturerInject(unittest.TestCase):
         self.assertTrue(cap.injected)
         install = [c for c in exec_fn.calls if "createElement('script')" in c[0]]
         self.assertEqual(len(install), 1)
-        self.assertEqual(install[0][1], ("(async function() { COLLECTOR })()",))
+        self.assertEqual(
+            install[0][1],
+            (f"(async function() {{ {input_masking.capture_mask_prelude()}COLLECTOR }})()",),
+        )
         self.assertTrue(any("wdioTraceCollector" in c[0] for c in exec_fn.calls))
 
     def test_inject_skips_install_when_collector_present(self):

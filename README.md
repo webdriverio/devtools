@@ -143,6 +143,32 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 **Without BiDi: Safari, and every session Appium serves.** Neither driver exposes BiDi, so there the Network tab is filled by the page itself, through the same injected collector that records the DOM. It patches `fetch` / `XMLHttpRequest` (method, headers, status and body of each call the page makes) and reads the document's **Resource Timing** buffer: every load the browser made (the document, scripts, styles, images, fonts) with its timing phases and size, plus a status on Chromium. What Resource Timing cannot see are headers and bodies, and on Safari the status; each such row says so in its detail card, and its `trace.network` entry carries `_source: "resource-timing"`. When BiDi is serving the session, meaning it has delivered a network event and not merely accepted a subscription (Appium's BiDi shim accepts one and sends nothing), the Resource Timing rows are dropped at ingest so a request is listed once; Nightwatch's performance log, read after the page is drained, upgrades those rows in place with the headers and status it has. A native app session has no document, so it has no network capture at all. Only a device- or proxy-level capture outside the adapters can see that traffic.
 
+### 🔒 Password masking
+
+The page a run replays never shows what was typed into a password field, in live and trace mode alike, on all four adapters. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: in the DOM anchor, the field-state records and every `value` attribute mutation, keystroke by keystroke. A field a show-password toggle turned into a text input stays masked. An empty field stays empty, and every other field (text, email, search, textareas, editable regions) is recorded as typed.
+
+Command rows are not masked: the Actions list, the trace's action titles and `transcript.md` show the real text a `setValue` / `sendKeys` / `send_keys` typed, password included, so a failing step can be read as it ran.
+
+`maskSelectors` masks more of the replayed page: the text, the value and the `aria-label`, `title`, `alt` and `placeholder` attributes of every element a CSS selector matches, and of everything inside it, password or not (an account number, an address). The A11y tab names such an element `••••`, an ancestor's name reads `••••` where the masked text sat, and neither the A11y tab nor the element list locates either by its text. `maskInputs: false` turns the password masking off; selectors given in `maskSelectors` still apply.
+
+| Option | Values | Default | Description |
+|---|---|---|---|
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page. `false` records them as typed (a password's live value still stays out of the DOM anchor). |
+| `maskSelectors` | `string[]` | `[]` | CSS selectors whose matches have their text and value masked in the replayed page too. |
+
+The Python adapter takes the same options as `enable(mask_inputs=..., mask_selectors=[...])`, `--devtools-no-mask-inputs` / `--devtools-mask-selector`, the `devtools_mask_inputs` / `devtools_mask_selectors` ini keys, or `DEVTOOLS_MASK_INPUTS=0` / `DEVTOOLS_MASK_SELECTORS=".a,.b"`.
+
+**Not covered.** Masking only changes the replayed page. Treat a trace as sensitive as the run that produced it:
+
+- **Command rows.** A typed password is in the row that typed it, the trace's action events and `transcript.md`, and in a value read back or an assertion that compares it.
+- **Test source.** A credential written as a literal in the test file appears in the Source tab and the suite tree.
+- **Pixels.** Screenshots, the screencast and the filmstrip show the page as the browser painted it (a password field paints dots).
+- **Everything outside the DOM.** Console lines, request and response bodies (a login POST) and errors carry whatever the page or the test put there.
+- **Text the page displays by itself**, unless a `maskSelectors` entry covers it. Under a selector, attributes other than `value`, `aria-label`, `title`, `alt` and `placeholder` (`data-*`, `href`, ...) replay as written.
+- **A password field the collector never saw as one.** A field the page creates as `type="password"` and turns into a text field before the collector reads it is recorded as typed.
+- **A policy changed mid-run.** Selenium's `configure()` after a driver was built keeps the policy its collector was registered with until the next session.
+- **Native apps.** A native session has no DOM to mask.
+
 ### 📦 Trace mode (trace.zip)
 
 The dashboard runs in one of **two modes**, set per adapter via the shared `mode` option:
@@ -173,6 +199,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | BiDi console / network capture | ✓ ¹⁸ | ✓ ¹⁸ | ◐ ¹⁹ | ✓ ¹⁸ |
 | A11y tab + pick-locator overlay (trace player) | ✓ | ✓ | ✓ | ✓ |
 | Transcript + Copy-for-LLM (trace player) | ✓ | ✓ | ✓ | ✓ |
+| Password fields masked in the replayed page (`maskInputs`, `maskSelectors`) | ✓ | ✓ | ✓ | ✓ |
 | Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
 | Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
 | Network without BiDi (Safari, Appium mobile browsers) | ◐ ²³ | ◐ ²³ | ◐ ²³ | ◐ ²³ |
@@ -303,6 +330,8 @@ pnpm player:hosted   # builds it and serves it at http://localhost:4173 under th
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
 | `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page, live and trace mode alike; `false` records them as typed. Command rows always keep the typed text. See [Password masking](#-password-masking). |
+| `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match in the replayed page. |
 | `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
 
 The per-test **`screenshot`** and **`video`** artifact options live on each adapter rather than the shared base, are gated to `traceGranularity: 'test'`, and attach inline to Allure on WebdriverIO and Selenium (Nightwatch writes them produce-only) — see the [WebdriverIO](./packages/service/README.md#allure-integration) and [Selenium](./packages/selenium-devtools/README.md) READMEs for the full per-adapter option tables.
@@ -536,6 +565,8 @@ Common options (all optional):
 | `screenshot` | `'off'` \| `'on'` \| `'only-on-failure'` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `video` | `'off'` \| `<tracePolicy>` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows |
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page; `false` records them as typed |
+| `maskSelectors` | `string[]` | `[]` | Also mask text and value under these selectors in the replayed page |
 
 **Full option reference:** [`@wdio/devtools-service` README](./packages/service/README.md#reference) — plus the [Nightwatch](./packages/nightwatch-devtools/README.md#reference) and [Selenium](./packages/selenium-devtools/README.md#reference) references.
 
@@ -621,7 +652,7 @@ Capture is always opt-in, and there are three ways to say yes — `--devtools` /
 
 A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
 
-Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure` — nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test.
+Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure`: nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test. Password fields are masked in the replayed page by default here too: `mask_inputs` / `--devtools-no-mask-inputs` turns it off and `mask_selectors` / `--devtools-mask-selector` masks more (see [Password masking](#-password-masking)).
 
 → **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, trace mode, assertions, run controls, Preserve & Rerun, and parallel runs.
 

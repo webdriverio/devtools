@@ -158,6 +158,8 @@ const report = (
     failedNavigations: [],
     actions: { navigate: [], click: [], fill: [] },
     requests: [],
+    typed: [],
+    undeclaredMaskPolicies: 0,
     bidi,
     scenarioFile: { paths: [], lines: 0 }
   },

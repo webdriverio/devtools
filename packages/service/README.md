@@ -276,6 +276,8 @@ services: [['devtools', options]]
 | `filmstrip` | `boolean` | `true` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback — dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames — a static wait — collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
 | `emitArtifactsManifest` | `boolean` | `false` | Trace mode only. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when `@wdio/allure-reporter` is in the config**. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as command/action rows — `node:assert` plus passing *and* failing expect-webdriverio matchers, folded into single `expect.<matcher>` rows (e.g. `toHaveText`, `toExist`). Set `false` to opt out. |
+| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), live and trace mode alike. `false` records them as typed. Command rows always keep the typed text. See [Password masking](../../README.md#-password-masking) for what is and is not covered. |
+| `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |
 
 ## How It Works
 
