@@ -387,6 +387,12 @@ describe('DevtoolsService - afterTest state stamping', () => {
     ).toBe('Error: x')
   })
 
+  it('keeps an "at" message line that a blank line separates from the stack', async () => {
+    expect(
+      await stampedError('Expected:\n  at least 2\n\n  at foo (a.js:1:2)')
+    ).toBe('Expected:\n  at least 2\n')
+  })
+
   it('keeps a located-looking "at" line in the middle of the message', async () => {
     expect(
       await stampedError(
