@@ -4,7 +4,7 @@ import {
   InMemoryLogRecordExporter,
   LoggerProvider
 } from '@opentelemetry/sdk-logs'
-import { batchedProcessors } from '../src/providers.js'
+import { batchedProcessors, telemetryWith } from '../src/providers.js'
 
 const RECORDS = 5000
 
@@ -39,5 +39,23 @@ describe('one flush per push', () => {
     }
     await loggerProvider.forceFlush()
     expect(logs.getFinishedLogRecords()).toHaveLength(RECORDS)
+  })
+})
+
+describe('span limits', () => {
+  it('keeps every event added to a span, past the SDK default of 128', async () => {
+    const spans = new InMemorySpanExporter()
+    const telemetry = telemetryWith(
+      batchedProcessors(spans, new InMemoryLogRecordExporter()),
+      []
+    )
+    const span = telemetry.tracer.startSpan('root')
+    for (let i = 0; i < 200; i++) {
+      span.addEvent(`e${i}`)
+    }
+    span.end()
+    await telemetry.flush()
+    const events = spans.getFinishedSpans()[0].events
+    expect([events.length, events[0].name]).toEqual([200, 'e0'])
   })
 })
