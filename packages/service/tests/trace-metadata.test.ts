@@ -393,6 +393,28 @@ describe('DevtoolsService - afterTest state stamping', () => {
     ).toBe('Expected:\n  at least 2\n')
   })
 
+  it('cuts an unlocated frame above a blank line when its run holds a located frame', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n  at a (x.js:1:2)\n  at native\n\n  at b (y.js:3:4)'
+      )
+    ).toBe('Error: x')
+  })
+
+  // A scan that revisits the blanks above each blank takes ~3 s here; one pass takes a few ms.
+  it(
+    'cuts a stack padded with many blank lines',
+    { timeout: 1000 },
+    async () => {
+      const blanks = '\n'.repeat(20_000)
+      expect(
+        await stampedError(
+          `Error: x\n  at a (x.js:1:2)${blanks}  at b (y.js:3:4)${blanks}`
+        )
+      ).toBe('Error: x')
+    }
+  )
+
   it('keeps a located-looking "at" line in the middle of the message', async () => {
     expect(
       await stampedError(
