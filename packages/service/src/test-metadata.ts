@@ -41,14 +41,18 @@ const FRAME_START = /^\s+at /
 const FRAME_LOCATION = /:\d+(?::\d+)?\)?$/
 const CAUSED_BY = /^\s*Caused by:/
 
-// A stack is a contiguous tail of "at" lines (up to a "Caused by:") holding at least one located frame, so an
-// "at" line inside the message, or a run with no location at all, is never mistaken for one.
+// A stack is a contiguous tail of "at" lines (up to a "Caused by:", blank lines ignored, as a serialized stack's
+// trailing newline leaves one) holding at least one located frame, so an "at" line inside the message, or a run with
+// no location at all, is never mistaken for one.
 function stackStart(lines: readonly string[]): number {
   let start = lines.length
   let tailIsFrames = true
   let located = false
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!
+    if (line.trim() === '') {
+      continue
+    }
     if (CAUSED_BY.test(line)) {
       tailIsFrames = true
       located = false
