@@ -9,7 +9,13 @@ import {
   type CapturedPerformancePayload,
   type RetryTracker
 } from '@wdio/devtools-core'
-import { skipsCapture, type CaptureTrigger } from '@wdio/devtools-shared'
+import {
+  capturesTrace,
+  skipsCapture,
+  startsBackend,
+  type CaptureTrigger,
+  observesPage
+} from '@wdio/devtools-shared'
 import { ELEMENT_LOCATOR_METHODS } from '../constants.js'
 import { getDriverOriginals, getElementOriginals } from '../driverPatcher.js'
 import { captureOrReplaceCommand } from './captureOrReplaceCommand.js'
@@ -174,7 +180,7 @@ export interface OnCommandCtx {
   readonly sessionCapturer: SessionCapturer | undefined
   readonly testManager: TestManager | undefined
   readonly retryTracker: RetryTracker
-  readonly options: { captureScreenshots: boolean; mode?: DevToolsMode }
+  readonly options: { captureScreenshots: boolean; mode: DevToolsMode }
   readonly finalized: boolean
   readonly driver: SeleniumDriverLike | undefined
   readonly actionSnapshots: ActionSnapshot[]
@@ -222,7 +228,7 @@ function maybeDrainAfterDomCommand(
   cmd: CapturedCommand
 ): void {
   if (
-    ctx.options.mode === 'trace' &&
+    capturesTrace(ctx.options.mode) &&
     cmd.fromElement &&
     DOM_MUTATING_ELEMENT_COMMANDS.has(cmd.command) &&
     !ctx.finalized
@@ -279,7 +285,7 @@ function maybeDrainAfterLiveCommand(
   cmd: CapturedCommand
 ): void {
   if (
-    ctx.options.mode === 'trace' ||
+    !startsBackend(ctx.options.mode) ||
     ctx.finalized ||
     !warrantsLiveDrain(capturer, cmd)
   ) {
@@ -306,7 +312,7 @@ export async function handleOnCommand(
     return
   }
   const test = testManager.getOrEnsureTest()
-  if (!test) {
+  if (!test || !observesPage(ctx.options.mode)) {
     return
   }
   const entry = await captureOrReplaceCommand({
@@ -385,7 +391,7 @@ function queueActionSnapshot(
   error: unknown,
   trigger: CaptureTrigger
 ): void {
-  if (ctx.options.mode !== 'trace' || error || !ctx.driver) {
+  if (!capturesTrace(ctx.options.mode) || error || !ctx.driver) {
     return
   }
   const driver = ctx.driver

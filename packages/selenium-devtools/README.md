@@ -314,7 +314,9 @@ DevTools.configure({ rerunCommand: 'npm test -- --grep "{{testName}}"' })
 ```
 
 #### `mode` — live UI vs. headless trace.zip
-**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` under a `test-results/` directory at session end (the base dir resolves from the test file's directory → the config directory → cwd) — meant for CI / offline replay / agentic diffing. For `traceGranularity: 'test'` the per-test artifact lands at `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. `screencast` is ignored in trace mode (live-mode-only feature).
+**Default:** `'live'` (launches the dashboard window). Set to `'trace'` to skip the dashboard entirely and write a `trace-<sessionId>.zip` under a `test-results/` directory at session end (the base dir resolves from the test file's directory → the config directory → cwd) — meant for CI / offline replay / agentic diffing. For `traceGranularity: 'test'` the per-test artifact lands at `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. `screencast.enabled` is ignored in trace mode: `filmstrip` and `video` decide what is recorded, and the screencast tuning fields still apply.
+
+Set to `'telemetry'` for a run that only reports its results: no backend, no dashboard window, no trace zip, and no per-action DOM, screenshot or screencast capture. The test lifecycle still runs, and the artifacts manifest (`devtools-artifacts-<sessionId>.json`, carrying the run id and each attempt's trace id) is written at session end. Use it when the results go to an OpenTelemetry or other external sink and nothing needs a replayable trace.
 
 ```javascript
 DevTools.configure({ mode: 'trace' })
@@ -401,7 +403,7 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 | `headless` | `boolean` | `false` | Run the **test** browser headless (injects `--headless=old`). The DevTools UI window is unaffected. |
 | `screencast` | `ScreencastOptions` | `{ enabled: false }` | Per-session `.webm` video recording. See sub-options below. |
 | `rerunCommand` | `string` | auto | Command template for per-test rerun. `{{testName}}` is substituted. Auto-derived from runner argv if omitted. |
-| `mode` | `'live' \| 'trace'` | `'live'` | `live` opens the DevTools UI; `trace` skips it and writes a portable trace artifact instead. Overrides `openUi`. |
+| `mode` | `'live' \| 'trace' \| 'telemetry'` | `'live'` | `live` opens the DevTools UI; `trace` skips it and writes a portable trace artifact instead; `telemetry` skips the UI and writes no trace, only the artifacts manifest (see above). Overrides `openUi`. |
 | `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — a single `.zip` or an unpacked directory. Trace mode only. |
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` writes each to `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. Trace mode only. |
 | `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Trace mode only. |
@@ -409,7 +411,7 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Trace mode only. `'styles'` stores the stylesheets and fonts each archive's pages used, once each by content hash, so the player replays them from the archive rather than the site; `'none'` stores nothing. Images always replay from the site. See the [root README](../../README.md#options) for caps and how the reads are kept out of the network rows. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
-| `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Trace mode only. |
+| `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Ignored in live mode; telemetry mode always writes it. |
 | `captureAssertions` | `boolean` | `true` | Capture `node:assert` assertions (both passing and failing) as trace action rows. Set `false` to opt out. |
 | `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), live and trace mode alike. `false` records them as typed. Command rows always keep the typed text. See [Password masking](../../README.md#-password-masking) for what is and is not covered. |
 | `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |

@@ -18,6 +18,7 @@ import type {
   TraceGranularity,
   TraceRetentionPolicy
 } from '@wdio/devtools-shared'
+import { capturesTrace, forcesManifest } from '@wdio/devtools-shared'
 import { reportCaptureTiming } from './capture-timing.js'
 import { errorMessage } from './error.js'
 import {
@@ -91,7 +92,8 @@ export interface TraceExportContext {
   onArtifact?: (a: TraceArtifact) => void
   /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
    *  enumerating every artifact (retained or not) plus per-test states, for
-   *  ecosystem reporters (Allure, CI collectors) to consume. */
+   *  ecosystem reporters (Allure, CI collectors) to consume. Telemetry mode
+   *  writes it regardless. */
   emitManifest?: boolean
   /** Every artifact seen via `onArtifact` across the run (including eager
    *  mid-run test-slice flushes, which the end-of-run fan-out dedupes away).
@@ -272,7 +274,7 @@ export async function flushRangeTrace(
 ): Promise<TraceArtifact | undefined> {
   // Eager mid-run flushes reach here directly, bypassing finalizeTraceExport's
   // gate, so enforce trace-mode here too — a live run must not write slices.
-  if (ctx.mode !== 'trace') {
+  if (!capturesTrace(ctx.mode)) {
     return undefined
   }
   if (ctx.flushed.has(range.key)) {
@@ -432,16 +434,20 @@ async function flushAllRanges(
 }
 
 /**
- * Entry point for the after/end-of-run hook. No-op outside trace mode. Settles
- * in-flight captures and eager flushes, then fans out to per-spec, per-test, or
- * session writes and finally the artifacts manifest. `spec`/`test` granularity
- * with no recorded boundaries warns and falls back to a single session-level
- * trace.
+ * Entry point for the after/end-of-run hook. Live mode writes nothing. Telemetry
+ * writes only the manifest. Trace mode settles in-flight captures and eager
+ * flushes, then fans out to per-spec, per-test, or session writes and finally
+ * the artifacts manifest. `spec`/`test` granularity with no recorded boundaries
+ * warns and falls back to a single session-level trace.
  */
 export async function finalizeTraceExport(
   ctx: TraceExportContext
 ): Promise<TraceArtifact[]> {
-  if (ctx.mode !== 'trace') {
+  if (forcesManifest(ctx.mode)) {
+    await maybeWriteManifest(ctx, [], true)
+    return []
+  }
+  if (!capturesTrace(ctx.mode)) {
     return []
   }
   // Settle in-flight snapshot captures AND the adapters' tracked fire-and-forget
@@ -452,7 +458,7 @@ export async function finalizeTraceExport(
   // can miss the manifest. A no-op for WDIO (awaits eager flushes inline).
   await awaitPendingCaptures(ctx)
   const artifacts = await fanOutTraceWrites(ctx)
-  await maybeWriteManifest(ctx, artifacts)
+  await maybeWriteManifest(ctx, artifacts, false)
   // After the writes, so the report's own output cannot land in the trace's console.
   await reportCaptureTiming(ctx.resolveOutputDir())
   return artifacts
@@ -493,14 +499,15 @@ function browserIdentity(
   }
 }
 
-/** Write the artifacts manifest when enabled, preferring the adapter's full
- *  collected list (includes eager slices) over this pass's fan-out results.
- *  Never throws — a manifest failure must not abort the run. */
+/** Write the artifacts manifest when enabled (always, in telemetry), preferring
+ *  the adapter's full collected list (includes eager slices) over this pass's
+ *  fan-out results. Never throws — a manifest failure must not abort the run. */
 async function maybeWriteManifest(
   ctx: TraceExportContext,
-  fanOutArtifacts: readonly TraceArtifact[]
+  fanOutArtifacts: readonly TraceArtifact[],
+  isTelemetry: boolean
 ): Promise<void> {
-  if (!ctx.emitManifest) {
+  if (!ctx.emitManifest && !isTelemetry) {
     return
   }
   const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts

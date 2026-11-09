@@ -22,6 +22,7 @@ import {
   webdriverExecute,
   webdriverGet
 } from './helpers/webdriverHttp.js'
+import { startsBackend, observesPage } from '@wdio/devtools-shared'
 import {
   errorMessage,
   finalizeScreencast,
@@ -170,7 +171,9 @@ async function broadcastSessionMetadata(
     ctx.srcFolders = Array.isArray(sf) ? sf : sf ? [sf] : []
   }
 
-  const viewport = await readViewport(browser)
+  const viewport = observesPage(ctx.mode)
+    ? await readViewport(browser)
+    : undefined
   const metadata = {
     type: TraceType.Testrunner,
     capabilities,
@@ -198,7 +201,7 @@ async function broadcastSessionMetadata(
   )
   // The dashboard window took the front; Safari clicks reach nothing there.
   if (
-    ctx.mode === 'live' &&
+    startsBackend(ctx.mode) &&
     restoreBrowserFocus({
       browserName: String(browserName),
       platformName: String(
@@ -304,6 +307,9 @@ async function armCaptureForSession(
   browser: NightwatchBrowser
 ): Promise<void> {
   ctx.armedSessionId = browser.sessionId ?? undefined
+  if (!observesPage(ctx.mode)) {
+    return
+  }
   await tryRegisterPreload(ctx, browser)
   await tryAttachBidi(ctx, browser)
   await ctx.sessionCapturer.nativeNetwork.start({
@@ -417,7 +423,7 @@ export async function ensureSessionInitialized(
     setTimeout(resolve, TIMING.INITIAL_CONNECTION_WAIT)
   )
   ctx.sessionCapturer = createRunCapturer(ctx, browser)
-  if (ctx.mode !== 'trace') {
+  if (startsBackend(ctx.mode)) {
     const connected = await ctx.sessionCapturer.waitForConnection(3000)
     if (!connected) {
       log.error('❌ Worker WebSocket failed to connect!')
@@ -437,9 +443,14 @@ export function createRunCapturer(
   >,
   browser: NightwatchBrowser
 ): SessionCapturer {
-  // Trace mode: empty opts skip SessionCapturerBase's WS init; there is no backend to forward to.
+  // Empty opts skip SessionCapturerBase's WS init where no backend exists to forward events to.
   const capturer = new SessionCapturer(
-    ctx.mode === 'trace' ? {} : { port: ctx.port, hostname: ctx.hostname },
+    {
+      ...(startsBackend(ctx.mode)
+        ? { port: ctx.port, hostname: ctx.hostname }
+        : {}),
+      captureOutput: observesPage(ctx.mode)
+    },
     browser
   )
   capturer.traceMode = ctx.mode
@@ -454,7 +465,7 @@ export async function finalizeCurrentScreencast(
   if (!ctx.screencastRecorder || !ctx.screencastSessionId) {
     return
   }
-  if (ctx.mode === 'trace') {
+  if (!startsBackend(ctx.mode)) {
     // Trace mode: the per-test video is written by the produce path and the
     // filmstrip frames are embedded in the trace itself, so stop the recorder
     // without encoding a session .webm nothing references (orphan file).

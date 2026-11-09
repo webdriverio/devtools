@@ -36,6 +36,11 @@ import { attachBidiHandlers, buildBidiSinks } from './bidi.js'
 import { getDriverOriginals } from './driverPatcher.js'
 import { gracefulShutdown } from './helpers/processHooks.js'
 import { isRunnerless } from './helpers/runtime.js'
+import {
+  capturesTrace,
+  startsBackend,
+  observesPage
+} from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
   DetectedRunner,
@@ -60,7 +65,7 @@ export interface SessionLifecycleCtx {
     openUi: boolean
     captureScreenshots: boolean
     rerunCommand?: string
-    mode?: DevToolsMode
+    mode: DevToolsMode
     traceFormat?: TraceFormat
     traceGranularity?: TraceGranularity
     tracePolicy?: TraceRetentionPolicy
@@ -69,7 +74,7 @@ export interface SessionLifecycleCtx {
     video?: TraceVideoPolicy
     emitArtifactsManifest?: boolean
   }
-  readonly screencastOptions: ScreencastOptions
+  readonly screencastOptions: Readonly<ScreencastOptions>
   /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
    *  from `Metadata.runner`, which names this adapter for every one of them. */
   readonly detectedRunner: DetectedRunner
@@ -89,7 +94,7 @@ export interface SessionLifecycleCtx {
   testFilePath: string | undefined
   keepAliveTimer: ReturnType<typeof setInterval> | undefined
 
-  // Populated by handleOnCommand when mode === 'trace'.
+  // Per-action snapshots, trace mode only; filled by queueActionSnapshot.
   readonly actionSnapshots: ActionSnapshot[]
   readonly snapshotCaptures: Promise<void>[]
 
@@ -132,12 +137,15 @@ export async function onDriverCreated(
   }
 
   ctx.driver = driver
-  // In trace mode there's no backend to forward events to — pass an empty
+  // Without a backend there's nothing to forward events to — pass an empty
   // opts bag so SessionCapturerBase skips its WS init.
   ctx.sessionCapturer = new SessionCapturer(
-    ctx.options.mode === 'trace'
-      ? {}
-      : { hostname: ctx.options.hostname, port: ctx.options.port },
+    {
+      ...(startsBackend(ctx.options.mode)
+        ? { hostname: ctx.options.hostname, port: ctx.options.port }
+        : {}),
+      captureOutput: observesPage(ctx.options.mode)
+    },
     driver
   )
   ctx.sessionCapturer.pageResourceStore.configure(ctx.options)
@@ -177,13 +185,14 @@ function ctxPluginRef(ctx: SessionLifecycleCtx): unknown {
  *  a non-`off` per-test `video` policy or `filmstrip` — both feed the recorder
  *  even though live screencast is off in trace mode (parity with the service). */
 function shouldRecordScreencast(ctx: SessionLifecycleCtx): boolean {
-  if (ctx.options.mode === 'trace') {
+  const mode = ctx.options.mode
+  if (capturesTrace(mode)) {
     return (
       (!!ctx.options.video && ctx.options.video !== 'off') ||
       !!ctx.options.filmstrip
     )
   }
-  return !!ctx.screencastOptions.enabled
+  return startsBackend(mode) && !!ctx.screencastOptions.enabled
 }
 
 async function initPerDriverCapture(
@@ -239,6 +248,9 @@ function startNativeNetwork(
   capturer: SessionCapturer,
   driver: SeleniumDriverLike
 ): Promise<void> {
+  if (!observesPage(ctx.options.mode)) {
+    return Promise.resolve()
+  }
   const exec = getDriverOriginals().executeScript
   return capturer.nativeNetwork.start({
     requested: ctx.interceptRequestedFor(driver),
@@ -254,6 +266,9 @@ async function attachBidi(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike
 ): Promise<void> {
+  if (!observesPage(ctx.options.mode)) {
+    return
+  }
   try {
     const attached = await attachBidiHandlers(
       driver,
@@ -284,6 +299,9 @@ function registerPreload(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike
 ): Promise<void> {
+  if (!observesPage(ctx.options.mode)) {
+    return Promise.resolve()
+  }
   return registerCollectorPreload(driver, (level, message) =>
     log[level](message)
   ).then((registered) => {
@@ -306,13 +324,16 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
     // action) leaves the destination's async initial anchor unrun at teardown.
     // Live mode goes through the post-command queue instead, so the drains
     // still in flight land before the session goes away.
-    await (ctx.options.mode === 'trace'
-      ? ctx.sessionCapturer.captureTrace(true)
-      : ctx.sessionCapturer.drainAfterLiveCommand())
+    const mode = ctx.options.mode
+    if (capturesTrace(mode)) {
+      await ctx.sessionCapturer.captureTrace(true)
+    } else if (startsBackend(mode)) {
+      await ctx.sessionCapturer.drainAfterLiveCommand()
+    }
     await settlePageResources(ctx)
   }
   if (ctx.screencast && ctx.sessionId) {
-    if (ctx.options.mode === 'trace') {
+    if (!startsBackend(ctx.options.mode)) {
       // Trace mode: the video is emitted per-test (sliced in #emitTestArtifacts)
       // and there's no dashboard to receive a session recording — just stop the
       // recorder to release resources; never encode an orphan session webm.
@@ -364,15 +385,16 @@ export async function onSessionEnd(ctx: SessionLifecycleCtx): Promise<void> {
     logSessionSummary(ctx)
     ctx.sessionCapturer?.cleanup()
 
-    if (ctx.options.openUi && ctx.options.mode !== 'trace' && !ctx.isReuse) {
+    const mode = ctx.options.mode
+    if (ctx.options.openUi && startsBackend(mode) && !ctx.isReuse) {
       handleInteractivePath(ctx, shutdownStart)
       return
     }
 
-    // trace mode: no UI to wait for; close the WS so the backend can wind
+    // No UI to wait for (trace or telemetry): close the WS so the backend can wind
     // down naturally. process.exit is avoided — Jest/runners may treat
     // forced exits as failures.
-    if (ctx.options.mode === 'trace' && !ctx.isReuse) {
+    if (!startsBackend(mode) && !ctx.isReuse) {
       try {
         await ctx.sessionCapturer?.closeWebSocket()
       } catch {
@@ -599,7 +621,7 @@ async function writeTraceIfNeeded(
   testFilePath: string | undefined
 ): Promise<void> {
   const sessionId = capturer?.metadata?.sessionId
-  if (ctx.options.mode !== 'trace' || !capturer || !sessionId) {
+  if (startsBackend(ctx.options.mode) || !capturer || !sessionId) {
     return
   }
   await finalizeTraceExport(

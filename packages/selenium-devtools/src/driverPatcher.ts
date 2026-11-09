@@ -184,7 +184,43 @@ function describeCall(
   }
 }
 
-function makeWrappedMethod(
+/** Telemetry reports the command without reading it: no stack walk, no serialization, no value registry. */
+function settleCall(
+  hooks: DriverPatcherHooks,
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean,
+  target: unknown
+): (result: unknown, error: Error | undefined) => void {
+  // Before the instrumentation below: serializing args and walking the stack
+  // both cost time that would otherwise land inside the row's own duration.
+  const startTime = Date.now()
+  // Holds the filmstrip poll off the driver until this command settles (see
+  // core driver-activity.ts); CDP push mode never polls.
+  const closeCommandWindow = beginDriverCommand(methodName)
+  if (hooks.observesPage?.() === false) {
+    return (_result, error) => {
+      closeCommandWindow()
+      emitCommand(hooks, {
+        command: methodName,
+        args: [],
+        callSource: undefined,
+        fromElement,
+        startTime,
+        result: undefined,
+        error,
+        timestamp: Date.now()
+      })
+    }
+  }
+  return makeSettle(
+    hooks,
+    describeCall(methodName, args, fromElement, target, startTime),
+    closeCommandWindow
+  )
+}
+
+export function makeWrappedMethod(
   original: (...args: unknown[]) => unknown,
   methodName: string,
   fromElement: boolean,
@@ -194,17 +230,7 @@ function makeWrappedMethod(
     !fromElement &&
     (ELEMENT_LOCATOR_METHODS as readonly string[]).includes(methodName)
   return function (this: unknown, ...args: unknown[]): unknown {
-    // Before the instrumentation below: serializing args and walking the stack
-    // both cost time that would otherwise land inside the row's own duration.
-    const startTime = Date.now()
-    // Holds the filmstrip poll off the driver until this command settles (see
-    // core driver-activity.ts); CDP push mode never polls.
-    const closeCommandWindow = beginDriverCommand(methodName)
-    const settle = makeSettle(
-      hooks,
-      describeCall(methodName, args, fromElement, this, startTime),
-      closeCommandWindow
-    )
+    const settle = settleCall(hooks, methodName, args, fromElement, this)
 
     let result: unknown
     try {
@@ -513,7 +539,8 @@ export function patchSelenium(hooks: DriverPatcherHooks): boolean {
     WebDriver.prototype as Patchable,
     (cmd) =>
       emitCommand(hooks, { ...cmd, result: safeSerialize(cmd.rawResult) }),
-    WebElementPromise
+    WebElementPromise,
+    () => hooks.observesPage?.() !== false
   )
 
   const tracked = collectMethodNames(WebDriver.prototype).filter(

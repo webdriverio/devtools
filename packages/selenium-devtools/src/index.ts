@@ -11,6 +11,13 @@ import {
   handleOnCommand
 } from './helpers/commandPostActions.js'
 import { logConfigSummary } from './helpers/configSummary.js'
+import { ScreencastSettings } from './helpers/screencast-options.js'
+import {
+  assertDevToolsMode,
+  ignoredOptionsWarning,
+  startsBackend,
+  observesPage
+} from '@wdio/devtools-shared'
 import { registerProcessHooks } from './helpers/processHooks.js'
 import { patchSelenium } from './driverPatcher.js'
 import { ensureBidiCapability, ensureHeadlessChrome } from './bidi.js'
@@ -59,18 +66,12 @@ import {
   configureInputMasking,
   RetryTracker,
   errorMessage,
-  requestsInterceptedNetwork,
-  tracePolicyModeWarning
+  requestsInterceptedNetwork
 } from '@wdio/devtools-core'
 import { SeleniumTestArtifacts } from './test-artifacts.js'
 import { claimMochaRootHooks, tryRegisterRunnerHooks } from './runnerHooks.js'
 import { patchNodeAssert } from './assertPatcher.js'
-import {
-  REUSE_ENV,
-  SCREENCAST_DEFAULTS,
-  TEST_STATE,
-  NAVIGATION_COMMANDS
-} from './constants.js'
+import { REUSE_ENV, TEST_STATE, NAVIGATION_COMMANDS } from './constants.js'
 import {
   type ActionSnapshot,
   type CapturedCommand,
@@ -78,7 +79,6 @@ import {
   type MochaRootHooks,
   type RunnerHookCallbacks,
   type ScreencastFrame,
-  type ScreencastOptions,
   type SeleniumDriverLike,
   type TestStats
 } from './types.js'
@@ -119,7 +119,7 @@ class SeleniumDevToolsPlugin {
   // Coalesce internal retries: same {command,args,src} replaces prior entry.
   #retryTracker = new RetryTracker()
   #screencast?: ScreencastRecorder
-  #screencastOptions: ScreencastOptions
+  #screencastSettings: ScreencastSettings
   #actionSnapshots: ActionSnapshot[] = []
   #snapshotCaptures: Promise<void>[] = []
   #sessionId?: string
@@ -165,6 +165,7 @@ class SeleniumDevToolsPlugin {
   #testArtifacts = new SeleniumTestArtifacts()
 
   constructor(options: DevToolsOptions = {}) {
+    assertDevToolsMode(options.mode)
     this.#options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
@@ -186,10 +187,7 @@ class SeleniumDevToolsPlugin {
       maskSelectors: options.maskSelectors ?? []
     }
     configureInputMasking(this.#options)
-    const policyWarning = tracePolicyModeWarning(
-      options.tracePolicy,
-      this.#options.mode
-    )
+    const policyWarning = ignoredOptionsWarning(options, this.#options.mode)
     if (policyWarning) {
       log.warn(policyWarning)
     }
@@ -197,21 +195,10 @@ class SeleniumDevToolsPlugin {
     if (options.rerunCommand) {
       this.#rerunManager.configure(options.rerunCommand)
     }
-    // Same gate as DevTools.configure() — direct construction with
-    // `{ mode: 'trace', screencast: { enabled: true } }` would otherwise
-    // bypass the runtime check.
-    if (
-      this.#options.mode === 'trace' &&
-      options.screencast?.enabled === true
-    ) {
-      log.warn('trace mode: ignoring screencast option (live-mode feature)')
-      this.#screencastOptions = { ...SCREENCAST_DEFAULTS }
-    } else {
-      this.#screencastOptions = {
-        ...SCREENCAST_DEFAULTS,
-        ...(options.screencast ?? {})
-      }
-    }
+    this.#screencastSettings = new ScreencastSettings(
+      options.screencast,
+      this.#options.mode
+    )
     // Reuse mode: rerun child inherits the parent's backend host/port.
     if (
       process.env[REUSE_ENV.REUSE] === '1' &&
@@ -238,7 +225,7 @@ class SeleniumDevToolsPlugin {
       headless: this.#options.headless,
       captureScreenshots: this.#options.captureScreenshots,
       rerunCommand: this.#options.rerunCommand,
-      screencast: this.#screencastOptions,
+      screencast: this.#screencastSettings.effective,
       rerunManager: this.#rerunManager
     })
   }
@@ -253,11 +240,10 @@ class SeleniumDevToolsPlugin {
     this.#backendStartPromise = (async () => {
       try {
         this.#logConfigSummary()
-        // Trace mode parity with WDIO launcher gate: skip backend port-bind
-        // entirely — no UI to serve, SessionCapturer WS init is also gated
-        // off in session-lifecycle.ts.
-        if (this.#options.mode === 'trace') {
-          log.info('Trace mode — skipping backend port-bind and UI window')
+        if (!startsBackend(this.#options.mode)) {
+          log.info(
+            `${this.#options.mode} mode — skipping backend port-bind and UI window`
+          )
           this.#backendStarted = true
           return
         }
@@ -277,7 +263,7 @@ class SeleniumDevToolsPlugin {
           )
         }
         this.#backendStarted = true
-        // mode==='trace' returned early above; only live mode reaches here.
+        // Non-live modes returned early above; only live mode reaches here.
         if (this.#options.openUi && !this.#isReuse) {
           this.#openUiWindow()
         }
@@ -292,7 +278,7 @@ class SeleniumDevToolsPlugin {
     if (this.#uiReadyPromise) {
       return this.#uiReadyPromise
     }
-    if (!this.#options.openUi) {
+    if (!this.#options.openUi || !startsBackend(this.#options.mode)) {
       this.#uiReadyPromise = Promise.resolve()
       return this.#uiReadyPromise
     }
@@ -314,6 +300,7 @@ class SeleniumDevToolsPlugin {
   }
 
   configure(opts: DevToolsOptions = {}) {
+    assertDevToolsMode(opts.mode)
     if ('rerunCommand' in opts) {
       this.#rerunManager.configure(opts.rerunCommand)
       this.#options.rerunCommand = opts.rerunCommand
@@ -327,16 +314,11 @@ class SeleniumDevToolsPlugin {
     }
     // A preload already registered keeps the policy it was built with; only sessions started after this see a change.
     configureInputMasking(this.#options)
-    if (opts.screencast) {
-      if (this.#options.mode === 'trace' && opts.screencast.enabled) {
-        log.warn('trace mode: ignoring screencast option (live-mode feature)')
-      } else {
-        this.#screencastOptions = {
-          ...this.#screencastOptions,
-          ...opts.screencast
-        }
-      }
+    const ignored = ignoredOptionsWarning(opts, this.#options.mode)
+    if (ignored) {
+      log.warn(ignored)
     }
+    this.#screencastSettings.update(opts.screencast, this.#options.mode)
   }
 
   get options() {
@@ -359,7 +341,7 @@ class SeleniumDevToolsPlugin {
         return self.#options
       },
       get screencastOptions() {
-        return self.#screencastOptions
+        return self.#screencastSettings.effective
       },
       get detectedRunner() {
         return DETECTED_RUNNER
@@ -534,7 +516,7 @@ class SeleniumDevToolsPlugin {
       actionSnapshots: this.#actionSnapshots,
       frames: this.#screencast?.frames,
       outcomes: this.#testManager?.lastTestOutcomes() ?? [],
-      captureFormat: this.#screencastOptions.captureFormat,
+      captureFormat: this.#screencastSettings.effective.captureFormat,
       testFilePath: this.#testFilePath,
       onArtifact: (a) => this.#artifacts.push(a),
       onLog: (level, msg) => log[level](msg)
@@ -572,7 +554,11 @@ class SeleniumDevToolsPlugin {
   /** Fallback path only: under the preload the destination instrumented itself. */
   async instrumentNavigationTarget() {
     const capturer = this.#sessionCapturer
-    if (!capturer || capturer.preloadRegistered) {
+    if (
+      !observesPage(this.#options.mode) ||
+      !capturer ||
+      capturer.preloadRegistered
+    ) {
       return
     }
     await capturer.injectScript()
@@ -593,6 +579,9 @@ class SeleniumDevToolsPlugin {
    *  front mid-test. Switching to the session's own window handle brings that
    *  window forward, and only that one. */
   async focusForInput() {
+    if (!observesPage(this.#options.mode)) {
+      return
+    }
     const internals = this.#getInternals()
     const driver = internals.driver as
       | (SeleniumDriverLike & {
@@ -699,13 +688,16 @@ const plugin = new SeleniumDevToolsPlugin()
 const patched = patchSelenium({
   onBeforeBuild: (builder) => {
     plugin.noteBuilder(builder)
-    ensureBidiCapability(builder)
+    if (observesPage(plugin.options.mode)) {
+      ensureBidiCapability(builder)
+    }
     if (plugin.options.headless) {
       ensureHeadlessChrome(builder)
     }
   },
   onDriverCreated: (driver) => plugin.onDriverCreated(driver),
   onCommand: (cmd) => plugin.onCommand(cmd),
+  observesPage: () => observesPage(plugin.options.mode),
   afterNavigation: () => plugin.instrumentNavigationTarget(),
   beforeInput: () => plugin.focusForInput(),
   afterActions: (driver) => plugin.onActionsPerformed(driver),
@@ -726,12 +718,15 @@ if (patched) {
 }
 
 // Patch eagerly (user specs must see the wrappers before they import assert);
-// the gate runs at capture time because DevTools.configure() may arrive later.
-patchNodeAssert((cmd) => {
-  if (plugin.options.captureAssertions) {
-    void plugin.onCommand(cmd)
-  }
-})
+// the gate runs per call because DevTools.configure() may change the mode later.
+patchNodeAssert(
+  (cmd) => {
+    if (plugin.options.captureAssertions) {
+      void plugin.onCommand(cmd)
+    }
+  },
+  () => observesPage(plugin.options.mode)
+)
 
 const runnerHookCallbacks: RunnerHookCallbacks = {
   onTestStart: (name, file, callSource, suiteName, suiteCallSource, attempt) =>

@@ -173,10 +173,11 @@ The Python adapter takes the same options as `enable(mask_inputs=..., mask_selec
 
 ### 📦 Trace mode (trace.zip)
 
-The dashboard runs in one of **two modes**, set per adapter via the shared `mode` option:
+The dashboard runs in one of **three modes**, set per adapter via the shared `mode` option:
 
 - **`live`** (default) — the interactive DevTools UI window described above.
 - **`trace`** — a headless capture path that writes a portable trace archive, opened later in the **trace player**.
+- **`telemetry`** — no backend, dashboard or per-action capture, and no trace zips: it writes only the `devtools-artifacts-<sessionId>.json` manifest, which carries each test's lifecycle, the run id and each attempt's trace and span ids. Zips stay opt-in through trace mode.
 
 All three JavaScript adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
 
@@ -190,77 +191,80 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
 | Trace mode + `show-trace` player | ✓ | ✓ | ✓ | ✓ |
-| DOM time-travel (mutation capture) | ✓ | ◐ ¹ | ◐ ¹ | ✓ |
-| Network requests (browser sessions) | ✓ | ◐ ² | ◐ ³ | ✓ |
+| Telemetry mode (artifacts manifest only, for OpenTelemetry export) | ✓ | ✓ | ✓ | ✕ ¹ |
+| DOM time-travel (mutation capture) | ✓ | ◐ ² | ◐ ² | ✓ |
+| Network requests (browser sessions) | ✓ | ◐ ³ | ◐ ⁴ | ✓ |
 | Stylesheets and fonts stored in the trace (`traceResources`, browser sessions) | ✓ | ✓ | ✓ | ✓ |
-| Screencast (`filmstrip` / video) | ✓ ⁴ | ✓ ⁵ | ◐ ⁶ | ✓ ⁷ |
-| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁸ | ✓ |
-| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ ⁹ | ◐ ¹⁰ |
-| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ ¹¹ | ✕ ¹² |
-| Cucumber Feature→Scenario→Step nesting | ◐ ¹³ | ✓ | ◐ ¹⁴ | ✕ ¹⁵ |
-| Assertion capture (`captureAssertions`) | ✓ | ◐ ¹⁶ | ◐ ¹⁷ | ✓ |
-| BiDi console / network capture | ✓ ¹⁸ | ✓ ¹⁸ | ◐ ¹⁹ | ✓ ¹⁸ |
+| Screencast (`filmstrip` / video) | ✓ ⁵ | ✓ ⁶ | ◐ ⁷ | ✓ ⁸ |
+| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁹ | ✓ |
+| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ ¹⁰ | ◐ ¹¹ |
+| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ ¹² | ✕ ¹³ |
+| Cucumber Feature→Scenario→Step nesting | ◐ ¹⁴ | ✓ | ◐ ¹⁵ | ✕ ¹⁶ |
+| Assertion capture (`captureAssertions`) | ✓ | ◐ ¹⁷ | ◐ ¹⁸ | ✓ |
+| BiDi console / network capture | ✓ ¹⁹ | ✓ ¹⁹ | ◐ ²⁰ | ✓ ¹⁹ |
 | A11y tab + pick-locator overlay (trace player) | ✓ | ✓ | ✓ | ✓ |
 | Transcript + Copy-for-LLM (trace player) | ✓ | ✓ | ✓ | ✓ |
 | Password fields masked in the replayed page (`maskInputs`, `maskSelectors`) | ✓ | ✓ | ✓ | ✓ |
-| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
-| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
-| Prints where each kept trace was written | ✓ ²³ | ◐ ²⁴ | ◐ ²⁴ | ◐ ²⁵ |
-| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ |
+| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²¹ |
+| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²² | ✕ ²³ |
+| Prints where each kept trace was written | ✓ ²⁴ | ◐ ²⁵ | ◐ ²⁵ | ◐ ²⁶ |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²⁷ | ◐ ²⁷ | ◐ ²⁷ | ◐ ²⁷ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
-¹ Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
+¹ The Python adapter writes no artifacts manifest, so it has no telemetry mode.
 
-² Without BiDi a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
+² Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
 
-³ Without BiDi (`bidi: true`) or Chrome's performance log (`goog:loggingPrefs`), a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
+³ Without BiDi a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
 
-⁴ Chrome streams over CDP; other browsers poll.
+⁴ Without BiDi (`bidi: true`) or Chrome's performance log (`goog:loggingPrefs`), a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
 
-⁵ Chromium streams over CDP; other browsers poll.
+⁵ Chrome streams over CDP; other browsers poll.
 
-⁶ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
+⁶ Chromium streams over CDP; other browsers poll.
 
-⁷ Chromium streams over CDP; other browsers take a frame per page-changing command, plus wait polls and reads at most every 200 ms.
+⁷ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
 
-⁸ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
+⁸ Chromium streams over CDP; other browsers take a frame per page-changing command, plus wait polls and reads at most every 200 ms.
 
-⁹ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
+⁹ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
 
-¹⁰ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
+¹⁰ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
 
-¹¹ Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
+¹¹ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
 
-¹² The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
+¹² Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
 
-¹³ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
+¹³ The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
 
-¹⁴ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
+¹⁴ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
 
-¹⁵ The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
+¹⁵ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
 
-¹⁶ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
+¹⁶ The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
 
-¹⁷ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
+¹⁷ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
 
-¹⁸ Attached by itself when the session supports BiDi.
+¹⁸ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
 
-¹⁹ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
+¹⁹ Attached by itself when the session supports BiDi.
 
-²⁰ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
+²⁰ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
 
-²¹ Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
+²¹ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
 
-²² The Python adapter writes no artifacts manifest.
+²² Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
 
-²³ Printed to stdout whatever the `logLevel`.
+²³ The Python adapter writes no artifacts manifest.
 
-²⁴ Logs the path at info level through the adapter's logger rather than printing it, so a run that hides info messages does not show it.
+²⁴ Printed to stdout whatever the `logLevel`.
 
-²⁵ Logs the path (the folder, for per-test traces) at info level through Python's `logging`, which hides info messages unless the run enables them (`--log-cli-level=INFO` under pytest).
+²⁵ Logs the path at info level through the adapter's logger rather than printing it, so a run that hides info messages does not show it.
 
-²⁶ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
+²⁶ Logs the path (the folder, for per-test traces) at info level through Python's `logging`, which hides info messages unless the run enables them (`--log-cli-level=INFO` under pytest).
+
+²⁷ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 <!-- capability-matrix:readme-trace:end -->
 
@@ -287,7 +291,7 @@ What counts as a user-facing action is filtered through the `ACTION_MAP` allow-l
 
 **Assertion targets.** An assertion row names the element it is about, so selecting it boxes that element in the snapshot. A `node:assert` call (or a Python `assert`) takes values rather than elements, so its element comes from where the asserted value was read: `assert.equal(await heading.getText(), 'Secure Area')` names `heading`'s selector, and so does a value from any other element read, WebdriverIO's `getHTML` and `getComputedRole` included. Only a read made earlier in the same test (or Cucumber scenario) counts, and a value read from the page itself, such as the title or the URL, names no element, even when some element's text reads the same. WebdriverIO's `browser.getTitle()` is a `Page.getTitle` row of its own, and `expect(browser).toHaveTitle(...)` folds into that read as one `expect.toHaveTitle` row.
 
-Trace mode and live mode are **mutually exclusive** — `screencast` options are ignored in trace mode (live-mode feature). Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
+Trace mode and live mode are **mutually exclusive** — in trace mode `screencast.enabled` is ignored (a warning is logged): `filmstrip` and `video` decide what is recorded, and the screencast tuning fields (`quality`, `maxWidth`, `pollIntervalMs`, …) still apply to whichever recorder runs. Live and trace serve different audiences (humans debugging vs. agents diffing), and stacking them only costs perf.
 
 #### Viewing traces
 
@@ -345,7 +349,7 @@ The hash names a position in the trace, for a `?trace=` URL, a picked file and `
 
 | Option | Values | Default | Description |
 |--------|--------|---------|-------------|
-| `mode` | `'live'` \| `'trace'` | `'live'` | `'live'` launches the DevTools UI; `'trace'` writes an offline artifact. |
+| `mode` | `'live'` \| `'trace'` \| `'telemetry'` | `'live'` | `'live'` launches the DevTools UI; `'trace'` writes an offline artifact; `'telemetry'` writes only the artifacts manifest. |
 | `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Output layout. `'zip'` writes a single archive; `'ndjson-directory'` unpacks into `trace-<id>/`. |
 | `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | `'session'` writes one trace per worker; `'spec'` one per spec file; `'test'` one per test into its own `<spec>-<title>-<browser>[-retryN]/trace.zip` folder — the smallest, most navigable artifacts, and the best pairing for a retention policy. |
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
@@ -592,7 +596,7 @@ Common options (all optional):
 
 | Option | Values | Default | Notes |
 |---|---|---|---|
-| `mode` | `'live'` \| `'trace'` | `'live'` | Dashboard vs. portable artifact |
+| `mode` | `'live'` \| `'trace'` \| `'telemetry'` | `'live'` | Dashboard vs. portable artifact vs. manifest only |
 | `traceFormat` | `'zip'` \| `'ndjson-directory'` | `'zip'` | Trace mode only |
 | `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | One trace per session / spec / test |
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| … | `'on'` | Which traces to keep (trace mode) |

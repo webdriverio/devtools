@@ -159,6 +159,27 @@ describe('DevtoolsService — expect.* assertion rows', () => {
     expect(pushActionSnapshotAt).not.toHaveBeenCalled()
   })
 
+  it('telemetry takes no screenshot and logs no row for a matcher it cannot fold', async () => {
+    capturer.coalesceAssertionIntoLastRead.mockReturnValue(false)
+    const service = new DevToolsHookService({ mode: 'telemetry' })
+    await service.before({} as never, [], mockBrowser)
+
+    await service.beforeAssertion({ matcherName: 'toBe', expectedValue: 1 })
+    await service.afterAssertion({
+      matcherName: 'toBe',
+      expectedValue: 1,
+      result: { pass: true }
+    })
+    await service.afterTest({ file: '/s.ts' } as never, undefined, {
+      passed: false,
+      error: new Error('boom')
+    } as never)
+
+    expect(mockBrowser.takeScreenshot).not.toHaveBeenCalled()
+    expect(capturer.captureMatcherCommand).not.toHaveBeenCalled()
+    expect(capturer.failLastAction).not.toHaveBeenCalled()
+  })
+
   it('afterAssertion clears the armed matcher so test end does not re-synthesize', async () => {
     capturer.coalesceAssertionIntoLastRead.mockReturnValue(true)
     const service = new DevToolsHookService({ mode: 'live' })

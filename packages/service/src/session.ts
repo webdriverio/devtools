@@ -14,7 +14,11 @@ import {
   rememberElementSelector,
   selectorForCommand
 } from './command-selectors.js'
-import { isNativeAppSession, sessionHasDocument } from '@wdio/devtools-shared'
+import {
+  isNativeAppSession,
+  sessionHasDocument,
+  observesPage
+} from '@wdio/devtools-shared'
 import { isAppiumSession } from './mobile.js'
 import {
   applyPerformanceData,
@@ -30,8 +34,10 @@ import {
   rememberReadValue,
   RetryTracker,
   SessionCapturerBase,
-  type CapturedPerformancePayload
+  type CapturedPerformancePayload,
+  type SessionCapturerOptions
 } from '@wdio/devtools-core'
+import { startsBackend } from '@wdio/devtools-shared'
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
@@ -91,7 +97,7 @@ export class SessionCapturer extends SessionCapturerBase {
     }
   >()
 
-  constructor(devtoolsOptions: { hostname?: string; port?: number } = {}) {
+  constructor(devtoolsOptions: SessionCapturerOptions = {}) {
     super(devtoolsOptions)
     this.patchConsole()
     this.patchStreams()
@@ -209,8 +215,11 @@ export class SessionCapturer extends SessionCapturerBase {
     // mobile BROWSER session keeps the old behaviour throughout: it replays
     // from its mutation stream.
     const nativeLiveCapture =
-      this.traceMode !== 'trace' && isNativeAppSession(browser.capabilities)
-    if (!isAppiumSession(browser) || nativeLiveCapture) {
+      startsBackend(this.traceMode) && isNativeAppSession(browser.capabilities)
+    if (
+      observesPage(this.traceMode) &&
+      (!isAppiumSession(browser) || nativeLiveCapture)
+    ) {
       try {
         commandLogEntry.screenshot = await browser.takeScreenshot()
       } catch (screenshotError) {

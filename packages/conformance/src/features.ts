@@ -43,6 +43,19 @@ export const FEATURES = [
     }
   },
   {
+    id: 'telemetry-mode',
+    name: 'Telemetry mode (artifacts manifest only, for OpenTelemetry export)',
+    tables: ['readme-trace', 'cross-framework'],
+    cells: {
+      'devtools-service': covered(`${WDIO}trace-granularity.test.ts`),
+      'selenium-devtools': covered(`${SELENIUM}telemetry-mode.test.ts`),
+      'nightwatch-devtools': covered(`${NIGHTWATCH}telemetryMode.test.ts`),
+      'selenium-devtools-py': unsupported(
+        'The Python adapter writes no artifacts manifest, so it has no telemetry mode.'
+      )
+    }
+  },
+  {
     id: 'dom-time-travel',
     name: 'DOM time-travel (mutation capture)',
     tables: ['readme-trace', 'cross-framework'],
