@@ -279,7 +279,7 @@ importers:
         specifier: workspace:^
         version: link:../script
       '@wdio/logger':
-        specifier: ^10.2.0
+        specifier: ^10.0.0
         version: 10.2.0
       fastify:
         specifier: ^5.12.5
