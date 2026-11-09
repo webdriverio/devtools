@@ -41,33 +41,50 @@ const FRAME_START = /^\s+at /
 const FRAME_LOCATION = /:\d+(?::\d+)?\)?$/
 const CAUSED_BY = /^\s*Caused by:/
 
-const isBlank = (line: string | undefined) => line?.trim() === ''
-const isLocatedFrame = (line: string | undefined) =>
-  line !== undefined &&
-  FRAME_START.test(line) &&
-  FRAME_LOCATION.test(line.trimEnd())
+const isBlank = (line: string) => line.trim() === ''
+const isLocatedFrame = (line: string) =>
+  FRAME_START.test(line) && FRAME_LOCATION.test(line.trimEnd())
+
+/** For each line, whether it sits in a run of contiguous "at" lines that holds a located frame. */
+function inLocatedRun(lines: readonly string[]): boolean[] {
+  const result = new Array<boolean>(lines.length).fill(false)
+  let runStart = -1
+  let located = false
+  for (let i = 0; i <= lines.length; i++) {
+    if (i < lines.length && FRAME_START.test(lines[i]!)) {
+      runStart = runStart < 0 ? i : runStart
+      located ||= isLocatedFrame(lines[i]!)
+    } else if (runStart >= 0) {
+      result.fill(located, runStart, i)
+      runStart = -1
+      located = false
+    }
+  }
+  return result
+}
 
 // A stack is a contiguous tail of "at" lines (up to a "Caused by:") holding at least one located frame, so an "at"
-// line inside the message, or a run with no location at all, is never mistaken for one. A blank line is skipped only
-// at the very end, as a serialized stack's trailing newline leaves one, or below a located frame.
+// line inside the message, or a run with no location at all, is never mistaken for one. A blank line is skipped at the
+// very end, as a serialized stack's trailing newline leaves one, or when the run of "at" lines above it holds a located
+// frame; otherwise it ends the stack.
 function stackStart(lines: readonly string[]): number {
+  const locatedRun = inLocatedRun(lines)
   let start = lines.length
   let tailIsFrames = true
   let located = false
   let trailing = true
+  let blankBelow = false
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!
     if (isBlank(line)) {
-      let above = i - 1
-      while (isBlank(lines[above])) {
-        above--
-      }
-      if (!trailing && !isLocatedFrame(lines[above])) {
-        tailIsFrames = false
-      }
+      blankBelow = !trailing
       continue
     }
+    if (blankBelow && !locatedRun[i]) {
+      tailIsFrames = false
+    }
     trailing = false
+    blankBelow = false
     if (CAUSED_BY.test(line)) {
       tailIsFrames = true
       located = false
