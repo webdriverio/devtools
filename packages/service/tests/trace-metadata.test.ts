@@ -379,6 +379,14 @@ describe('DevtoolsService - afterTest state stamping', () => {
     ).toBe('Error: x')
   })
 
+  it('cuts a stack that ends in a newline or holds a blank line', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n    at foo (a.js:1:2)\n\n    at bar (b.js:3:4)\n'
+      )
+    ).toBe('Error: x')
+  })
+
   it('keeps a located-looking "at" line in the middle of the message', async () => {
     expect(
       await stampedError(
