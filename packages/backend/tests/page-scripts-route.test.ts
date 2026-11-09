@@ -10,6 +10,7 @@ import os from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
 import {
+  COLLECTOR_DRAIN_RESOURCES_SCRIPT,
   CAPTURE_PERFORMANCE_SCRIPT,
   collectorDrainExpression,
   COLLECTOR_INJECT_SCRIPT,
@@ -55,6 +56,7 @@ describe('page scripts route', () => {
       collectorReady: COLLECTOR_READY_SCRIPT,
       collectorInject: COLLECTOR_INJECT_SCRIPT,
       collectorDrain: collectorDrainExpression(true),
+      collectorDrainResources: COLLECTOR_DRAIN_RESOURCES_SCRIPT,
       capturePerformance: CAPTURE_PERFORMANCE_SCRIPT
     })
   })
@@ -67,5 +69,18 @@ describe('page scripts route', () => {
     ).json<PageScriptsResponse>()
 
     expect(collectorDrain).toContain('captureCurrentDom()')
+  })
+
+  // A live drain must not read stylesheets back; only the trace drain asks.
+  it('serves a plain drain and a separate one that reads resources back', async () => {
+    const { collectorDrain, collectorDrainResources } = (
+      await fetchPageScripts()
+    ).json<PageScriptsResponse>()
+
+    expect(collectorDrain).toContain('getTraceData()')
+    expect(collectorDrainResources).toContain(
+      'getTraceData({"resources":"styles","stored":arguments[0]||[]})'
+    )
+    expect(collectorDrainResources).toContain('captureCurrentDom()')
   })
 })

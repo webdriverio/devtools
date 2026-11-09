@@ -40,6 +40,8 @@ export interface ExampleExpectations {
   /** Files a row's call site may point into (paths ending in one of these); unset skips the check. */
   sourceFiles?: string[]
   traceBudget: TraceBudget
+  /** Path suffixes of the page resources every zip must store, such as the fixture's stylesheet and font. */
+  pageResources?: string[]
   tests: TestExpectation[]
 }
 
@@ -80,6 +82,8 @@ export interface SmokeTrace {
 export interface TraceZip {
   path: string
   bytes: number
+  /** URLs the zip stores the bytes of. */
+  storedResources?: string[]
 }
 
 export interface RunOutcome {

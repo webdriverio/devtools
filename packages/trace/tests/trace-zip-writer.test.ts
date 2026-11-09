@@ -103,3 +103,28 @@ describe('buildTraceZip', () => {
     expect(entries).toContain(TRACE_ZIP_ENTRIES.network)
   })
 })
+
+describe('buildTraceZip resource names', () => {
+  it('writes a resource two producers named alike once', async () => {
+    const data = Buffer.from('same bytes')
+    const zip = await buildTraceZip(
+      inputs({
+        resources: [
+          { resourceName: 'abc123', data },
+          { resourceName: 'abc123', data }
+        ]
+      })
+    )
+    // Each entry's name appears in its local header and in the central directory.
+    const name = Buffer.from(`${TRACE_ZIP_ENTRIES.resourcesDir}/abc123`)
+    let count = 0
+    for (
+      let at = zip.indexOf(name);
+      at !== -1;
+      at = zip.indexOf(name, at + 1)
+    ) {
+      count++
+    }
+    expect(count).toBe(2)
+  })
+})

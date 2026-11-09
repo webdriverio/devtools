@@ -11,6 +11,8 @@ import type {
   DeviceInfo,
   Metadata,
   NetworkRequest,
+  PageResource,
+  ResourceReRead,
   ScreencastFrame,
   TestMetadataMap,
   TestRunnerId,
@@ -42,11 +44,15 @@ import {
 } from './trace-frame-snapshots.js'
 import { buildActionEvents, type ActionEvent } from './trace-action-events.js'
 import { buildSourceResources } from './trace-sources.js'
-import { networkRequestToHar } from './trace-har.js'
-import { buildTraceZip, type TraceZipResource } from './trace-zip-writer.js'
+import {
+  buildTraceZip,
+  uniqueResources,
+  type TraceZipResource
+} from './trace-zip-writer.js'
+import { buildPageResourceEntries } from './trace-page-resources.js'
+import { buildNetworkEntries } from './trace-network.js'
 import { buildMutationsNdjson } from './trace-mutations.js'
 import { generateTranscript } from './trace-transcript.js'
-import { sha1Hex } from './sha1.js'
 
 // Transcript building moved to its own module; re-exported here because this is
 // the name the package barrel and downstream adapters already import.
@@ -55,58 +61,6 @@ export { generateTranscript }
 const TRACE_VERSION = 8
 const LIBRARY_NAME = '@wdio/devtools-core'
 const LIBRARY_VERSION = '1.0.0'
-
-/** Response bodies above this size are not embedded in the trace. */
-const MAX_BODY_RESOURCE_BYTES = 1024 * 1024
-/** Per-trace ceiling on total embedded response-body bytes. */
-const MAX_TOTAL_BODY_RESOURCE_BYTES = 20 * 1024 * 1024
-
-export interface NetworkBodyCaps {
-  maxBodyBytes: number
-  maxTotalBytes: number
-}
-
-export interface NetworkBodyResources {
-  resources: TraceZipResource[]
-  sha1ByRequestId: Map<string, string>
-}
-
-/** Content-addressed `resources/<sha1>` entries for captured response bodies. */
-export function buildNetworkBodyResources(
-  requests: NetworkRequest[],
-  caps: NetworkBodyCaps = {
-    maxBodyBytes: MAX_BODY_RESOURCE_BYTES,
-    maxTotalBytes: MAX_TOTAL_BODY_RESOURCE_BYTES
-  }
-): NetworkBodyResources {
-  const resources: TraceZipResource[] = []
-  const sha1ByRequestId = new Map<string, string>()
-  const stored = new Set<string>()
-  let totalBytes = 0
-  // Cap skips are silent by design; a warn hook would slot into these branches.
-  for (const request of requests) {
-    if (request.responseBody === undefined) {
-      continue
-    }
-    const data = Buffer.from(request.responseBody, 'utf8')
-    if (data.byteLength > caps.maxBodyBytes) {
-      continue
-    }
-    const sha1 = sha1Hex(data)
-    if (stored.has(sha1)) {
-      sha1ByRequestId.set(request.id, sha1)
-      continue
-    }
-    if (totalBytes + data.byteLength > caps.maxTotalBytes) {
-      continue
-    }
-    stored.add(sha1)
-    totalBytes += data.byteLength
-    resources.push({ resourceName: sha1, data })
-    sha1ByRequestId.set(request.id, sha1)
-  }
-  return { resources, sha1ByRequestId }
-}
 
 interface ContextOptionsEvent {
   version: number
@@ -222,31 +176,6 @@ function buildContextOptions(
   }
 }
 
-function buildNetworkNdjson(
-  requests: NetworkRequest[],
-  wallTime: number,
-  pageId: string,
-  sha1ByRequestId: Map<string, string>
-): Buffer {
-  if (!requests.length) {
-    return Buffer.alloc(0)
-  }
-  const lines = requests.map((r) => {
-    const entry = networkRequestToHar(r, {
-      bodySha1: sha1ByRequestId.get(r.id)
-    }) as unknown as Record<string, unknown>
-    entry.snapshot = {
-      ...(entry.snapshot as Record<string, unknown>),
-      // Monotonic offset so the viewer positions bars on the timeline.
-      _monotonicTime: Math.max(0, r.timestamp - wallTime),
-      // Browsing context ID so the viewer associates requests with the page.
-      _frameref: pageId
-    }
-    return JSON.stringify(entry)
-  })
-  return Buffer.from(lines.join('\n'), 'utf8')
-}
-
 /**
  * Build a trace.zip buffer from the captured TraceLog.
  * Filters commands through ACTION_MAP and renames to trace vocabulary;
@@ -310,6 +239,7 @@ interface TraceBundle {
   networkNdjson: Buffer
   transcriptMd: string
   mutationsNdjson: Buffer
+  pageResourcesNdjson: Buffer
   resources: TraceZipResource[]
 }
 
@@ -381,26 +311,27 @@ function buildTraceBundle(
     opts.testMetadata,
     dense.events
   )
-  const networkBodies = buildNetworkBodyResources(trace.networkRequests)
+  const network = buildNetworkEntries(trace, wallTime, pageId)
+  const pageResources = buildPageResourceEntries(
+    trace.pageResources,
+    trace.mutations ?? []
+  )
   return {
     traceNdjson: events.map((e) => JSON.stringify(e)).join('\n') + '\n',
-    networkNdjson: buildNetworkNdjson(
-      trace.networkRequests,
-      wallTime,
-      pageId,
-      networkBodies.sha1ByRequestId
-    ),
+    networkNdjson: network.ndjson,
     transcriptMd: generateTranscript(
       trace.commands,
       wallTime,
       ctxOptions.title
     ),
     mutationsNdjson: buildMutationsNdjson(trace.mutations ?? []).ndjson,
+    pageResourcesNdjson: pageResources.indexNdjson,
     resources: [
       ...buildSnapshotResources(trace.actionSnapshots ?? [], pageId),
       ...dense.resources,
       ...buildSourceResources(trace.sources),
-      ...networkBodies.resources
+      ...network.resources,
+      ...pageResources.resources
     ]
   }
 }
@@ -419,7 +350,8 @@ export async function exportTraceZip(
     networkNdjson: bundle.networkNdjson,
     resources: bundle.resources,
     transcriptMd: bundle.transcriptMd,
-    mutationsNdjson: bundle.mutationsNdjson
+    mutationsNdjson: bundle.mutationsNdjson,
+    pageResourcesNdjson: bundle.pageResourcesNdjson
   })
 }
 
@@ -439,6 +371,7 @@ async function exportTraceDirectory(
     network,
     mutations,
     transcript,
+    pageResources,
     resourcesDir
   } = TRACE_ZIP_ENTRIES
   await fs.mkdir(entry(resourcesDir), { recursive: true })
@@ -451,7 +384,10 @@ async function exportTraceDirectory(
     bundle.mutationsNdjson.length
       ? fs.writeFile(entry(mutations), bundle.mutationsNdjson)
       : Promise.resolve(),
-    ...bundle.resources.map((r) =>
+    bundle.pageResourcesNdjson.length
+      ? fs.writeFile(entry(pageResources), bundle.pageResourcesNdjson)
+      : Promise.resolve(),
+    ...uniqueResources(bundle.resources).map((r) =>
       fs.writeFile(
         path.join(targetDir, TRACE_ZIP_ENTRIES.resourcesDir, r.resourceName),
         r.data
@@ -470,6 +406,9 @@ export interface TraceCapturer {
   sources: Map<string, string>
   metadata?: Metadata
   startWallTime?: number
+  /** The whole run's stored stylesheets and fonts; the writer keeps what this trace's DOM uses. */
+  pageResources?: readonly PageResource[]
+  resourceReReads?: readonly ResourceReRead[]
 }
 
 export interface WriteTraceZipOptions {
@@ -524,6 +463,12 @@ export async function writeTraceZip(
     ...(actionSnapshots.length ? { actionSnapshots } : {}),
     ...(opts.screencastFrames?.length
       ? { screencastFrames: [...opts.screencastFrames] }
+      : {}),
+    ...(capturer.pageResources?.length
+      ? { pageResources: [...capturer.pageResources] }
+      : {}),
+    ...(capturer.resourceReReads?.length
+      ? { resourceReReads: [...capturer.resourceReReads] }
       : {})
   }
   await fs.mkdir(opts.outputDir, { recursive: true })

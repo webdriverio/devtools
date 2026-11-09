@@ -205,7 +205,10 @@ export function buildSpecCapturer(
     ),
     sources: new Map(capturer.sources),
     metadata: capturer.metadata,
-    startWallTime: capturer.startWallTime
+    startWallTime: capturer.startWallTime,
+    // The whole run's: the writer keeps what this slice's documents used.
+    pageResources: capturer.pageResources,
+    resourceReReads: capturer.resourceReReads
   }
 }
 

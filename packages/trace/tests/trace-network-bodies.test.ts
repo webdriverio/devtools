@@ -5,11 +5,8 @@ import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import type { NetworkRequest } from '@wdio/devtools-shared'
 import { networkRequestToHar } from '../src/trace-har.js'
-import {
-  buildNetworkBodyResources,
-  writeTraceZip,
-  type TraceCapturer
-} from '../src/trace-exporter.js'
+import { buildNetworkBodyResources } from '../src/trace-network.js'
+import { writeTraceZip, type TraceCapturer } from '../src/trace-exporter.js'
 
 const sha1 = (data: string): string =>
   createHash('sha1').update(data).digest('hex')

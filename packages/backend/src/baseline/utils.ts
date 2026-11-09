@@ -11,7 +11,9 @@ export function freshRun(): ActiveRun {
     startedAt: Date.now(),
     traceLogs: [],
     screencastFrames: [],
-    actionSnapshots: []
+    actionSnapshots: [],
+    pageResources: [],
+    resourceReReads: []
   }
 }
 

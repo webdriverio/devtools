@@ -121,6 +121,19 @@ describe('selenium native network capture', () => {
     expect(ctx.sessionCapturer?.nativeNetwork.active).toBe(true)
   })
 
+  it('configures the page-resource store from the run\u2019s options', async () => {
+    capabilities.current = NATIVE
+    ctx = makeCtx(false)
+    await onDriverCreated(ctx, driver('d1'))
+    expect(ctx.sessionCapturer?.pageResourceStore.mode).toBe('styles')
+    ctx.sessionCapturer?.cleanup()
+
+    const base = makeCtx(false)
+    ctx = { ...base, options: { ...base.options, traceResources: 'none' } }
+    await onDriverCreated(ctx, driver('d2'))
+    expect(ctx.sessionCapturer?.pageResourceStore.mode).toBe('none')
+  })
+
   it('stays off when the build did not ask, and for a session with a document', async () => {
     ctx = makeCtx(false)
     await onDriverCreated(ctx, driver('d1'))

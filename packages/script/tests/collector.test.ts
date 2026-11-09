@@ -150,3 +150,15 @@ describe('bundle installation', () => {
     delete window.wdioTraceCollector
   })
 })
+
+describe('getTraceData page resources', () => {
+  it('returns page resources only to a drain that asks for them', () => {
+    const c = new DataCollector()
+    expect(c.getTraceData()).not.toHaveProperty('pageResources')
+    expect(c.getTraceData({ resources: 'styles' })).toMatchObject({
+      pageResources: [],
+      resourceReReads: [],
+      pendingResources: 0
+    })
+  })
+})

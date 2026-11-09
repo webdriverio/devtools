@@ -86,7 +86,9 @@ function toCapturer(run: Readonly<ActiveRun>): TraceCapturer {
     commandsLog: run.commands,
     sources: new Map(Object.entries(run.sources)),
     metadata: run.metadata,
-    startWallTime: run.startedAt
+    startWallTime: run.startedAt,
+    pageResources: run.pageResources,
+    resourceReReads: run.resourceReReads
   }
 }
 

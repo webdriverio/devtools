@@ -3,7 +3,12 @@
  * into an accumulator, then time-window-filters per test/suite on demand.
  */
 import logger from '@wdio/logger'
-import { replaceCommandIndex, type Metadata } from '@wdio/devtools-shared'
+import {
+  isPageResource,
+  isResourceReRead,
+  replaceCommandIndex,
+  type Metadata
+} from '@wdio/devtools-shared'
 
 import type {
   ActiveRun,
@@ -83,12 +88,10 @@ class BaselineStore {
         appendArray(this.#activeRun.traceLogs, data)
         return
       case 'actionSnapshots':
-        appendArray(this.#activeRun.actionSnapshots, data)
-        return
       case 'screencastFrames':
-        // Sent in batches: a run's buffer can reach the recorder's cap, and one
-        // message carrying all of it would sit near the socket's payload limit.
-        appendArray(this.#activeRun.screencastFrames, data)
+      case 'pageResources':
+      case 'resourceReReads':
+        this.#recordTraceStream(scope, data)
         return
       case 'suites':
         this.#ingestSuites(data)
@@ -109,6 +112,46 @@ class BaselineStore {
       cmds.push(command)
     } else {
       cmds[idx] = command
+    }
+  }
+
+  /** Streams only a trace archive reads: an adapter exporting through here sends what the JS adapters hand their exporter in-process. */
+  #recordTraceStream(
+    scope:
+      | 'actionSnapshots'
+      | 'screencastFrames'
+      | 'pageResources'
+      | 'resourceReReads',
+    data: unknown
+  ) {
+    if (scope === 'pageResources') {
+      this.#mergePageResources(data)
+      return
+    }
+    if (scope === 'resourceReReads') {
+      // Untrusted wire data: a malformed read is dropped rather than reach the trace writer.
+      appendArray(
+        this.#activeRun.resourceReReads,
+        Array.isArray(data) ? data.filter(isResourceReRead) : undefined
+      )
+      return
+    }
+    // Frames arrive in batches: a run's buffer can reach the recorder's cap, and one message carrying all of it would sit near the socket's payload limit.
+    appendArray<unknown>(this.#activeRun[scope], data)
+  }
+
+  /** One per URL: every document re-reads what it used, and the bytes are the same. */
+  #mergePageResources(data: unknown) {
+    if (!Array.isArray(data)) {
+      return
+    }
+    const stored = this.#activeRun.pageResources
+    const urls = new Set(stored.map((r) => r.url))
+    for (const resource of data.filter(isPageResource)) {
+      if (!urls.has(resource.url)) {
+        urls.add(resource.url)
+        stored.push(resource)
+      }
     }
   }
 

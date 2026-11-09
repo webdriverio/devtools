@@ -54,6 +54,12 @@ class TestFetchingThePageScripts(unittest.TestCase):
         self.assertEqual(second, PAGE_SCRIPTS)
         self.assertEqual(opened.call_count, 1)
 
+    def test_the_trace_drain_that_reads_resources_back_is_kept(self):
+        body = {**PAGE_SCRIPTS, "collectorDrainResources": "/* resources */"}
+        with self._urlopen(json.dumps(body)):
+            scripts = page_scripts.fetch("localhost", 2)
+        self.assertEqual(scripts["collectorDrainResources"], "/* resources */")
+
     def test_an_old_backend_costs_one_request_and_says_so(self):
         # A backend older than the route answers 404. DOM replay is then off,
         # which is worth a warning rather than a debug line nobody reads.

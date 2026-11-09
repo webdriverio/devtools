@@ -31,6 +31,7 @@ import {
 import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
 import { HOSTED_PLAYER } from './constants.js'
 import { cacheTrace, readCachedTrace } from './trace-cache.js'
+import { archivedResources } from '../components/browser/archived-resources.js'
 import { readTraceArchive } from './trace-archive.js'
 import { probeServedTrace } from './trace-serve.js'
 import type { TraceSource } from '../utils/trace-sources.js'
@@ -551,6 +552,7 @@ export class DataManagerController implements ReactiveController {
     if (cache) {
       cacheTrace(traceFile)
     }
+    archivedResources.load(traceFile.pageResources ?? [])
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )

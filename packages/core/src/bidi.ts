@@ -229,6 +229,11 @@ function bidiResponseTiming(
   return { endTime, time: Math.max(0, endTime - startTime) }
 }
 
+/** The browser-clock start, only when the event carried one. */
+function wallTimeOf(value: unknown): { wallTime?: number } {
+  return isFiniteNumber(value) ? { wallTime: Number(value) } : {}
+}
+
 /** Rows a session has seen, by request id: a later event for the same request
  *  (a redirect hop, a late failure) continues the row rather than adding one. */
 const MAX_TRACKED_REQUESTS = 5000
@@ -278,6 +283,7 @@ export function handleBidiRequestSent(
       // keeps the clock of the hop it follows and reopens for the next answer.
       timestamp: previous?.timestamp ?? Date.now(),
       startTime: previous?.startTime ?? Number(event?.timestamp ?? Date.now()),
+      ...wallTimeOf(previous?.wallTime ?? event?.timestamp),
       type: getRequestType(event?.request?.url ?? '')
     }
     remember(rows, requestId, entry)

@@ -196,8 +196,10 @@ def request_sent_kwargs(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     request_id = event_request_id(params)
     if not request_id:
         return None
-    start_time = int(params.get("timestamp") or now_ms())
+    event_time = params.get("timestamp")
+    start_time = int(event_time or now_ms())
     return {
+        **({"wall_time": int(event_time)} if event_time else {}),
         "request_id": request_id,
         "url": request.get("url") or "",
         "method": request.get("method") or "GET",

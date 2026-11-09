@@ -535,6 +535,30 @@ describe('baselineStore — scopes the trace export reads', () => {
     baselineStore.resetActiveRun()
   })
 
+  it('keeps one stored page resource per URL, and every read of one', () => {
+    const css = {
+      url: 'https://x/site.css',
+      kind: 'stylesheet',
+      mimeType: 'text/css',
+      data: 'cHt9',
+      size: 3
+    }
+    baselineStore.recordEvent('pageResources', [css])
+    baselineStore.recordEvent('pageResources', [{ ...css, data: 'b3RoZXI=' }])
+    baselineStore.recordEvent('pageResources', 'not-an-array')
+    baselineStore.recordEvent('pageResources', [
+      { url: 'https://x/bad.css', kind: 'stylesheet', mimeType: 'text/css' },
+      { ...css, url: 'https://x/notb64.css', data: '%%%' },
+      null
+    ])
+    baselineStore.recordEvent('resourceReReads', [{ url: css.url }, null])
+    baselineStore.recordEvent('resourceReReads', [
+      { url: css.url, startedAt: 5, loadedAt: 1 }
+    ])
+    expect(baselineStore.activeRun().pageResources).toEqual([css])
+    expect(baselineStore.activeRun().resourceReReads).toHaveLength(1)
+  })
+
   it('keeps the latest metadata frame', () => {
     baselineStore.recordEvent('metadata', { sessionId: 'a' })
     baselineStore.recordEvent('metadata', { sessionId: 'b' })

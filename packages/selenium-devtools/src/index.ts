@@ -26,10 +26,12 @@ import {
   onSessionEnd as sessionOnSessionEnd,
   setPluginRef,
   recordTraceBoundary,
-  flushCurrentTestTrace
+  flushCurrentTestTrace,
+  settlePageResources
 } from './session-lifecycle.js'
 import { captureFinalFrame } from './helpers/finalFrame.js'
 import type { SpecRange, TraceArtifact } from '@wdio/devtools-core'
+import { DEFAULT_TRACE_RESOURCES } from '@wdio/devtools-shared'
 import {
   startTest as tmStartTest,
   endTest as tmEndTest,
@@ -176,6 +178,7 @@ class SeleniumDevToolsPlugin {
       traceGranularity: options.traceGranularity ?? 'session',
       tracePolicy: options.tracePolicy ?? 'on',
       filmstrip: options.filmstrip ?? true,
+      traceResources: options.traceResources ?? DEFAULT_TRACE_RESOURCES,
       screenshot: options.screenshot ?? 'off',
       video: options.video ?? 'off',
       emitArtifactsManifest: options.emitArtifactsManifest,
@@ -490,6 +493,7 @@ class SeleniumDevToolsPlugin {
   async endTest(state: TestStats['state'] = 'passed') {
     const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndTest(this.#getInternals(), state)
+    await settlePageResources(this.#getInternals())
     await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
     await this.#emitTestArtifacts(ended, state === 'failed', flushed)
@@ -504,6 +508,7 @@ class SeleniumDevToolsPlugin {
   async endScenario(state: TestStats['state'] = 'passed') {
     const ended = this.#testManager?.getCurrentTest() ?? null
     tmEndScenario(this.#getInternals(), state)
+    await settlePageResources(this.#getInternals())
     await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
     await this.#emitTestArtifacts(ended, state === 'failed', flushed)

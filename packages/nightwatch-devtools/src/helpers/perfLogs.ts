@@ -30,6 +30,8 @@ export interface NetworkEntry {
   requestHeaders: Record<string, string>
   timestamp: number
   startTime: number
+  /** The browser's own epoch clock, from the event's `wallTime`. */
+  wallTime?: number
   status?: number
   statusText?: string
   responseHeaders?: Record<string, string>
@@ -115,6 +117,9 @@ function startPendingRequest(
       typeof params.wallTime === 'number'
         ? Math.round(params.wallTime * 1000)
         : entry.timestamp,
+    ...(typeof params.wallTime === 'number'
+      ? { wallTime: Math.round(params.wallTime * 1000) }
+      : {}),
     startTime
   })
 }
