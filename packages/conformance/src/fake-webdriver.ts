@@ -12,6 +12,7 @@ import {
   BLANK_PNG,
   BROKEN_PATH,
   COLLECTOR_SIGNATURE,
+  DEFAULT_TIMEOUTS,
   DOCUMENT_MIME,
   ELEMENT_KEY,
   ELEMENT_TEXT,
@@ -227,6 +228,9 @@ export class FakeWebDriver {
     }
     if (method === 'POST' && (path === '/element' || path === '/elements')) {
       return this.#find(String(params.value), path === '/elements')
+    }
+    if (method === 'GET' && path === '/timeouts') {
+      return { value: DEFAULT_TIMEOUTS }
     }
     const element = path.match(/^\/element\/([^/]+)\/(value|click|clear|text)$/)
     if (element) {

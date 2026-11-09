@@ -109,6 +109,12 @@ vi.mock('../src/intercepted-network.js', () => ({
   })
 }))
 
+const elementsMock = vi.hoisted(() => ({
+  getSnapshot: vi.fn(),
+  snapshotRenderer: vi.fn(() => 'legacy')
+}))
+vi.mock('@wdio/elements', () => elementsMock)
+
 vi.mock('node:fs/promises', () => ({
   default: { writeFile: vi.fn().mockResolvedValue(undefined) }
 }))
@@ -143,6 +149,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    elementsMock.snapshotRenderer.mockReturnValue('legacy')
     mockSessionCapturerInstance.afterCommand.mockClear()
     mockSessionCapturerInstance.sendUpstream.mockClear()
     service = new DevToolsHookService()
@@ -162,6 +169,53 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       })
       expect(true).toBe(true)
     })
+  })
+
+  describe('getSnapshot command', () => {
+    const getSnapshotCommand = (): ((options?: object) => Promise<unknown>) => {
+      const call = mockBrowser.addCommand.mock.calls.find(
+        ([name]: [string]) => name === 'getSnapshot'
+      )
+      return call[1]
+    }
+
+    beforeEach(async () => {
+      elementsMock.getSnapshot.mockReset()
+      await service.before({} as any, [], mockBrowser)
+    })
+
+    it('passes the caller options through unchanged', async () => {
+      elementsMock.getSnapshot.mockResolvedValue({
+        format: 'legacy',
+        text: 'T',
+        elements: {}
+      })
+
+      await getSnapshotCommand()()
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(
+        mockBrowser,
+        undefined
+      )
+
+      await getSnapshotCommand()({ inViewportOnly: false })
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
+        inViewportOnly: false
+      })
+    })
+
+    it.each(['legacy', 'snapshot'] as const)(
+      'reports nothing rendered as legacy while %s is the configured renderer',
+      async (renderer) => {
+        elementsMock.snapshotRenderer.mockReturnValue(renderer)
+        elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+
+        await expect(getSnapshotCommand()()).resolves.toEqual({
+          format: 'legacy',
+          text: '[Snapshot unavailable]',
+          elements: {}
+        })
+      }
+    )
   })
 
   it('configures the page-resource store from the run\u2019s options', async () => {
