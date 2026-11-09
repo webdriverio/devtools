@@ -158,6 +158,13 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       'The wait row is sent only when it completes, carries no id, or the commands issued while it runs do not carry that id as parentId.',
     responsibility: 'command-interception'
   },
+  'password-masked-only-in-the-page': {
+    meaning:
+      "A collector was loaded without the run's mask policy, what was typed into a password field reached the replayed page, or the row that typed some text does not carry it. The rule proves an adapter declares the policy and keeps its rows' arguments; the fake page only models the masking, which `packages/script/tests/masking.test.ts` proves against the real collector.",
+    cause:
+      "The collector source was injected without core's `loadCollectorSource` (Python: `collector_source_text`), which declares the policy ahead of it, or the input command's arguments were changed before the row was captured.",
+    responsibility: 'collector'
+  },
   'one-row-per-browser-action': {
     meaning:
       'The rows do not match what the browser did: a navigation, click or keystroke is missing or appears twice.',

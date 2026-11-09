@@ -10,6 +10,9 @@ import {
   allTested,
   byHand,
   covered,
+  NEEDS_APPIUM_WEB,
+  NEEDS_IOS,
+  onAndroid,
   partial,
   tested,
   unsupported
@@ -22,14 +25,6 @@ const WDIO = ADAPTER_TESTS['devtools-service']
 const SELENIUM = ADAPTER_TESTS['selenium-devtools']
 const NIGHTWATCH = ADAPTER_TESTS['nightwatch-devtools']
 const PYTHON = ADAPTER_TESTS['selenium-devtools-py']
-
-// iOS app traffic needs a device or proxy capture outside the adapters.
-const ANDROID_ONLY = 'Android only; appium-interceptor is an Android plugin.'
-const onAndroid = (path: string) => covered(path, ANDROID_ONLY)
-const NEEDS_APPIUM_WEB = (demo: string) =>
-  `Needs an Appium device; check by hand with \`DEVTOOLS_MOBILE=web pnpm ${demo}\`.`
-const NEEDS_IOS = (demo: string) =>
-  `Needs a booted iOS simulator; check by hand with \`DEVTOOLS_MOBILE_PLATFORM=ios pnpm ${demo}\`.`
 
 export const FEATURES = [
   {
@@ -230,6 +225,12 @@ export const FEATURES = [
     name: 'Transcript + Copy-for-LLM (trace player)',
     tables: ['readme-trace', 'cross-framework'],
     cells: allCovered('packages/trace/tests/trace-transcript.test.ts')
+  },
+  {
+    id: 'input-masking',
+    name: 'Password fields masked in the replayed page (`maskInputs`, `maskSelectors`)',
+    tables: ['readme-trace', 'cross-framework'],
+    cells: allTested([RULES.passwordMaskedInPage])
   },
   {
     id: 'actions-list',

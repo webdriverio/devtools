@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
+  captureMask,
+  configureInputMasking,
   INPUT_DISPATCH_MAX_HOLD_MS,
   isInputDispatchInFlight,
   rememberReadValue,
@@ -560,6 +562,16 @@ describe('DevtoolsService - Screencast Integration', () => {
         (call: unknown[]) => call[1]
       )
       expect(logged).toEqual(['addValue'])
+    })
+  })
+
+  describe('page mask policy', () => {
+    it('sets the run’s policy from the service options', () => {
+      new DevToolsHookService({ maskInputs: false, maskSelectors: ['.iban'] })
+      expect(captureMask()).toEqual({ inputs: false, selectors: ['.iban'] })
+      new DevToolsHookService()
+      expect(captureMask()).toEqual({ inputs: true, selectors: [] })
+      configureInputMasking()
     })
   })
 })

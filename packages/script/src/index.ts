@@ -8,6 +8,7 @@ import {
 } from './mutations.js'
 import { log } from './logger.js'
 import { alreadyInstalled, collector } from './collector.js'
+import { pageMask } from './masking.js'
 
 // A second evaluation keeps the first collector and adds nothing: not even a
 // log line, since only the first evaluation's logger is ever drained.
@@ -53,6 +54,7 @@ if (!alreadyInstalled) {
       const el = target as HTMLInputElement
       const checkable =
         tag === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio')
+      const masked = !checkable && pageMask.masksValue(el)
       collector.captureMutation([
         {
           type: 'attributes',
@@ -61,7 +63,11 @@ if (!alreadyInstalled) {
           // `String` never yields the ambiguous shape a boolean attribute reader
           // has to guess at: `checked` is always an explicit "true"/"false", and
           // `value` is not a boolean attribute, so its `''` is a real empty value.
-          attributeValue: checkable ? String(el.checked) : String(el.value),
+          attributeValue: checkable
+            ? String(el.checked)
+            : masked
+              ? pageMask.maskValue(el.value)
+              : String(el.value),
           addedNodes: [],
           removedNodes: [],
           timestamp: Date.now()

@@ -7,7 +7,10 @@ import {
   afterEach,
   type Mock
 } from 'vitest'
-import { CAPTURE_PERFORMANCE_SCRIPT } from '@wdio/devtools-core'
+import {
+  CAPTURE_PERFORMANCE_SCRIPT,
+  configureInputMasking
+} from '@wdio/devtools-core'
 import { resourceUrlKey, type CommandLog } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { WebSocket } from 'ws'
@@ -567,6 +570,23 @@ describe('SessionCapturer', () => {
       expect(browser.scriptAddPreloadScript).toHaveBeenCalledTimes(1)
     })
 
+    it('declares the run’s mask policy ahead of the preloaded collector', async () => {
+      configureInputMasking({ maskInputs: false, maskSelectors: ['.iban'] })
+      try {
+        const capturer = new SessionCapturer()
+        const browser = bidiBrowser()
+        await capturer.injectScript(browser)
+        const [{ functionDeclaration }] = vi.mocked(
+          browser.scriptAddPreloadScript
+        ).mock.calls[0] as [{ functionDeclaration: string }]
+        expect(functionDeclaration).toBe(
+          'async () => { var __wdioCaptureMask = {"inputs":false,"selectors":[".iban"]};\n// preload }'
+        )
+      } finally {
+        configureInputMasking()
+      }
+    })
+
     it('re-adds the preload script for the new session after a reload reset', async () => {
       const capturer = new SessionCapturer()
       const browser = bidiBrowser()
@@ -976,6 +996,30 @@ describe('SessionCapturer', () => {
 
       expect(capturer.commandsLog).toHaveLength(1)
       expect(capturer.commandsLog[0].testUid).toBeUndefined()
+    })
+  })
+
+  describe('afterCommand: typed text', () => {
+    it('keeps what a fill typed on its row, after the element it typed into', async () => {
+      const capturer = new SessionCapturer()
+      await capturer.afterCommand(
+        mockBrowser,
+        '$' as any,
+        ['#password'],
+        {},
+        undefined
+      )
+      await capturer.afterCommand(
+        mockBrowser,
+        'setValue' as any,
+        ['S3cret pass'],
+        undefined,
+        undefined,
+        '/test/login.ts:3:5',
+        Date.now()
+      )
+      const row = capturer.commandsLog.find((c) => c.command === 'setValue')!
+      expect(row.args).toEqual(['#password', 'S3cret pass'])
     })
   })
 

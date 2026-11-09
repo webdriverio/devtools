@@ -22,6 +22,7 @@ from selenium_devtools import (
     capture_timing,
     capturer,
     device,
+    input_masking,
     instrumentation,
     output_dir,
     page_resources,
@@ -55,6 +56,7 @@ RUNNERS = {
     "waitRowNaming",
     "finalFrameStamp",
     "captureTimingSummary",
+    "collectorMaskPrelude",
     "resourceUrlKey",
 }
 
@@ -378,6 +380,25 @@ class TestCaptureTimingSummary(unittest.TestCase):
                     },
                     case["expect"],
                 )
+
+
+def _fresh_mask(options: Dict[str, Any]) -> None:
+    """The vectors' camelCase options as keywords, explicit so the environment cannot leak in."""
+    input_masking.configure(
+        mask_inputs=options.get("maskInputs", True),
+        mask_selectors=options.get("maskSelectors", []),
+    )
+
+
+class TestCollectorMaskPrelude(unittest.TestCase):
+    def tearDown(self):
+        _fresh_mask({})
+
+    def test_cases(self):
+        for case in _cases("collectorMaskPrelude"):
+            with self.subTest(case["name"]):
+                _fresh_mask(case["options"])
+                self.assertEqual(input_masking.capture_mask_prelude(), case["expect"])
 
 
 class TestResourceUrlKey(unittest.TestCase):

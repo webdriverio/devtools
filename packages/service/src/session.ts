@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises'
 import url from 'node:url'
 
 import logger from '@wdio/logger'
 import { parse } from 'stack-trace'
-import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
@@ -26,6 +24,7 @@ import {
   errorMessage,
   getRequestType,
   isSessionGoneError,
+  loadCollectorSource,
   loadInjectableScript,
   LOG_SOURCES,
   rememberReadValue,
@@ -36,6 +35,7 @@ import {
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
+import { toCommandError } from './assert-capture.js'
 import { directProbes } from './direct-probes.js'
 import type { CommandNesting } from './command-stack.js'
 import { WaitRows } from './wait-rows.js'
@@ -293,6 +293,13 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#retryTracker.recordCapture(sig, id)
   }
 
+  /** Closes a wait left open when its test or step ended, with that test's failure or as passed; an assertion failure stays on its own row. */
+  closeOpenWait(id: number, testError: unknown): void {
+    this.#restoreWaitSelector(id)
+    this.#waitRows.closeOpen(id, toCommandError(testError))
+    this.#retryTracker.reset()
+  }
+
   /** Drop retry state at test/scenario boundaries so a deliberate re-issue of
    *  the same call in the next test counts as fresh, not a retry. */
   resetRetryTracker(): void {
@@ -449,9 +456,7 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
     try {
-      const script = await resolve('@wdio/devtools-script', import.meta.url)
-      const source = (await fs.readFile(url.fileURLToPath(script))).toString()
-      const functionDeclaration = `async () => { ${source} }`
+      const functionDeclaration = `async () => { ${await loadCollectorSource()} }`
 
       await browser.scriptAddPreloadScript({
         functionDeclaration
