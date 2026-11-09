@@ -5,9 +5,10 @@ import { createServer } from 'node:net'
 import path from 'node:path'
 
 const STARTUP_TIMEOUT_MS = 20_000
-const POLL_INTERVAL_MS = 250
 const REQUEST_TIMEOUT_MS = 5_000
+const SERVER = 'node_modules/@wdio/devtools-backend/dist/server.js'
 const SCRIPT_DIR = 'node_modules/@wdio/devtools-script'
+const LISTENING_LINE = /devtools-backend listening at (http:\/\/\S+)/
 
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -20,50 +21,66 @@ function freePort() {
   })
 }
 
-async function waitForPage(url, backend) {
-  const deadline = Date.now() + STARTUP_TIMEOUT_MS
-  while (Date.now() < deadline) {
-    if (backend.exitCode !== null) {
-      throw new Error(`the backend exited with code ${backend.exitCode}`)
-    }
-    try {
-      // A backend that accepts and never answers must not outlast the deadline.
-      return await fetch(url, {
-        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now()))
-      })
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
-    }
+// The backend moves off a taken --port, so the port it prints is the one it bound.
+function waitForListening(backend, output) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `the backend printed no listening line within ${STARTUP_TIMEOUT_MS} ms`
+          )
+        ),
+      STARTUP_TIMEOUT_MS
+    )
+    backend.stdout.on('data', () => {
+      const url = output.text.match(LISTENING_LINE)?.[1]
+      if (url) {
+        clearTimeout(timer)
+        resolve(url)
+      }
+    })
+    // 'close' comes after the output streams end, so the log is complete here.
+    backend.on('close', (code, signal) => {
+      clearTimeout(timer)
+      const how = signal ? `signal ${signal}` : `exit code ${code}`
+      reject(new Error(`the backend stopped before it listened (${how})`))
+    })
+  })
+}
+
+async function get(url) {
+  try {
+    // Its own limit, body included: a backend can accept and never answer.
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    })
+    return { status: res.status, body: await res.text() }
+  } catch (err) {
+    throw new Error(`GET ${url} failed`, { cause: err })
   }
-  throw new Error(
-    `the backend did not answer ${url} within ${STARTUP_TIMEOUT_MS} ms`
-  )
 }
 
 async function checkDashboard() {
-  const port = await freePort()
   const backend = spawn(process.execPath, [
-    'node_modules/@wdio/devtools-backend/dist/server.js',
+    SERVER,
     '--port',
-    String(port)
+    String(await freePort())
   ])
-  let log = ''
-  backend.stdout.on('data', (chunk) => (log += chunk))
-  backend.stderr.on('data', (chunk) => (log += chunk))
+  const output = { text: '' }
+  backend.stdout.on('data', (chunk) => (output.text += chunk))
+  backend.stderr.on('data', (chunk) => (output.text += chunk))
   try {
-    const base = `http://127.0.0.1:${port}`
-    const page = await waitForPage(`${base}/`, backend)
+    const base = new URL(await waitForListening(backend, output)).origin
+    const page = await get(`${base}/`)
     assert.equal(page.status, 200, `GET / answered ${page.status}`)
-    const html = await page.text()
-    assert.match(html, /<title>/, 'GET / has no <title>')
-    const bundle = html.match(/src="(\/assets\/[^"]+\.js)"/)?.[1]
+    assert.match(page.body, /<title>/, 'GET / has no <title>')
+    const bundle = page.body.match(/src="(\/assets\/[^"]+\.js)"/)?.[1]
     assert.ok(bundle, 'the dashboard page names no /assets/*.js bundle')
-    const asset = await fetch(`${base}${bundle}`, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-    })
+    const asset = await get(`${base}${bundle}`)
     assert.equal(asset.status, 200, `GET ${bundle} answered ${asset.status}`)
   } catch (err) {
-    console.error(`backend log:\n${log}`)
+    console.error(`backend log:\n${output.text}`)
     throw err
   } finally {
     // SIGTERM can be handled and ignored; the job would then wait on the child.
@@ -88,6 +105,14 @@ function checkScriptPackage() {
   }
 }
 
+function describe(err) {
+  let text = err.message
+  for (let cause = err.cause; cause; cause = cause.cause) {
+    text += ` <- ${cause.message}${cause.code ? ` (${cause.code})` : ''}`
+  }
+  return text
+}
+
 const failures = []
 for (const check of [checkScriptPackage, checkDashboard]) {
   try {
@@ -98,10 +123,10 @@ for (const check of [checkScriptPackage, checkDashboard]) {
 }
 if (failures.length > 0) {
   for (const err of failures) {
-    console.error(`FAIL: ${err.message}`)
+    console.error(`FAIL: ${describe(err)}`)
   }
   process.exit(1)
 }
 console.log(
-  'packed backend serves the dashboard; @wdio/devtools-script ships its entry and types'
+  'packed backend serves the dashboard; @wdio/devtools-script ships its entry and the files its types import by relative path'
 )
