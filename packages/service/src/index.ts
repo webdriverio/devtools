@@ -156,7 +156,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentStepUid?: string
   /** Per-scenario step counter for stable, collision-free step uids. */
   #currentStepIndex = 0
-  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+  /** True when a reporter whose name contains "allure" is in the WDIO config (detected in
    *  beforeSession) — auto-enables the artifacts manifest even if the option
    *  isn't set, since session/spec-scoped Allure attach reads it. */
   #allureReporterConfigured = false
