@@ -14,6 +14,8 @@ export const TICK_TARGET_DIVISIONS = 14
 export const PLAYER_STATE_EVENT = 'trace-player:state'
 export const PLAYER_RESTART_EVENT = 'trace-player:restart'
 export const PLAYER_SPEED_EVENT = 'trace-player:speed'
+/** Moves the clock to the action whose `callId` is the detail; an id the trace lacks is ignored. */
+export const PLAYER_SEEK_ACTION_EVENT = 'trace-player:seek-action'
 
 export interface PlayerState {
   currentMs: number

@@ -303,6 +303,7 @@ function buildCommands(
       frames,
       snapshotByCallId.get(callId)
     )
+    command.callId = callId
     maxTime = Math.max(maxTime, command.timestamp)
     entries.push({ callId, command })
   }

@@ -4,12 +4,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { hostedPlayerCsp } from '@wdio/devtools-shared'
 
 import { CSP_VIOLATION_PREFIX } from '../hosted-player/constants.js'
 import {
   diffTitles,
   failingLogEntry,
-  missingCspDirectives,
+  cspDrift,
   readFormatFixtures,
   requestedWorker,
   rowLabelToTitle,
@@ -96,7 +97,7 @@ describe('diffTitles', () => {
   })
 })
 
-describe('missingCspDirectives', () => {
+describe('cspDrift', () => {
   it('passes the policy vercel.json sends', () => {
     const config = JSON.parse(
       fs.readFileSync(path.join(REPO_ROOT, 'vercel.json'), 'utf8')
@@ -105,25 +106,29 @@ describe('missingCspDirectives', () => {
       .flatMap(({ headers }) => headers)
       .find(({ key }) => key.toLowerCase() === 'content-security-policy')
     expect(csp).toBeDefined()
-    expect(missingCspDirectives(csp?.value ?? null)).toEqual([])
+    expect(cspDrift(csp?.value ?? null)).toBeUndefined()
   })
 
-  it('names what an absent or looser policy lacks', () => {
-    expect(missingCspDirectives(null)).toEqual([
+  it('reads directives regardless of spacing and order', () => {
+    const reordered = hostedPlayerCsp().split('; ').reverse().join(' ;  ')
+    expect(cspDrift(reordered)).toBeUndefined()
+  })
+
+  it('names what an absent policy lacks', () => {
+    expect(cspDrift(null)).toContain('missing "script-src \'self\'"')
+  })
+
+  it('names a directive loosened or added, so drift either way fails', () => {
+    const looser = hostedPlayerCsp().replace(
       "script-src 'self'",
-      "connect-src 'self'"
-    ])
-    expect(
-      missingCspDirectives(
-        "default-src 'self'; script-src 'self' 'unsafe-eval'"
-      )
-    ).toEqual(["script-src 'self'", "connect-src 'self'"])
-  })
-
-  it('reads directives regardless of spacing', () => {
-    expect(
-      missingCspDirectives("script-src  'self' ;connect-src 'self'")
-    ).toEqual([])
+      "script-src 'self' 'unsafe-eval'"
+    )
+    expect(cspDrift(looser)).toBe(
+      "missing \"script-src 'self'\", unexpected \"script-src 'self' 'unsafe-eval'\""
+    )
+    expect(cspDrift(`${hostedPlayerCsp()}; worker-src *`)).toBe(
+      'unexpected "worker-src *"'
+    )
   })
 })
 

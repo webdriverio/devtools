@@ -24,6 +24,14 @@ export function playerCsp(connectSrc: readonly string[] = []): string {
   ).join('; ')
 }
 
+// A trace opened by `?trace=<url>` can live on any https host; every other directive is the local player's.
+const HOSTED_CONNECT_SRC: readonly string[] = ['https:']
+
+/** The policy trace.webdriver.io sends: the player's, with `connect-src` widened to https for `?trace=`. */
+export function hostedPlayerCsp(): string {
+  return playerCsp(HOSTED_CONNECT_SRC)
+}
+
 // A Host header is reflected into the policy only when it names a host, never a header fragment.
 const HOST_HEADER = /^(?:[A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?$/
 

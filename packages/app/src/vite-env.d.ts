@@ -12,6 +12,8 @@ declare module '~icons/*' {}
 interface CommandEventProps {
   command: import('@wdio/devtools-shared').CommandLog
   elapsedTime: number
+  /** Set when the player placed the clock itself (a trace opening, a link followed), so the dock keeps its tab. */
+  keepTab?: boolean
 }
 
 interface GlobalEventHandlersEventMap {
@@ -40,6 +42,10 @@ interface GlobalEventHandlersEventMap {
   >
   'app-trace-run-select': CustomEvent<number>
   'show-command': CustomEvent<CommandEventProps>
+  'trace-player:seek-action': CustomEvent<string>
+  'app-dock-tabs-ready': CustomEvent
+  'app-dock-tab-change': CustomEvent<string>
+  'open-dock-tab': CustomEvent<{ label?: string; linked?: boolean }>
   'clear-execution-data': CustomEvent<{
     uid?: string
     entryType?: 'suite' | 'test'

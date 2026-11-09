@@ -2,6 +2,12 @@ import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
 
+import {
+  DOCK_TAB_CHANGE_EVENT,
+  DOCK_TABS_READY_EVENT,
+  OPEN_DOCK_TAB_EVENT
+} from '../controller/constants.js'
+
 /** Badge colour variant; `danger` tints the count red (e.g. the Errors tab). */
 type BadgeTone = 'default' | 'danger'
 
@@ -15,14 +21,23 @@ export class DevtoolsTabs extends Element {
   // Programmatic tab open (e.g. clicking an element overlay box jumps to A11y).
   // Guarded by activateTab, so only the tabs instance that owns the label reacts.
   #onOpenTab = (e: Event) => {
-    const label = (e as CustomEvent<{ label?: string }>).detail?.label
-    if (label) {
+    const { label, linked } =
+      (e as CustomEvent<{ label?: string; linked?: boolean }>).detail ?? {}
+    if (label && linked) {
+      this.#openLinkedTab(label)
+    } else if (label) {
       this.activateTab(label)
     }
   }
 
   @property({ type: String })
   cacheId?: string
+
+  /** Announces when its tabs are built and each tab opened since, for the address link (the player's dock). */
+  @property({ type: Boolean })
+  linked = false
+
+  #ready = false
 
   static styles = [
     ...Element.styles,
@@ -124,10 +139,11 @@ export class DevtoolsTabs extends Element {
     })
   }
 
-  activateTab(tabId: string) {
+  /** Opens the tab labelled `tabId`; false when this strip has none. */
+  activateTab(tabId: string): boolean {
     const activeTab = this.tabs.find((el) => el.getAttribute('label') === tabId)
     if (!activeTab) {
-      return
+      return false
     }
     this.#openTab(activeTab, tabId)
 
@@ -136,6 +152,25 @@ export class DevtoolsTabs extends Element {
      */
     if (this.cacheId) {
       localStorage.setItem(this.cacheId, tabId)
+    }
+    if (this.linked && this.#ready) {
+      window.dispatchEvent(
+        new CustomEvent<string>(DOCK_TAB_CHANGE_EVENT, { detail: tabId })
+      )
+    }
+    return true
+  }
+
+  // Not remembered: a link opened once must not decide the tab every later trace opens on.
+  #openLinkedTab(name: string) {
+    const tab = this.linked
+      ? this.tabs.find(
+          (el) => el.getAttribute('label')?.toLowerCase() === name.toLowerCase()
+        )
+      : undefined
+    const label = tab?.getAttribute('label')
+    if (tab && label) {
+      this.#openTab(tab, label)
     }
   }
 
@@ -171,7 +206,7 @@ export class DevtoolsTabs extends Element {
 
   connectedCallback() {
     super.connectedCallback()
-    window.addEventListener('open-dock-tab', this.#onOpenTab as EventListener)
+    window.addEventListener(OPEN_DOCK_TAB_EVENT, this.#onOpenTab)
     setTimeout(() => {
       // wait till innerHTML is parsed; this opens the tab claiming to be active,
       // or the first one
@@ -184,6 +219,10 @@ export class DevtoolsTabs extends Element {
       const remembered = this.cacheId && localStorage.getItem(this.cacheId)
       if (remembered) {
         this.activateTab(remembered)
+      }
+      this.#ready = true
+      if (this.linked) {
+        window.dispatchEvent(new CustomEvent(DOCK_TABS_READY_EVENT))
       }
 
       this.requestUpdate()
@@ -207,10 +246,7 @@ export class DevtoolsTabs extends Element {
 
   disconnectedCallback() {
     super.disconnectedCallback()
-    window.removeEventListener(
-      'open-dock-tab',
-      this.#onOpenTab as EventListener
-    )
+    window.removeEventListener(OPEN_DOCK_TAB_EVENT, this.#onOpenTab)
     if (this.#badgeCheckInterval) {
       clearInterval(this.#badgeCheckInterval)
     }

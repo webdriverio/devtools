@@ -4,6 +4,7 @@ import { commandContext, framesContext } from '@/controller/context.js'
 import { KBD } from '@/controller/keyboard.js'
 import {
   PLAYER_RESTART_EVENT,
+  PLAYER_SEEK_ACTION_EVENT,
   PLAYER_SPEED_EVENT,
   PLAYER_STATE_EVENT,
   type PlayerState
@@ -377,7 +378,12 @@ describe('wdio-devtools-trace-timeline', () => {
 
       await mountTimeline(commands, frames)
 
-      expect(await shown).toEqual({ command: openLogin, elapsedTime: 0 })
+      // Placed by the strip itself as the trace opens, so the dock keeps its tab.
+      expect(await shown).toEqual({
+        command: openLogin,
+        elapsedTime: 0,
+        keepTab: true
+      })
     })
 
     it('times the announced action from the first command, as the actions list does', async () => {
@@ -483,6 +489,98 @@ describe('wdio-devtools-trace-timeline', () => {
       const stopped = nextPlayerState()
       window.dispatchEvent(new CustomEvent(KBD.togglePlay))
       expect((await stopped).playing).toBe(false)
+    })
+  })
+
+  describe('following a trace link', () => {
+    const withIds = (list: CommandLog[]) =>
+      list.map((command, i) => ({ ...command, callId: `call@${i + 1}` }))
+    const seek = (callId: string) =>
+      window.dispatchEvent(
+        new CustomEvent<string>(PLAYER_SEEK_ACTION_EVENT, { detail: callId })
+      )
+
+    it('moves to the linked action, keeping the dock tab', async () => {
+      const linked = withIds(commands)
+      const target = linked[commands.indexOf(typeUsername)]
+      const el = await mountTimeline(linked, frames)
+      const shown = nextShowCommand()
+
+      seek(target.callId)
+
+      const detail = await shown
+      expect(detail.command).toBe(target)
+      expect(detail.keepTab).toBe(true)
+      expect(el.currentMs).toBe(target.timestamp - START)
+    })
+
+    it('keeps the linked action when the first frame re-syncs at the same clock', async () => {
+      const linked = withIds(commands)
+      const target = linked[commands.indexOf(typeUsername)]
+      const seen: CommandLog[] = []
+      const record = (event: CustomEvent<CommandEventProps>) =>
+        seen.push(event.detail.command)
+
+      const el = await mountTimeline(linked, frames)
+      window.addEventListener('show-command', record)
+      seek(target.callId)
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await settle(el)
+      window.removeEventListener('show-command', record)
+
+      expect(seen).toEqual([target])
+    })
+
+    it('restarts from the first action after following a link', async () => {
+      const linked = withIds(commands)
+      await mountTimeline(linked, frames)
+      seek(linked[commands.indexOf(readFlash)].callId)
+      const shown = nextShownCommand()
+
+      window.dispatchEvent(new CustomEvent(PLAYER_RESTART_EVENT))
+
+      expect(await shown).toBe(linked[commands.indexOf(openLogin)])
+    })
+
+    it('announces the last action again when played through after a link to it', async () => {
+      // No frames, so the last action ends the recording and the link parks the clock at its end.
+      const linked = withIds(commands)
+      const sorted = [...linked].sort((a, b) => a.timestamp - b.timestamp)
+      const last = sorted[sorted.length - 1]
+      const el = await mountTimeline(linked, [])
+      seek(last.callId)
+      await settle(el)
+      window.dispatchEvent(
+        new CustomEvent(PLAYER_SPEED_EVENT, { detail: { value: 5 } })
+      )
+      const seen: CommandLog[] = []
+      const record = (event: CustomEvent<CommandEventProps>) =>
+        seen.push(event.detail.command)
+      window.addEventListener('show-command', record)
+
+      window.dispatchEvent(new CustomEvent(KBD.togglePlay))
+      const deadline = Date.now() + 5_000
+      while ((el.playing || !seen.length) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      window.removeEventListener('show-command', record)
+
+      expect(seen[seen.length - 1]).toBe(last)
+    })
+
+    it('ignores an id the trace does not hold', async () => {
+      const el = await mountTimeline(withIds(commands), frames)
+      const before = el.currentMs
+      let announced = 0
+      const count = () => announced++
+      window.addEventListener('show-command', count)
+
+      seek('call@99')
+      await settle(el)
+      window.removeEventListener('show-command', count)
+
+      expect(announced).toBe(0)
+      expect(el.currentMs).toBe(before)
     })
   })
 })

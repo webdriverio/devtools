@@ -1,7 +1,8 @@
 import type { TracePlayerData } from '@wdio/devtools-shared'
 
 /** The step an open is on; no step can say how far through it is. */
-export type TraceOpenPhase = 'reading' | 'unpacking' | 'building'
+export type TraceOpenPhase =
+  'downloading' | 'reading' | 'unpacking' | 'building'
 
 export type TraceOpenProgress = (phase: TraceOpenPhase) => void
 

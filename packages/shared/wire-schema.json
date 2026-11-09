@@ -339,6 +339,9 @@
         },
         "selector": {
           "type": "string"
+        },
+        "callId": {
+          "type": "string"
         }
       },
       "required": [
