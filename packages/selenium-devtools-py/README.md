@@ -539,7 +539,7 @@ screenshots described above:
 | | Default | Opt out |
 |---|---|---|
 | Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
-| A11y tree + element overlay — read beside each captured command, two extra round trips each | on | `DEVTOOLS_A11Y=0` |
+| A11y tree + element overlay, read beside each captured command at two extra round trips each | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
 | Stylesheets and fonts the pages used, stored once each by content hash so the replay does not load them from the site (images still do); the collector's reads of them are left out of the network rows | on | `DEVTOOLS_TRACE_RESOURCES=none`, `--devtools-trace-resources none`, ini `devtools_trace_resources = none`, or `enable(trace_resources="none")` |
 
