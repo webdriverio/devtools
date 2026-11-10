@@ -7,7 +7,10 @@
 // hung the capture outright; the queued `execute` merely timed out, leaving an
 // empty a11y tree and no element rects.
 
-import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
+import {
+  captureActionSnapshot as coreCapture,
+  type NativeApp
+} from '@wdio/devtools-core'
 import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
 import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import type { NightwatchBrowser, TestRunnerId } from './types.js'
@@ -17,13 +20,11 @@ export function captureActionSnapshot(
   command: string,
   timestamp?: number,
   runner?: TestRunnerId,
-  native = false,
+  native?: NativeApp,
   trigger?: CaptureTrigger
 ): Promise<ActionSnapshot | null> {
-  // The screenshot is the only one of these a native app can serve. The rest
-  // are page reads — an injected script plus url and title — and they fire on
-  // EVERY action, so they are the densest source of round trips that can only
-  // fail on a session with no document.
+  // A native app serves no page script, url or title; its page source is what
+  // core builds the element list and accessibility tree from.
   return coreCapture({
     command,
     timestamp,
@@ -31,7 +32,10 @@ export function captureActionSnapshot(
     trigger,
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
     ...(native
-      ? {}
+      ? {
+          getPageSource: () => webdriverGet<string>(browser, 'source'),
+          platform: native.platform
+        }
       : {
           runScript: (src: string) =>
             webdriverExecute(browser, `return (${src})`),

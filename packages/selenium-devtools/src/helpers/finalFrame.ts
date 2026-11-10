@@ -29,7 +29,7 @@ export async function captureFinalFrame(
             ctx.driver,
             stamp.command,
             stamp.timestamp,
-            capturer.isNativeAppSession,
+            capturer.nativeApp,
             'final'
           )
         : Promise.resolve(null),

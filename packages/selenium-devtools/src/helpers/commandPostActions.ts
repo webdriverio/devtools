@@ -400,7 +400,7 @@ function queueActionSnapshot(
         driver,
         command,
         timestamp,
-        capturer.isNativeAppSession,
+        capturer.nativeApp,
         trigger
       )
   )

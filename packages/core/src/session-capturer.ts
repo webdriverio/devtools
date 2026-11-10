@@ -28,6 +28,7 @@ import {
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import { TestCapture } from './test-capture.js'
+import { nativeAppOf, type NativeApp } from './action-snapshot.js'
 import { PageResourceStore } from './page-resource-store.js'
 import {
   CONSOLE_METHODS,
@@ -137,6 +138,12 @@ export abstract class SessionCapturerBase {
    *  {@link hasDocument} instead. */
   get isNativeAppSession(): boolean {
     return isNativeAppSession(this.metadata?.capabilities)
+  }
+
+  /** The app a per-action capture reads through its page source, or undefined
+   *  for a browser session. A Mac2 or tvOS app names no platform. */
+  get nativeApp(): NativeApp | undefined {
+    return nativeAppOf(this.metadata?.capabilities)
   }
 
   /** The Appium context last observed, fed by the adapter's command hook. The

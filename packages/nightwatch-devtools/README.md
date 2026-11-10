@@ -294,7 +294,7 @@ module.exports = {
 }
 ```
 
-Native sessions record commands, screenshots and element data from the platform's XML tree, with no DOM. A hybrid app's webview is captured as if it were still native. From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:nightwatch:mobile`; prerequisites are in [`examples/MOBILE.md`](../../examples/MOBILE.md), and the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
+Native sessions record commands, screenshots and element data from the platform's XML tree, with no DOM: in trace mode each action's element list and accessibility tree are built from the app's page source, read beside its screenshot, which on iOS is most of the capture's cost. A hybrid app's webview is captured as if it were still native. From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:nightwatch:mobile`; prerequisites are in [`examples/MOBILE.md`](../../examples/MOBILE.md), and the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 
 ### Native app network
 

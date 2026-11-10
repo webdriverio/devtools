@@ -195,7 +195,7 @@ export class SessionCapturer extends SessionCapturerBase {
           command,
           timestamp,
           this.runner,
-          this.isNativeAppSession,
+          this.nativeApp,
           parentId === undefined ? 'action' : 'wait-poll'
         )
     )
@@ -483,7 +483,6 @@ export class SessionCapturer extends SessionCapturerBase {
       recapture = recaptureAfterNavigation({
         browser,
         runner: this.runner,
-        native: this.isNativeAppSession,
         snapshots: this.actionSnapshots,
         queued,
         isLatest: () => this.#lastPageCapture === queued
@@ -679,7 +678,7 @@ export class SessionCapturer extends SessionCapturerBase {
           stamp.command,
           stamp.timestamp,
           this.runner,
-          this.isNativeAppSession,
+          this.nativeApp,
           'final'
         )
       },

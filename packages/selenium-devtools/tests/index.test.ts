@@ -499,6 +499,7 @@ describe('driverPatcher', () => {
     expect(typeof originals.takeScreenshot).toBe('function')
     expect(typeof originals.executeScript).toBe('function')
     expect(typeof originals.manage).toBe('function')
+    expect(typeof originals.getPageSource).toBe('function')
     const elOriginals = getElementOriginals()
     expect(typeof elOriginals.getText).toBe('function')
     expect(typeof elOriginals.getTagName).toBe('function')
@@ -510,6 +511,25 @@ describe('driverPatcher', () => {
         expect(fn).toBe(stash.driverFns[m])
       }
     }
+  })
+
+  // The native per-action capture reads the page source on every action; the
+  // patched method would record each read as a row of the user's own.
+  it('reads the page source through an original that records no command', async () => {
+    const onCommand = vi.fn()
+    patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+    const fakeDriver = Object.create(driverProto)
+    ;(fakeDriver as any).execute = vi.fn(async () => '<hierarchy/>')
+
+    await expect(getDriverOriginals().getPageSource!(fakeDriver)).resolves.toBe(
+      '<hierarchy/>'
+    )
+    await new Promise((r) => setImmediate(r))
+    expect(onCommand).not.toHaveBeenCalled()
+
+    await (fakeDriver as any).getPageSource()
+    await new Promise((r) => setImmediate(r))
+    expect(onCommand).toHaveBeenCalled()
   })
 
   // A screenshot poll landing inside chromedriver's click, between computing the

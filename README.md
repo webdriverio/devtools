@@ -380,7 +380,7 @@ services: [[DevToolsHookService, {
 
 #### Measuring capture cost
 
-A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot, plus the page source on a native app. Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
+A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot. A native app has none of the page reads: its capture is a screenshot plus the page source, from which the element list and accessibility tree are built, and the page source is the costly half (about half of an Android capture, and 87% of an iOS one, measured on WebdriverIO). Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
 
 When the trace is written, the run prints a table to stderr and appends the raw records, one line per capture, to `capture-timing-<pid>.ndjson` beside the trace (one file per worker process):
 
@@ -400,7 +400,7 @@ raw records: /out/capture-timing-1.ndjson
 - **Columns.** The JS adapters issue every read of a capture at once and the driver serves them in order, so a read's time from issue to settle includes waiting behind the reads before it. `svc` subtracts that wait: it is the read's own cost. `process` is the in-process step that turns the reads into a snapshot (page-source parsing and locator generation on native). `capture` is the whole capture.
 - **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
 - **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
-- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot alone.
 
 To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
 
@@ -472,7 +472,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 **What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console and the archive itself are always captured; a mobile browser's network comes from the page's Resource Timing and fetch/XHR patch rather than from BiDi, and a native session has no network capture, because the driver exposes none. These absences are by design; they are not a capture failure.
 
-On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
+On a native session, element data and the A11y panel come from the platform's XML tree (its page source, read once per action in trace mode by the WebdriverIO, Selenium and Nightwatch adapters; the Python adapter captures a screenshot alone) rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 
 A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image, keying a duration on the timer keypad without ever starting a timer, so none needs an `.apk` (iOS drives Settings via `DEVTOOLS_MOBILE_PLATFORM=ios`); `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
 

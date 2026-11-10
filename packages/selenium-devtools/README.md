@@ -462,7 +462,7 @@ pnpm example:mocha
 
 ## Mobile (Appium)
 
-Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM: in trace mode each action's element list and accessibility tree are built from the app's page source, read beside its screenshot, which on iOS is most of the capture's cost. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
 
 From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:selenium:mobile`, which drives the Android Clock app; `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec against Settings, and `DEVTOOLS_MOBILE=web` drives the device's own browser. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 

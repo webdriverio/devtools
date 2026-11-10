@@ -422,6 +422,43 @@ describe('SessionCapturerBase.isNativeAppSession', () => {
   })
 })
 
+/** The per-action capture reads a native app's page source by its platform. */
+describe('SessionCapturerBase.nativeApp', () => {
+  const withCapabilities = (capabilities: unknown) => {
+    const capturer = new TestSessionCapturer()
+    capturer.metadata = { capabilities } as never
+    return capturer
+  }
+
+  it('names the platform of a native app', () => {
+    expect(
+      withCapabilities({ platformName: 'iOS', 'appium:app': '/a.app' })
+        .nativeApp
+    ).toEqual({ platform: 'ios' })
+    expect(
+      withCapabilities({ platformName: 'Android', 'appium:app': '/a.apk' })
+        .nativeApp
+    ).toEqual({ platform: 'android' })
+  })
+
+  it('names no platform for an app on a platform with no device frame', () => {
+    expect(
+      withCapabilities({
+        platformName: 'mac',
+        'appium:automationName': 'Mac2'
+      }).nativeApp
+    ).toEqual({ platform: undefined })
+  })
+
+  it('is undefined for a browser session', () => {
+    expect(
+      withCapabilities({ platformName: 'Android', browserName: 'Chrome' })
+        .nativeApp
+    ).toBeUndefined()
+    expect(new TestSessionCapturer().nativeApp).toBeUndefined()
+  })
+})
+
 describe('processTracePayload network ids', () => {
   it('replaces a row re-sent under the same id instead of listing it twice', () => {
     class Capturer extends SessionCapturerBase {

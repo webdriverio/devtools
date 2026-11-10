@@ -176,6 +176,7 @@ export interface DriverOriginals {
   manage?: (driver: SeleniumDriverLike) => unknown
   getCurrentUrl?: (driver: SeleniumDriverLike) => Promise<string>
   getTitle?: (driver: SeleniumDriverLike) => Promise<string>
+  getPageSource?: (driver: SeleniumDriverLike) => Promise<string>
   getWindowHandle?: (driver: SeleniumDriverLike) => Promise<string>
 }
 
