@@ -32,7 +32,7 @@ from . import (
     read_value_locators,
     wait_tracking,
 )
-from ._contract import MAPPED_COMMANDS, READ_ONLY_COMMANDS
+from ._contract import MAPPED_COMMANDS, READ_ONLY_COMMANDS, SCREENCAST_POLL_INTERVAL_MS
 from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
@@ -619,6 +619,9 @@ def _capture_final_frame(driver: Any) -> bool:
         ]
         _state["action_snapshots"].append({**superseded, **snapshot})
         _state["test"].last_captured_ts = timestamp
+        entry = _session_entry(driver)
+        if entry is not None:
+            _add_screencast_frame(entry, shot)
         return True
     finally:
         if timer:
@@ -697,9 +700,35 @@ def _add_screencast_frame(entry: dict, shot: Optional[str]) -> None:
     if recorder is None or not shot or entry.get("screencast_push") is not None:
         return
     try:
-        recorder.add_frame(shot)
+        if recorder.add_frame(shot):
+            entry["last_frame_ms"] = now_ms()
     except Exception as exc:  # noqa: BLE001 — never break the test
         _log.warning("screencast add_frame threw: %s", exc)
+
+
+def _session_entry(driver: Any) -> Optional[dict]:
+    """The capture state of a driver that has started a session, or None."""
+    try:
+        return _state.get("sessions", {}).get(driver)
+    except TypeError:  # unhashable driver: it never had an entry
+        return None
+
+
+def _filmstrip_frame_due(entry: Optional[dict], poll: Any) -> bool:
+    """Whether a command that takes no capture still owes the filmstrip a frame.
+
+    Without a pushed stream the per-command screenshots ARE the filmstrip, so a
+    trace that skipped reads would lose what a wait watched load. Every poll a
+    wait issues gets one; any other read gets one once the JS adapters' poll
+    interval has passed since the last frame.
+    """
+    if not _state["trace"] or entry is None:
+        return False
+    if entry.get("screencast") is None or entry.get("screencast_push") is not None:
+        return False
+    if poll is not None:
+        return True
+    return now_ms() - entry.get("last_frame_ms", 0) >= SCREENCAST_POLL_INTERVAL_MS
 
 
 def _refresh_snapshot(capturer: SessionCapturer, entry: dict) -> None:
@@ -1248,10 +1277,13 @@ def install(
         # as a screencast frame. Trace mode takes it only with the capture: a
         # read's row shows the capture before it, as in the JS adapters.
         command = _capture_command(driver_command, params)
-        shot = timer = None
+        shot = timer = frame = None
         if not _state["trace"] or _takes_capture(command):
             timer = _capture_timer(self, command, poll)
             shot = timer.read("screenshot", _take_screenshot, self) if timer else _take_screenshot(self)
+            frame = shot
+        elif _filmstrip_frame_due(entry, poll):
+            frame = _take_screenshot(self)
         selector = element_locators.selector_for_command(driver_command, params, value)
         _remember_read_value(driver_command, params, value, selector)
         row = capturer.capture_command(
@@ -1287,8 +1319,8 @@ def install(
             # whatever preceded it — on the first command of a fresh driver
             # that is an unpainted about:blank, and a pushed stream sends
             # frames of it throughout the opening navigation.
-            _begin_screencast_run(entry, shot)
-            _add_screencast_frame(entry, shot)
+            _begin_screencast_run(entry, frame)
+            _add_screencast_frame(entry, frame)
         return result
 
     webdriver_cls.execute = patched_execute  # type: ignore[assignment]

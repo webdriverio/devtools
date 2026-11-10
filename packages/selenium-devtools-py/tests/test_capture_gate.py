@@ -6,8 +6,11 @@ before it. The classification is held to core's by mirror-vectors.json; these
 cover the execute hook that applies it.
 """
 
+import time
 import unittest
 from unittest import mock
+
+from selenium.webdriver.support.wait import WebDriverWait
 
 from selenium_devtools import instrumentation
 from selenium_devtools.capturer import SessionCapturer
@@ -128,6 +131,91 @@ class TestLiveMode(Base):
         self.assertEqual(self.driver.screenshots, 3)
         self.assertEqual([shot for _, shot in self.row_shots()], ["SHOT1", "SHOT2", "SHOT3"])
         self.assertEqual(self.captured(), [])
+
+
+class Recorder:
+    def __init__(self):
+        self.frames = []
+
+    def add_frame(self, data):
+        self.frames.append(data)
+        return True
+
+    def stop(self):
+        pass
+
+
+class TestTheFilmstrip(Base):
+    """Without a pushed stream the per-command screenshots are the filmstrip, so
+    the commands that take no capture still owe it frames."""
+
+    def setUp(self):
+        super().setUp()
+        self.clock = [10_000]
+        patcher = mock.patch.object(instrumentation, "now_ms", lambda: self.clock[0])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.driver.session_id = "s"
+        self.recorder = Recorder()
+        self.entry = {"session_id": "s", "screencast": self.recorder, "snapshot": None}
+        instrumentation._state["sessions"][self.driver] = self.entry
+
+    def frames(self):
+        return list(self.recorder.frames)
+
+    def test_every_poll_a_wait_issues_adds_a_frame(self):
+        instrumentation._state["test"].awaiting_initial_frame = False
+        polls = iter([False, False, True])
+        WebDriverWait(self.driver, 5, poll_frequency=0.01).until(
+            lambda d: d.execute("getElementText", {}) and next(polls)
+        )
+        self.assertEqual(self.frames(), ["SHOT1", "SHOT2", "SHOT3"])
+        self.assertEqual(instrumentation.action_snapshots(), [])
+
+    def test_a_read_outside_a_wait_adds_a_frame_once_the_poll_interval_has_passed(self):
+        self.run_commands("clickElement")
+        self.clock[0] += 199
+        self.run_commands("getElementText")
+        self.assertEqual(self.frames(), ["SHOT1"])
+        self.clock[0] += 1
+        self.run_commands("getElementText")
+        self.assertEqual(self.frames(), ["SHOT1", "SHOT2"])
+        self.assertEqual([c for c, _ in self.captured()], ["clickElement"])
+
+    def test_a_read_frame_is_not_a_row_screenshot(self):
+        self.run_commands("clickElement")
+        self.clock[0] += 500
+        self.run_commands("getElementText")
+        self.assertEqual([shot for _, shot in self.row_shots()], ["SHOT1", None])
+
+    def test_page_changing_commands_add_their_capture_as_before(self):
+        self.run_commands("get", "clickElement", "sendKeysToElement")
+        self.assertEqual(self.frames(), ["SHOT1", "SHOT2", "SHOT3"])
+        self.assertEqual(self.driver.screenshots, 3)
+
+    def test_the_end_of_test_capture_ends_the_filmstrip(self):
+        self.run_commands("clickElement")
+        time.sleep(0.005)  # rows are stamped by the real clock; the read must follow the capture
+        self.run_commands("getElementText")
+        instrumentation.capture_final_frame(self.driver)
+        self.assertEqual(self.frames(), ["SHOT1", "SHOT2"])
+
+    def test_a_pushed_stream_takes_no_extra_screenshot(self):
+        self.entry["screencast_push"] = mock.Mock()
+        self.run_commands("clickElement")
+        self.clock[0] += 1000
+        self.run_commands("getElementText")
+        WebDriverWait(self.driver, 5, poll_frequency=0.01).until(
+            lambda d: d.execute("getElementText", {})
+        )
+        self.assertEqual(self.driver.screenshots, 1)
+        self.assertEqual(self.frames(), [])
+
+    def test_live_mode_is_unchanged(self):
+        instrumentation._state["trace"] = False
+        self.run_commands("clickElement", "getElementText")
+        self.assertEqual(self.frames(), ["SHOT1", "SHOT2"])
+        self.assertEqual(self.driver.screenshots, 2)
 
 
 if __name__ == "__main__":
