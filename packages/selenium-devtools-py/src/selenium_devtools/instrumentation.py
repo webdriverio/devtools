@@ -443,9 +443,7 @@ def _page_trees_enabled(driver: Any) -> bool:
 
 
 def _capture_due(command: str, awaiting_initial_frame: bool) -> bool:
-    """Mirrors core's `TestCapture.queue` gate over shared's `skipsCapture`: a
-    known read, wait or lookup reuses the capture before it, unless it is the
-    test's first mapped command."""
+    """Mirrors core's `TestCapture.queue` gate: a known read skips unless it is the test's first mapped command."""
     if command not in READ_ONLY_COMMANDS:
         return True
     return awaiting_initial_frame and command in MAPPED_COMMANDS
@@ -473,18 +471,7 @@ def _capture_action_snapshot(
     shot: Optional[str],
     timer: Optional[capture_timing.CaptureTimer] = None,
 ) -> Optional[ActionSnapshot]:
-    """Record one action's capture: its screenshot and, on a page, its element
-    tree for the trace's A11y tab.
-
-    Trace mode only. The tree needs the scripts in hand (the JS adapters run
-    them in-process, this adapter fetches them from the backend) and costs two
-    round trips. A native app gets the screenshot alone: both reads are page
-    script and can only fail there.
-
-    Goes through the guarded executor, or each read lands back in this same hook
-    and the timeline grows an `executeScript` row beside every action — the bug
-    the CDP window-handle read caused, in a path that runs far more often.
-    """
+    """Record one trace capture: its screenshot, plus the page's element trees where a page has them."""
     if not _state["trace"]:
         return None
     snapshot: ActionSnapshot = {"timestamp": timestamp, "command": command}
@@ -504,6 +491,7 @@ def _read_page_trees(
     timer: Optional[capture_timing.CaptureTimer],
 ) -> None:
     scripts = _state["element_scripts"]
+    # Guarded, or each read lands back in the execute hook as an `executeScript` row.
     run = _guarded_execute_script(driver)
     # Two reads, two panes: `elements` carries the interactable boxes, the
     # accessibility tree becomes the A11y tab's text. Capturing only the first
@@ -715,13 +703,7 @@ def _session_entry(driver: Any) -> Optional[dict]:
 
 
 def _filmstrip_frame_due(entry: Optional[dict], poll: Any) -> bool:
-    """Whether a command that takes no capture still owes the filmstrip a frame.
-
-    Without a pushed stream the per-command screenshots ARE the filmstrip, so a
-    trace that skipped reads would lose what a wait watched load. Every poll a
-    wait issues gets one; any other read gets one once the JS adapters' poll
-    interval has passed since the last frame.
-    """
+    """Without a pushed stream the screenshots are the filmstrip, so a wait poll or a paced read still owes a frame."""
     if not _state["trace"] or entry is None:
         return False
     if entry.get("screencast") is None or entry.get("screencast_push") is not None:

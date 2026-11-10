@@ -262,7 +262,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
 | Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
 | Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere each command's screenshot → ffmpeg-encoded `.webm` | `screencast` | live |
-| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm`; without a pushed stream, the captured commands' screenshots plus a frame for every command a wait issues and for other reads at most every 200 ms | `screencastFrames` | trace |
+| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm`; without a pushed stream, the captured commands' screenshots plus a frame for every command a wait issues that returns and for other reads at most every 200 ms | `screencastFrames` | trace |
 | A11y tree + element rects | run the backend's page-side element scripts beside each captured command | `actionSnapshots` | trace |
 | Stylesheets + fonts | the page collector reads back what the page loaded, from the HTTP cache, when the drain asks (`collectorDrainResources`) | `pageResources`, `resourceReReads` | trace |
 
@@ -536,7 +536,7 @@ screenshot alone.
 Without a pushed screencast (a native app, Safari, Firefox) the filmstrip is
 built from these screenshots, so a command that takes no capture can still
 take one for the filmstrip alone, with no row screenshot and no A11y tree:
-every command a `WebDriverWait` issues, and any other read once 200 ms (the JS
+every command a `WebDriverWait` issues that returns (a poll that raises, such as `NoSuchElementException`, takes none), and any other read once 200 ms (the JS
 adapters' poll interval) have passed since the last frame. The end-of-test
 capture is a frame too, so the filmstrip ends where the test did.
 
