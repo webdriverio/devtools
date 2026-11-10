@@ -17,7 +17,7 @@ function vendorDebuggerAddress(vendorOptions: unknown): string | undefined {
  * `debuggerAddress.match is not a function` rather than declining.
  */
 export function cdpUnavailableReason(capGet: CapGet): string | undefined {
-  // selenium-webdriver refuses CDP for Firefox outright, and Firefox never served Page.startScreencast.
+  // Recent selenium-webdriver refuses CDP for Firefox, and Firefox never served Page.startScreencast.
   if (capGet('browserName') === 'firefox') {
     return 'CDP is not supported for Firefox'
   }
