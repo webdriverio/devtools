@@ -5,6 +5,20 @@ README. Changesets generates the npm packages' changelogs from the pnpm
 workspace, which this package is not a member of, so it has its own mechanism
 of the same shape.
 
+## 0.4.0 — 2026-11-10
+
+- Setting `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run times the screenshot and the two page reads taken for every command. When the trace is exported, the run prints the same per-probe table the JS adapters print, and appends the raw records to `capture-timing-<pid>.ndjson` beside the trace. Nothing is captured differently.
+
+- The generated wire types carry `CommandLog.callId`, the field the trace player reads to link to an action. The adapter does not send it; a trace's actions get their ids when the zip is written.
+
+- Password fields are masked in the replayed page by default: the recorded DOM replaces the value of every `<input type="password">` with `••••`, keystroke by keystroke, while the `send_keys` row keeps the real text. `enable(mask_selectors=[...])`, `--devtools-mask-selector` or `DEVTOOLS_MASK_SELECTORS` masks the text and value of more elements; `enable(mask_inputs=False)`, `--devtools-no-mask-inputs` or `DEVTOOLS_MASK_INPUTS=0` turns the password masking off. Command rows, screenshots, console lines and request bodies are not masked.
+
+- Trace mode reads each page's element tree after every command except known reads, waits and lookups, instead of only after a fixed list of page-changing commands, so a script run through the driver or an `actions` chain shows the page it changed. When reads follow a test's last capture, the test's end takes one more capture, stamped at that last capture and superseding it; the capture adds no command row. Reads and waits keep their own rows and show the tree from the last capture before them. Every command that returns still takes its screenshot, so a read saves only its element-tree read.
+
+- Pin the backend a `pip install` user runs to 2.2.0.
+
+- Trace mode stores the stylesheets and fonts the page used, so the player replays them from the archive instead of the site under test; images still load from the site. On by default; `trace_resources="none"` (or `--devtools-trace-resources none`, ini `devtools_trace_resources`, `DEVTOOLS_TRACE_RESOURCES=none`) stores nothing. The page collector reads each one back from the browser's HTTP cache, and the archive leaves those reads out of its network rows. Live mode is unchanged. Needs a backend that serves the `collectorDrainResources` page script; an older one stores nothing.
+
 ## 0.3.0 — 2026-10-30
 
 - An assertion row now names the element its value was read from, so the dashboard boxes that element when the row is selected: `assert heading.text == "Secure Area"` carries the locator `heading` was found by. This works for values read with `.text`, `get_attribute`, `is_displayed` and the other element reads, in pytest runs and in plain scripts. A value read from the page itself, such as `driver.title` or `driver.current_url`, names no element, even when an element's text reads the same.
