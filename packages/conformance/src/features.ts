@@ -104,9 +104,7 @@ export const FEATURES = [
     cells: {
       'devtools-service': covered(`${WDIO}trace-granularity.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}trace-granularity.test.ts`),
-      'nightwatch-devtools': partial(
-        'Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.'
-      ),
+      'nightwatch-devtools': partial(REASONS.NIGHTWATCH_ONE_SLICE_PER_MODULE),
       // The Python adapter ships no Node; the backend slices its run per test.
       'selenium-devtools-py': covered(
         'packages/backend/tests/trace-slice.test.ts'
@@ -136,16 +134,12 @@ export const FEATURES = [
     tables: ['readme-trace', 'cross-framework'],
     cells: {
       'devtools-service': covered(`${WDIO}screencast-lifecycle.test.ts`),
-      'selenium-devtools': byHand(
-        'No test covers the adapter producing and attaching the per-test files; check by hand with `pnpm --filter @wdio/selenium-devtools example:mocha:allure`.'
-      ),
+      'selenium-devtools': byHand(REASONS.SELENIUM_ARTIFACTS_BY_HAND),
       'nightwatch-devtools': partial(
         'Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.',
         'produce-only'
       ),
-      'selenium-devtools-py': unsupported(
-        'The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.'
-      )
+      'selenium-devtools-py': unsupported(REASONS.PYTHON_NO_ARTIFACT_OPTIONS)
     }
   },
   {
@@ -162,9 +156,7 @@ export const FEATURES = [
         'Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.',
         'Feature→Scenario'
       ),
-      'selenium-devtools-py': unsupported(
-        'The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.'
-      )
+      'selenium-devtools-py': unsupported(REASONS.PYTHON_NO_GHERKIN_GROUPS)
     }
   },
   {
@@ -257,9 +249,7 @@ export const FEATURES = [
     cells: {
       'devtools-service': covered(`${WDIO}session.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}teardown-settle.test.ts`),
-      'nightwatch-devtools': byHand(
-        'No unit test attaches the row screenshot; check the dashboard with `pnpm demo:nightwatch`.'
-      ),
+      'nightwatch-devtools': byHand(REASONS.NIGHTWATCH_ROW_SCREENSHOT_BY_HAND),
       'selenium-devtools-py': covered(`${PYTHON}test_instrumentation.py`)
     }
   },
@@ -287,9 +277,7 @@ export const FEATURES = [
     cells: {
       'devtools-service': covered(`${WDIO}session-metadata.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}driverMetadata.test.ts`),
-      'nightwatch-devtools': byHand(
-        'No test asserts the capabilities in the metadata the adapter sends; check the Metadata tab with `pnpm demo:nightwatch`.'
-      ),
+      'nightwatch-devtools': byHand(REASONS.NIGHTWATCH_METADATA_BY_HAND),
       'selenium-devtools-py': covered(`${PYTHON}test_instrumentation.py`)
     }
   },
@@ -417,9 +405,7 @@ export const FEATURES = [
     name: 'Artifacts manifest for CI and reporters (`emitArtifactsManifest`)',
     tables: ['readme-trace', 'cross-framework'],
     cells: {
-      'devtools-service': byHand(
-        'No test covers the service turning the manifest on when an Allure reporter is configured; check by hand with one configured.'
-      ),
+      'devtools-service': byHand(REASONS.SERVICE_MANIFEST_BY_HAND),
       'selenium-devtools': covered(`${SELENIUM}attempt-capture.test.ts`),
       'nightwatch-devtools': partial(
         'Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.',
@@ -428,6 +414,20 @@ export const FEATURES = [
       'selenium-devtools-py': unsupported(
         'The Python adapter writes no artifacts manifest.'
       )
+    }
+  },
+  {
+    id: 'trace-path-printed',
+    name: 'Prints where each kept trace was written',
+    tables: ['readme-trace', 'cross-framework'],
+    cells: {
+      'devtools-service': covered(
+        `${WDIO}trace-granularity.test.ts`,
+        'Printed to stdout whatever the `logLevel`.'
+      ),
+      'selenium-devtools': partial(REASONS.TRACE_PATH_INFO_LOG, 'info log'),
+      'nightwatch-devtools': partial(REASONS.TRACE_PATH_INFO_LOG, 'info log'),
+      'selenium-devtools-py': partial(REASONS.PYTHON_TRACE_PATH_LOG, 'info log')
     }
   },
   {

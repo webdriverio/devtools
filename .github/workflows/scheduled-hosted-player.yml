@@ -1,18 +1,18 @@
 name: Hosted player check
 
-# Opens trace zips through the deployed trace player (vars.HOSTED_PLAYER_URL)
-# with the same check ci.yml's hosted-player job runs against a local build,
-# so a deploy that builds but fails in the browser is caught before a user
-# reports it. Skipped while the variable is unset. A failure opens one issue
-# and comments on it while it stays open; a pass closes it. The page itself
-# gains nothing: no analytics, no tracking.
+# Opens trace zips through the deployed trace player (vars.HOSTED_PLAYER_URL,
+# else https://trace.webdriver.io) with the same check ci.yml's hosted-player
+# job runs against a local build, so a deploy that builds but fails in the
+# browser is caught before a user reports it. A failure opens one issue and
+# comments on it while it stays open; a pass closes it. The page itself gains
+# nothing: no analytics, no tracking.
 
+# Vercel reports its deploys as PR comments rather than GitHub deployments,
+# so no event marks a production deploy; the schedule is what follows one.
 on:
   schedule:
     - cron: '23 */6 * * *'
   workflow_dispatch:
-  # Vercel's Git integration reports each deploy as a GitHub deployment.
-  deployment_status:
 
 permissions:
   contents: read
@@ -24,14 +24,10 @@ concurrency:
 
 env:
   ISSUE_TITLE: Hosted trace player check is failing
+  HOSTED_PLAYER_URL: ${{ vars.HOSTED_PLAYER_URL || 'https://trace.webdriver.io' }}
 
 jobs:
   check:
-    if: >-
-      vars.HOSTED_PLAYER_URL != '' &&
-      (github.event_name != 'deployment_status' ||
-      (github.event.deployment_status.state == 'success' &&
-      github.event.deployment.environment == 'Production'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -58,9 +54,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Chrome version
         run: google-chrome --version
-      - name: 🎞️ Open traces in ${{ vars.HOSTED_PLAYER_URL }}
-        env:
-          HOSTED_PLAYER_URL: ${{ vars.HOSTED_PLAYER_URL }}
+      - name: 🎞️ Open traces in ${{ env.HOSTED_PLAYER_URL }}
         run: pnpm exec tsx packages/conformance/hosted-player/run.ts --url "$HOSTED_PLAYER_URL"
 
   report:
@@ -73,7 +67,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       OUTCOME: ${{ needs.check.result }}
-      HOSTED_PLAYER_URL: ${{ vars.HOSTED_PLAYER_URL }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       TRIGGER: ${{ github.event_name }}
     steps:

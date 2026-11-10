@@ -203,7 +203,8 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Password fields masked in the replayed page (`maskInputs`, `maskSelectors`) | ✓ | ✓ | ✓ | ✓ |
 | Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
 | Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
-| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²³ | ◐ ²³ | ◐ ²³ | ◐ ²³ |
+| Prints where each kept trace was written | ✓ ²³ | ◐ ²⁴ | ◐ ²⁴ | ◐ ²⁵ |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
@@ -251,7 +252,13 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ²² The Python adapter writes no artifacts manifest.
 
-²³ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
+²³ Printed to stdout whatever the `logLevel`.
+
+²⁴ Logs the path at info level through the adapter's logger rather than printing it, so a run that hides info messages does not show it.
+
+²⁵ Logs the path (the folder, for per-test traces) at info level through Python's `logging`, which hides info messages unless the run enables them (`--log-cli-level=INFO` under pytest).
+
+²⁶ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 <!-- capability-matrix:readme-trace:end -->
 
@@ -314,7 +321,7 @@ pnpm show-trace a/trace.zip b/trace.zip              # several zips
 
 Each zip is read once, as the list fills in, and kept for when it is picked. Anything in the folder that is not a `.zip` (screenshots, videos, the artifacts manifest) is skipped; a zip that cannot be opened stays in the list with the reason, and the rest open normally. A zip records no test state, so the outcome is read from the trace itself: **failed** when an action or step in it failed, **passed** when it holds actions and none failed, **unknown** when it holds none. An assertion library that records no row (a jest `expect`, chai) can fail a test whose trace still reads as passed. One zip opens exactly as before, with no list.
 
-**Hosted player (`trace.webdriver.io`, not deployed yet).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page takes its stylesheets and fonts from the archive (see `traceResources` below) and loads its images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks `http` images, and any stylesheet the trace did not store, so a trace of an `http` site written with `traceResources: 'none'` can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page takes its stylesheets and fonts from the archive (see `traceResources` below) and loads its images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks `http` images, and any stylesheet the trace did not store, so a trace of an `http` site written with `traceResources: 'none'` can render unstyled there and fully in `show-trace`. To try the hosted build locally:
 
 ```sh
 pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
