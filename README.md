@@ -49,48 +49,44 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 |---|---|---|---|---|
 | One row per command in the Actions list | ✓ | ✓ | ✓ | ✓ |
 | Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ ¹ | ✓ |
-| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ ² |
+| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ |
 | Browser console logs | ✓ | ✓ | ✓ | ✓ |
 | Source tab opens the test line that ran the command | ✓ | ✓ | ✓ | ✓ |
 | Metadata tab (session, capabilities, device) | ✓ | ✓ | ✓ | ✓ |
 | Performance timings on navigation rows | ✓ | ✓ | ✓ | ✓ |
 | Failed command in the Errors tab, with the browser's message | ✓ | ✓ | ✓ | ✓ |
-| Run, Rerun and Run all from the dashboard | ◐ ³ | ◐ ³ | ◐ ³ | ✓ |
+| Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
-| Dashboard window opens by itself in live mode, and can be turned off | ◐ ⁴ | ✓ ⁵ | ◐ ⁶ | ✓ ⁷ |
-| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁸ | ✓ | ✕ ⁹ | ✕ ¹⁰ |
-| Force the test browser headless (`headless`) | ✕ ¹¹ | ◐ ¹² | ✕ ¹¹ | ✕ ¹¹ |
-| Safari kept frontmost so input lands (live mode) | ◐ ¹³ | ✓ ¹⁴ | ◐ ¹³ | ◐ ¹³ |
+| Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
+| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
-² Every command row takes a screenshot in live mode; in trace mode a read, wait or lookup takes none and its row shows the capture before it.
+² Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
 
-³ Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
+³ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
 
-⁴ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
+⁴ Turn it off with `openUi: false`.
 
-⁵ Turn it off with `openUi: false`.
+⁵ Nightwatch always opens the dashboard in live mode.
 
-⁶ Nightwatch always opens the dashboard in live mode.
+⁶ Turn it off with `DEVTOOLS_OPEN=0`.
 
-⁷ Turn it off with `DEVTOOLS_OPEN=0`.
+⁷ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
 
-⁸ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
+⁸ No option: every command row takes a screenshot.
 
-⁹ No option: every command row takes a screenshot.
+⁹ No option: set headless in the browser capabilities, as for any run.
 
-¹⁰ No option. Every command row takes a screenshot in live mode; in trace mode a read, wait or lookup takes none and its row shows the capture before it.
+¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
 
-¹¹ No option: set headless in the browser capabilities, as for any run.
+¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
 
-¹² The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
-
-¹³ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
-
-¹⁴ Brings Safari to the front before each element click, type, clear and submit.
+¹² Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 

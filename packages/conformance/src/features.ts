@@ -250,10 +250,7 @@ export const FEATURES = [
       'devtools-service': covered(`${WDIO}session.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}teardown-settle.test.ts`),
       'nightwatch-devtools': byHand(REASONS.NIGHTWATCH_ROW_SCREENSHOT_BY_HAND),
-      'selenium-devtools-py': covered(
-        `${PYTHON}test_capture_gate.py`,
-        REASONS.PYTHON_TRACE_READS_NO_SCREENSHOT
-      )
+      'selenium-devtools-py': covered(`${PYTHON}test_instrumentation.py`)
     }
   },
   {
@@ -358,9 +355,7 @@ export const FEATURES = [
         'No unit test asserts that `captureScreenshots: false` skips the row screenshot; check on the Selenium example.'
       ),
       'nightwatch-devtools': unsupported(REASONS.NO_SCREENSHOT_SWITCH),
-      'selenium-devtools-py': unsupported(
-        `No option. ${REASONS.PYTHON_TRACE_READS_NO_SCREENSHOT}`
-      )
+      'selenium-devtools-py': unsupported(REASONS.NO_SCREENSHOT_SWITCH)
     }
   },
   {
