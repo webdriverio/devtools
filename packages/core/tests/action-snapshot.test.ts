@@ -40,6 +40,25 @@ describe('captureActionSnapshot timestamp', () => {
     expect(snap?.timestamp).toBe(777)
   })
 
+  it('keeps a webview HTML source out of the native element tree', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const snap = await captureActionSnapshot({
+      command: 'click',
+      timestamp: 5,
+      getPageSource: () =>
+        Promise.resolve(
+          '  <!DOCTYPE html><html><script>if (a < b && c) {}</script><img src=x></html>'
+        ),
+      takeScreenshot: () => Promise.resolve('AA'),
+      platform: 'ios'
+    })
+    expect(snap?.snapshotText).not.toContain('[ios]')
+    expect(snap?.elements).toEqual([])
+    expect(snap?.screenshot).toBe('AA')
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
+  })
+
   it('stamps a zero timestamp rather than treating it as absent', async () => {
     const snap = await captureActionSnapshot({
       command: 'click',

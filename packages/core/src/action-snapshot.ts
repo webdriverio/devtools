@@ -127,6 +127,11 @@ function probe<T>(
   ).catch(() => undefined)
 }
 
+// A hybrid app in a webview answers /source with the page's HTML, which an XML parse turns into noise.
+function isHtmlSource(pageSource: string): boolean {
+  return /^\s*<(!doctype\s+html|html[\s>])/i.test(pageSource)
+}
+
 /** Native-mobile snapshot text + locators, derived from the page-source XML. */
 function fromPageSource(
   pageSource: string,
@@ -228,7 +233,7 @@ export async function captureActionSnapshot(
 
     const processedFrom = timer ? performance.now() : 0
     const mobile =
-      isNativeMobile && pageSource
+      isNativeMobile && pageSource && !isHtmlSource(pageSource)
         ? fromPageSource(pageSource, input.platform ?? 'android')
         : undefined
     const snapshotText =
