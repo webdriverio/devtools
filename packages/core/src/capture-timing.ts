@@ -295,7 +295,13 @@ const RECORDER_SKIP_LABELS: Record<RecorderSkipReason, string> = {
   inFlight: 'shot in flight'
 }
 
+/** Shot durations kept for the median; a live run is never reported, so the
+ *  sample is a ring over the newest shots rather than every one. */
+export const RECORDER_SHOT_SAMPLE_MAX = 2000
+
 const recorderShots: number[] = []
+let recorderShotCount = 0
+let recorderShotTotal = 0
 const recorderSkips: Record<RecorderSkipReason, number> = {
   busy: 0,
   fresh: 0,
@@ -306,7 +312,9 @@ let recorderReused = 0
 /** The filmstrip poller's own screenshot, `ms` from issue to settle. */
 export function recordRecorderShot(ms: number): void {
   if (captureTimingEnabled()) {
-    recorderShots.push(ms)
+    recorderShots[recorderShotCount % RECORDER_SHOT_SAMPLE_MAX] = ms
+    recorderShotCount++
+    recorderShotTotal += ms
   }
 }
 
@@ -333,7 +341,7 @@ export interface RecorderTimingSummary {
 
 function hasRecorderActivity(): boolean {
   return (
-    recorderShots.length > 0 ||
+    recorderShotCount > 0 ||
     recorderReused > 0 ||
     Object.values(recorderSkips).some((n) => n > 0)
   )
@@ -342,6 +350,10 @@ function hasRecorderActivity(): boolean {
 /** Drains the recorder counters gathered since the last report. */
 function takeRecorderTiming(): RecorderTimingSummary {
   const sorted = recorderShots.splice(0).sort((a, b) => a - b)
+  const shots = recorderShotCount
+  const total = recorderShotTotal
+  recorderShotCount = 0
+  recorderShotTotal = 0
   const skipped = { ...recorderSkips }
   for (const reason of Object.keys(recorderSkips) as RecorderSkipReason[]) {
     recorderSkips[reason] = 0
@@ -349,8 +361,8 @@ function takeRecorderTiming(): RecorderTimingSummary {
   const reused = recorderReused
   recorderReused = 0
   return {
-    shots: sorted.length,
-    total: round(sum(sorted)),
+    shots,
+    total: round(total),
     median: sorted.length ? round(median(sorted)) : 0,
     skipped,
     reused

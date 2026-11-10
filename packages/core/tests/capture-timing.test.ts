@@ -14,6 +14,7 @@ import {
   CaptureTimer,
   captureTimingEnabled,
   formatCaptureTimingSummary,
+  RECORDER_SHOT_SAMPLE_MAX,
   formatRecorderTiming,
   recordRecorderReuse,
   recordRecorderShot,
@@ -378,5 +379,19 @@ describe('filmstrip recorder line', () => {
     expect(drained).toEqual([
       '[devtools] filmstrip recorder: 2 screenshots, total 0.4 s, median 200 ms; 1 ticks skipped (1 shot in flight); 0 capture screenshots reused as frames\n'
     ])
+  })
+
+  it('keeps the shot sample bounded while still counting every shot', async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    const shots = RECORDER_SHOT_SAMPLE_MAX * 3
+    for (let i = 0; i < shots; i++) {
+      recordRecorderShot(i < shots - RECORDER_SHOT_SAMPLE_MAX ? 1000 : 10)
+    }
+    await reportCaptureTiming(outDir, (t) => drained.push(t))
+    const total =
+      (shots - RECORDER_SHOT_SAMPLE_MAX) * 1000 + RECORDER_SHOT_SAMPLE_MAX * 10
+    expect(drained[0]).toContain(
+      `${shots} screenshots, total ${(total / 1000).toFixed(1)} s, median 10 ms`
+    )
   })
 })
