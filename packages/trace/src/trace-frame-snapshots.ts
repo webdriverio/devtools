@@ -2,6 +2,7 @@
 // whose <img> resolves, through `resourceOverrides`, to the screenshot already stored under `resources/`.
 
 import {
+  hasScreenshot,
   imageExtension,
   imageMime,
   type ActionSnapshot
@@ -64,12 +65,6 @@ export interface FrameSnapshotRef {
   snapshot: ActionSnapshot
 }
 
-function hasScreenshot(
-  snap: ActionSnapshot
-): snap is ActionSnapshot & { screenshot: string } {
-  return typeof snap.screenshot === 'string' && snap.screenshot.length > 0
-}
-
 /** Correlates captured screenshots to callIds as the exporter assigns them. */
 export class FrameSnapshotIndex {
   #byTimestamp = new Map<number, ActionSnapshot>()
@@ -87,7 +82,7 @@ export class FrameSnapshotIndex {
           this.#elementsByTimestamp.set(snap.timestamp, snap.elements)
         }
       }
-      if (!hasScreenshot(snap)) {
+      if (!hasScreenshot(snap.screenshot)) {
         continue
       }
       const current = this.#byTimestamp.get(snap.timestamp)
@@ -95,9 +90,7 @@ export class FrameSnapshotIndex {
       if (
         !current ||
         snap.screenshot.length >
-          (typeof current.screenshot === 'string'
-            ? current.screenshot.length
-            : 0)
+          (hasScreenshot(current.screenshot) ? current.screenshot.length : 0)
       ) {
         this.#byTimestamp.set(snap.timestamp, snap)
       }
@@ -166,7 +159,7 @@ export function screenshotUrl(screenshot: string): string {
 }
 
 function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
-  const screenshot = typeof snap.screenshot === 'string' ? snap.screenshot : ''
+  const screenshot = hasScreenshot(snap.screenshot) ? snap.screenshot : ''
   return [
     'HTML',
     {},
@@ -194,7 +187,7 @@ export function buildImageFrameSnapshots(
 ): FrameSnapshotEvent[] {
   const frameId = frameIdForPage(pageId)
   return refs
-    .filter((ref) => hasScreenshot(ref.snapshot))
+    .filter((ref) => hasScreenshot(ref.snapshot.screenshot))
     .map((ref) => ({
       type: 'frame-snapshot' as const,
       snapshot: {
@@ -231,7 +224,7 @@ export function buildScreenshotResourceSnapshots(
 ): ScreenshotResourceEvent[] {
   const byUrl = new Map<string, ScreenshotResourceEvent>()
   for (const { snapshot } of refs) {
-    if (!hasScreenshot(snapshot)) {
+    if (!hasScreenshot(snapshot.screenshot)) {
       continue
     }
     const { screenshot } = snapshot

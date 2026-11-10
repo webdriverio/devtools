@@ -21,6 +21,11 @@ export interface ImageSize {
   height: number
 }
 
+/** Whether a captured screenshot payload is a non-empty base64 string. */
+export function hasScreenshot(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
 /** Detect image mime from a base64 string's magic bytes: trace screenshots may
  *  be PNG (polling capture) or JPEG (CDP). */
 export function imageMime(base64: string): string {

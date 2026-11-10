@@ -136,13 +136,6 @@ describe('webdriverGet', () => {
     ).resolves.toBeNull()
   })
 
-  it('answers null for a 200 value with a message and no error field', async () => {
-    respond = ok({ message: 'Session not started or terminated' })
-    await expect(
-      webdriverGet(address(), 'sess', 'screenshot')
-    ).resolves.toBeNull()
-  })
-
   it('answers null for a body that is not JSON', async () => {
     respond = (res) => {
       res.writeHead(200)
@@ -194,6 +187,17 @@ describe('webdriverExecute', () => {
       script: 'return 41 + 1',
       args: []
     })
+  })
+
+  it('preserves a 200 script result carrying message and data fields', async () => {
+    respond = ok({ message: 'hello', data: 1 })
+    await expect(
+      webdriverExecute(
+        address(),
+        'sess',
+        'return { message: "hello", data: 1 }'
+      )
+    ).resolves.toEqual({ message: 'hello', data: 1 })
   })
 })
 

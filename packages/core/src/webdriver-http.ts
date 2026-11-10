@@ -72,35 +72,16 @@ function authHeaders(address: WebDriverAddress): Record<string, string> {
   return { authorization: `Basic ${encoded}` }
 }
 
-const ERROR_ENVELOPE_KEYS = new Set([
-  'error',
-  'message',
-  'stacktrace',
-  'stackTrace',
-  'data',
-  'screen',
-  'class',
-  'hCode'
-])
-
-/** A W3C or cloud-grid error payload: `value` carries `error`/`message` instead
- *  of the command's result. Shape-checked as well as status-checked because
- *  chromedriver answers some failures with a 200, and cloud hubs can answer
- *  terminated-session probes with `{ value: { message: "..." } }` and no
- *  `error` field. */
+/** A W3C error payload: `value` carries `error`/`message` instead of the
+ *  command's result. Shape-checked rather than status-checked because
+ *  chromedriver answers some failures with a 200. */
 function isWebdriverError(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false
-  }
-  const record = value as Record<string, unknown>
-  if (typeof record.error === 'string') {
-    return true
-  }
-  if (typeof record.message === 'string') {
-    const keys = Object.keys(record)
-    return keys.every((key) => ERROR_ENVELOPE_KEYS.has(key))
-  }
-  return false
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { error?: unknown }).error === 'string'
+  )
 }
 
 function requestHeaders(
