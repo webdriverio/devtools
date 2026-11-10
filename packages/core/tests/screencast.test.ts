@@ -4,9 +4,10 @@ import {
   type ScreencastLogger
 } from '../src/screencast.js'
 import {
-  INPUT_DISPATCH_MAX_HOLD_MS,
-  beginInputDispatch
-} from '../src/input-dispatch.js'
+  DRIVER_ACTIVITY_MAX_HOLD_MS,
+  beginDriverCapture,
+  beginDriverCommand
+} from '../src/driver-activity.js'
 
 class TestRecorder extends ScreencastRecorderBase<{ name: string }> {
   shotsTaken = 0
@@ -151,13 +152,13 @@ describe('ScreencastRecorderBase — polling path', () => {
   })
 })
 
-describe('ScreencastRecorderBase — input-dispatch gate', () => {
-  it('drops ticks while an input command is in flight, resumes once it settles', async () => {
+describe('ScreencastRecorderBase: driver-activity gate', () => {
+  it('drops ticks while a command is in flight, resumes once it settles', async () => {
     vi.useFakeTimers()
     const r = new TestRecorder({ pollIntervalMs: 50 })
     await r.start({ name: 'driver' })
     const suppressed = r.bufferLength
-    const close = beginInputDispatch('click')
+    const close = beginDriverCommand('getText')
     try {
       await vi.advanceTimersByTimeAsync(150) // 3 ticks, all skipped
       expect(r.bufferLength).toBe(suppressed)
@@ -170,12 +171,30 @@ describe('ScreencastRecorderBase — input-dispatch gate', () => {
     vi.useRealTimers()
   })
 
-  it('keeps polling through a command that dispatches no input', async () => {
+  it('drops ticks while a per-action capture holds the driver', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const shots = r.shotsTaken
+    const close = beginDriverCapture()
+    try {
+      await vi.advanceTimersByTimeAsync(150)
+      expect(r.shotsTaken).toBe(shots)
+    } finally {
+      close()
+    }
+    await vi.advanceTimersByTimeAsync(50)
+    expect(r.shotsTaken).toBe(shots + 1)
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('keeps polling through a wait, whose polls signal on their own', async () => {
     vi.useFakeTimers()
     const r = new TestRecorder({ pollIntervalMs: 50 })
     await r.start({ name: 'driver' })
     const before = r.bufferLength
-    const close = beginInputDispatch('getText')
+    const close = beginDriverCommand('waitForDisplayed')
     try {
       await vi.advanceTimersByTimeAsync(150)
       expect(r.bufferLength).toBeGreaterThan(before)
@@ -193,11 +212,11 @@ describe('ScreencastRecorderBase — input-dispatch gate', () => {
     const stalled = r.bufferLength
     // Stands in for a command whose completion callback never fires — a failing
     // Nightwatch test discards the rest of its queue.
-    const close = beginInputDispatch('click')
+    const close = beginDriverCommand('click')
     try {
       await vi.advanceTimersByTimeAsync(150)
       expect(r.bufferLength).toBe(stalled)
-      await vi.advanceTimersByTimeAsync(INPUT_DISPATCH_MAX_HOLD_MS)
+      await vi.advanceTimersByTimeAsync(DRIVER_ACTIVITY_MAX_HOLD_MS)
       expect(r.bufferLength).toBeGreaterThan(stalled)
     } finally {
       close()
@@ -466,6 +485,7 @@ describe('ScreencastRecorderBase — start/stop serialisation', () => {
     expect(r.stopped).toEqual(['s1'])
     expect(r.session).toBe('s2')
     expect(r.isRecording).toBe(true)
+    await r.stop()
   })
 })
 
@@ -614,5 +634,82 @@ describe('ScreencastRecorderBase: lifecycle logging', () => {
     r.shouldFailFirst = true
     await expect(r.start({ name: 'driver' })).resolves.toBeUndefined()
     expect(r.isRecording).toBe(false)
+  })
+})
+
+describe('ScreencastRecorderBase: reused capture screenshots', () => {
+  it('keeps a capture screenshot as a frame, in order, and skips the poll it replaces', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    await vi.advanceTimersByTimeAsync(30)
+    ScreencastRecorderBase.offerCapturedFrame('capture-1', Date.now())
+    await vi.advanceTimersByTimeAsync(20) // tick 20 ms after the capture: skipped
+    expect(r.shotsTaken).toBe(1)
+    await vi.advanceTimersByTimeAsync(50) // the next one polls again
+    expect(r.shotsTaken).toBe(2)
+    await r.stop()
+
+    expect(r.frames.map((f) => f.data)).toEqual([
+      'frame-1',
+      'capture-1',
+      'frame-2'
+    ])
+    const stamps = r.frames.map((f) => f.timestamp)
+    expect([...stamps].sort((a, b) => a - b)).toEqual(stamps)
+    vi.useRealTimers()
+  })
+
+  it('drops a shot no newer than the newest frame, so nothing is duplicated or reordered', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: 50 })
+    await r.start({ name: 'driver' })
+    const newest = r.frames[r.frames.length - 1].timestamp
+    ScreencastRecorderBase.offerCapturedFrame('stale', newest - 1)
+    await vi.advanceTimersByTimeAsync(10)
+    const at = Date.now()
+    ScreencastRecorderBase.offerCapturedFrame('capture', at)
+    ScreencastRecorderBase.offerCapturedFrame('capture', at)
+    await r.stop()
+    expect(r.frames.map((f) => f.data)).toEqual(['frame-1', 'capture'])
+    vi.useRealTimers()
+  })
+
+  it('takes nothing once stopped, from CDP push mode, or while two recorders record', async () => {
+    class PushRecorder extends TestRecorder {
+      protected override async tryStartCdp(): Promise<boolean> {
+        return true
+      }
+    }
+    const push = new PushRecorder()
+    await push.start({ name: 'chrome' })
+    ScreencastRecorderBase.offerCapturedFrame('to-push', Date.now() + 1)
+    expect(push.bufferLength).toBe(0)
+
+    const polling = new TestRecorder({ pollIntervalMs: 60_000 })
+    await polling.start({ name: 'safari' })
+    ScreencastRecorderBase.offerCapturedFrame('ambiguous', Date.now() + 1)
+    expect(polling.bufferLength).toBe(1)
+
+    await push.stop()
+    ScreencastRecorderBase.offerCapturedFrame('mine', Date.now() + 2)
+    expect(polling.frames.map((f) => f.data)).toEqual(['frame-1', 'mine'])
+
+    await polling.stop()
+    ScreencastRecorderBase.offerCapturedFrame('after-stop', Date.now() + 3)
+    expect(polling.bufferLength).toBe(2)
+  })
+
+  it('bounds reused frames by maxBufferFrames like polled ones', async () => {
+    const r = new TestRecorder({ pollIntervalMs: 60_000, maxBufferFrames: 4 })
+    await r.start({ name: 'driver' })
+    const t0 = Date.now()
+    for (let i = 1; i <= 10; i++) {
+      ScreencastRecorderBase.offerCapturedFrame(`capture-${i}`, t0 + i)
+    }
+    await r.stop()
+    expect(r.bufferLength).toBeLessThanOrEqual(4)
+    expect(r.frames[0].data).toBe('frame-1')
+    expect(r.frames[r.frames.length - 1].data).toBe('capture-10')
   })
 })

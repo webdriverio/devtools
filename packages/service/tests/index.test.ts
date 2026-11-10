@@ -3,8 +3,8 @@ import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
   captureMask,
   configureInputMasking,
-  INPUT_DISPATCH_MAX_HOLD_MS,
-  isInputDispatchInFlight,
+  DRIVER_ACTIVITY_MAX_HOLD_MS,
+  isDriverBusy,
   rememberReadValue,
   selectorForReadValue
 } from '@wdio/devtools-core'
@@ -357,18 +357,16 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     })
   })
 
-  // A screenshot poll landing inside chromedriver's click, between computing the
-  // element's coordinates and dispatching at them, makes the click report success
-  // while activating nothing. The recorder drops a tick while this window is open,
-  // so the service has to open one around every input-dispatching command.
-  describe('beforeCommand - input-dispatch window', () => {
+  // The filmstrip recorder drops a tick while this window is open, so a poll
+  // neither queues in front of a command nor lands inside a click's dispatch.
+  describe('beforeCommand - driver-activity window', () => {
     // The gate is module-scoped in core (one per adapter bundle), so a window
     // left open by an earlier case in this file is still open here. Jump past the
     // hold bound and read once, which is what prunes it.
     const flushInputWindows = () => {
       vi.useFakeTimers()
-      vi.setSystemTime(Date.now() + INPUT_DISPATCH_MAX_HOLD_MS + 1)
-      isInputDispatchInFlight()
+      vi.setSystemTime(Date.now() + DRIVER_ACTIVITY_MAX_HOLD_MS + 1)
+      isDriverBusy()
       vi.useRealTimers()
     }
 
@@ -378,17 +376,25 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       flushInputWindows()
     })
 
-    it('holds the window open for the duration of an input command', async () => {
+    it('holds the window open for the duration of a command', async () => {
       await service.beforeCommand('click' as any, ['.button'])
-      expect(isInputDispatchInFlight()).toBe(true)
+      expect(isDriverBusy()).toBe(true)
       await service.afterCommand('click' as any, ['.button'], {})
-      expect(isInputDispatchInFlight()).toBe(false)
+      expect(isDriverBusy()).toBe(false)
     })
 
-    it('opens no window for a command that dispatches no input', async () => {
+    it('holds the window for a read too, since it queues on the driver', async () => {
       await service.beforeCommand('getText' as any, ['#flash'])
-      expect(isInputDispatchInFlight()).toBe(false)
+      expect(isDriverBusy()).toBe(true)
       await service.afterCommand('getText' as any, ['#flash'], 'text')
+      expect(isDriverBusy()).toBe(false)
+    })
+
+    it('opens no window for a wait or a host-side pause', async () => {
+      await service.beforeCommand('waitUntil' as any, [])
+      expect(isDriverBusy()).toBe(false)
+      await service.beforeCommand('pause' as any, ['100'])
+      expect(isDriverBusy()).toBe(false)
     })
 
     // A window stranded by a command whose afterCommand never paired (a failed
@@ -396,9 +402,9 @@ describe('DevtoolsService - Internal Command Filtering', () => {
     // into the next test until its bound expired.
     it('closes the window at the next test boundary', async () => {
       await service.beforeCommand('setValue' as any, ['#username', 'foo'])
-      expect(isInputDispatchInFlight()).toBe(true)
+      expect(isDriverBusy()).toBe(true)
       service.beforeTest({ file: '/test/specs/fake.spec.ts', title: 'next' })
-      expect(isInputDispatchInFlight()).toBe(false)
+      expect(isDriverBusy()).toBe(false)
     })
   })
 

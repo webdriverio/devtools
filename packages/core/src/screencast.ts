@@ -1,6 +1,13 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { hasScreenshot, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
-import { isInputDispatchInFlight } from './input-dispatch.js'
+import { performance } from 'node:perf_hooks'
+import { isDriverBusy } from './driver-activity.js'
+import {
+  recordRecorderReuse,
+  recordRecorderShot,
+  recordRecorderSkip,
+  type RecorderSkipReason
+} from './capture-timing.js'
 import { withTimeout } from './with-timeout.js'
 import { errorMessage } from './error.js'
 
@@ -33,6 +40,20 @@ export interface ScreencastLogger {
  * supports without extra plumbing.
  */
 export abstract class ScreencastRecorderBase<TDriver = unknown> {
+  static readonly #recording = new Set<ScreencastRecorderBase<unknown>>()
+
+  /**
+   * A per-action capture's screenshot, offered as a filmstrip frame. Kept only
+   * when exactly one recorder is recording in this process and it polls: with
+   * several, nothing says which session the screenshot came from.
+   */
+  static offerCapturedFrame(data: string, takenAt: number): void {
+    if (ScreencastRecorderBase.#recording.size === 1) {
+      const [recorder] = ScreencastRecorderBase.#recording
+      recorder.#acceptCapturedFrame(data, takenAt)
+    }
+  }
+
   protected buffer: ScreencastFrame[] = []
   protected options: Required<ScreencastOptions>
   protected driver?: TDriver
@@ -42,6 +63,9 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    *  against this: its frame belongs to the old recording, and the latch it
    *  holds is not the successor's to clear. */
   #pollGeneration = 0
+  /** When the last reused capture screenshot was taken; a poll before the next
+   *  interval would only repeat it. */
+  #lastReusedAt = 0
   #isRecording = false
   #cdpActive = false
   #startIndex = 0
@@ -96,9 +120,11 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     }
     const generation = ++this.#pollGeneration
     this.driver = driver
+    this.#lastReusedAt = 0
     if (await this.tryStartCdp()) {
       this.#cdpActive = true
       this.#isRecording = true
+      ScreencastRecorderBase.#recording.add(this)
       return
     }
     await this.#startPolling(generation)
@@ -119,6 +145,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
       this.#stopPolling()
     }
     this.#isRecording = false
+    ScreencastRecorderBase.#recording.delete(this)
   }
 
   /**
@@ -188,6 +215,21 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
         ? Math.round(timestampSeconds * 1000)
         : Date.now()
     this.#appendFrame({ data, timestamp })
+  }
+
+  #acceptCapturedFrame(data: string, takenAt: number): void {
+    if (this.#pollTimer === undefined || !hasScreenshot(data)) {
+      return
+    }
+    // A poll that settled after this shot already shows a later state, and
+    // appending behind it would put the filmstrip out of order.
+    const last = this.buffer[this.buffer.length - 1]
+    if (last && takenAt <= last.timestamp) {
+      return
+    }
+    this.#appendFrame({ data, timestamp: takenAt })
+    this.#lastReusedAt = takenAt
+    recordRecorderReuse()
   }
 
   /**
@@ -277,7 +319,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
    */
   async #takeFirstShot(generation: number): Promise<string | null> {
     const first = await withTimeout<string | null | typeof FIRST_SHOT_TIMEOUT>(
-      this.takeScreenshot(),
+      this.#timedScreenshot(),
       SCREENCAST_HANDSHAKE_TIMEOUT_MS,
       FIRST_SHOT_TIMEOUT
     )
@@ -308,43 +350,69 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
       this.#appendFrame({ data: first, timestamp: Date.now() })
 
       const intervalMs = this.options.pollIntervalMs
-      this.#pollTimer = setInterval(async () => {
-        // A screenshot that reaches the driver mid-click makes the click report
-        // success while dispatching nothing, so the page never navigates. Drop
-        // the tick rather than race it — the gate is bounded, so a command whose
-        // completion never arrives costs frames only until it expires.
-        if (isInputDispatchInFlight()) {
-          return
-        }
-        // setInterval does not wait for this handler. A screenshot slower than
-        // the interval stacks requests that a serialised driver then serves
-        // ahead of the test's own commands (a native session's screenshot runs
-        // ~1.2 s against a 200 ms default) — keep at most one outstanding.
-        if (this.#pollInFlight) {
-          return
-        }
-        this.#pollInFlight = true
-        try {
-          const data = await this.takeScreenshot()
-          if (hasScreenshot(data) && generation === this.#pollGeneration) {
-            this.#appendFrame({ data, timestamp: Date.now() })
-          }
-        } catch {
-          // Session ended mid-interval — stop polling gracefully.
-          if (generation === this.#pollGeneration) {
-            this.#stopPolling()
-          }
-        } finally {
-          if (generation === this.#pollGeneration) {
-            this.#pollInFlight = false
-          }
-        }
+      this.#pollTimer = setInterval(() => {
+        void this.#pollTick(generation)
       }, intervalMs)
 
       this.#isRecording = true
+      ScreencastRecorderBase.#recording.add(this)
       this.onPollingStarted(intervalMs)
     } catch (err) {
       this.onUnavailable(err)
+    }
+  }
+
+  async #timedScreenshot(): Promise<string | null> {
+    const issued = performance.now()
+    try {
+      return await this.takeScreenshot()
+    } finally {
+      recordRecorderShot(performance.now() - issued)
+    }
+  }
+
+  #skipReason(): RecorderSkipReason | undefined {
+    // A command or a capture holds the driver: a poll would queue in front of
+    // the test, and one landing mid-click makes the click report success while
+    // dispatching nothing. The gate is bounded, so a command whose completion
+    // never arrives costs frames only until it expires.
+    if (isDriverBusy()) {
+      return 'busy'
+    }
+    // setInterval does not wait for the tick. A screenshot slower than the
+    // interval stacks requests that a serialised driver then serves ahead of
+    // the test's own commands (a native session's screenshot runs ~1.2 s
+    // against a 200 ms default), so keep at most one outstanding.
+    if (this.#pollInFlight) {
+      return 'inFlight'
+    }
+    if (Date.now() - this.#lastReusedAt < this.options.pollIntervalMs) {
+      return 'fresh'
+    }
+    return undefined
+  }
+
+  async #pollTick(generation: number): Promise<void> {
+    const skip = this.#skipReason()
+    if (skip) {
+      recordRecorderSkip(skip)
+      return
+    }
+    this.#pollInFlight = true
+    try {
+      const data = await this.#timedScreenshot()
+      if (hasScreenshot(data) && generation === this.#pollGeneration) {
+        this.#appendFrame({ data, timestamp: Date.now() })
+      }
+    } catch {
+      // Session ended mid-interval: stop polling gracefully.
+      if (generation === this.#pollGeneration) {
+        this.#stopPolling()
+      }
+    } finally {
+      if (generation === this.#pollGeneration) {
+        this.#pollInFlight = false
+      }
     }
   }
 
@@ -358,6 +426,7 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
       // without waiting on it.
       this.#pollGeneration++
       this.#pollInFlight = false
+      ScreencastRecorderBase.#recording.delete(this)
       this.onPollingStopped(this.buffer.length)
     }
   }

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { selectorForReadValue } from '@wdio/devtools-core'
+import {
+  DRIVER_ACTIVITY_MAX_HOLD_MS,
+  isDriverBusy,
+  selectorForReadValue
+} from '@wdio/devtools-core'
 import type {
   CommandCaptureMeta,
   CommandLog,
@@ -885,5 +889,44 @@ describe('BrowserProxy capture ordering after a DOM-mutating command', () => {
   it('leaves the native drain to captureTrace for a DOM-mutating command', () => {
     const { capturer } = run('click')
     expect(capturer.nativeNetwork.forward).not.toHaveBeenCalled()
+  })
+})
+
+describe('BrowserProxy driver-activity window', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+    // The gate is module-scoped in core, so prune anything an earlier case left
+    // open: jump past the hold bound and read once.
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + DRIVER_ACTIVITY_MAX_HOLD_MS + 1)
+    isDriverBusy()
+    vi.useRealTimers()
+  })
+
+  // The filmstrip poller drops its tick while this is open, so a poll does not
+  // queue in front of the command on the driver.
+  it('holds the window from enqueue until the command calls back', () => {
+    let callBack: ((result: unknown) => void) | undefined
+    const browser = {
+      getText: (...args: unknown[]) => {
+        callBack = args[args.length - 1] as (result: unknown) => void
+        return undefined
+      }
+    } as unknown as NightwatchBrowser
+    const { capturer } = makeCapturer()
+    new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'uid-a'
+    })).wrapBrowserCommands(browser)
+
+    ;(
+      browser as unknown as Record<string, (...a: unknown[]) => unknown>
+    ).getText('#flash')
+    expect(isDriverBusy()).toBe(true)
+    callBack?.({ value: 'hi' })
+    expect(isDriverBusy()).toBe(false)
   })
 })

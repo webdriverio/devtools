@@ -17,7 +17,7 @@ import { WaitRows } from './waitRows.js'
 import { wrapNavigation } from './navigationWrap.js'
 import {
   RetryTracker,
-  beginInputDispatch,
+  beginDriverCommand,
   clearReadValues,
   rememberReadValue,
   toError
@@ -571,22 +571,22 @@ export class BrowserProxy {
 
     const cmd = this.pendingCommand(methodName, args)
     const captureCallback = this.makeCaptureCallback(browser, cmd)
-    // Suppress screencast polling while this command may be dispatching input: a
-    // screenshot landing mid-click makes the click activate nothing. Enqueue is
-    // the only hook the adapter has — Nightwatch executes off a queue it exposes
-    // no start event for — so an awaited call (enqueue ≈ execution) is covered,
-    // while one queued behind a long wait can see its window expire before it
-    // runs. The bound is what keeps that from stalling the recorder instead.
-    const closeInputWindow = beginInputDispatch(methodName)
+    // Holds the filmstrip poll off the driver while this command runs (see core
+    // driver-activity.ts). Enqueue is the only hook the adapter has, Nightwatch
+    // executes off a queue it exposes no start event for, so an awaited call
+    // (enqueue ≈ execution) is covered, while one queued behind a long wait can
+    // see its window expire before it runs. The bound is what keeps that from
+    // stalling the recorder instead.
+    const closeCommandWindow = beginDriverCommand(methodName)
     const gatedCallback = (callbackResult: unknown) => {
-      closeInputWindow()
+      closeCommandWindow()
       return captureCallback(callbackResult)
     }
     const modifiedArgs = [...this.waits.args(cmd), gatedCallback]
     try {
       return originalMethod(...modifiedArgs)
     } catch (error) {
-      closeInputWindow()
+      closeCommandWindow()
       this.popCommandStackIfMatches(methodName, cmd.cmdSig)
       if (cmd.wait) {
         this.closeWait(browser, cmd.wait, undefined, toError(error), Date.now())

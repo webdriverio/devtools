@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import logger from '@wdio/logger'
 import {
-  beginInputDispatch,
+  beginDriverCommand,
   errorMessage,
   rememberReadValue
 } from '@wdio/devtools-core'
@@ -142,10 +142,10 @@ const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
 function makeSettle(
   hooks: DriverPatcherHooks,
   meta: Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'>,
-  closeInputWindow: () => void
+  closeCommandWindow: () => void
 ): (result: unknown, error: Error | undefined) => void {
   return (result, error) => {
-    closeInputWindow()
+    closeCommandWindow()
     // An assertion names no element — it acts on the value a read resolved to —
     // so the value is what carries the locator forward to the assertion row.
     if (!error) {
@@ -197,16 +197,13 @@ function makeWrappedMethod(
     // Before the instrumentation below: serializing args and walking the stack
     // both cost time that would otherwise land inside the row's own duration.
     const startTime = Date.now()
-    // Suppresses the screencast recorder's screenshot polling until this command
-    // settles: a poll landing inside chromedriver's click, between computing the
-    // element's coordinates and dispatching at them, makes the click report
-    // success while activating nothing. Only the non-Chrome polling path is
-    // affected — Chrome uses push-based CDP screencast and never polls.
-    const closeInputWindow = beginInputDispatch(methodName)
+    // Holds the filmstrip poll off the driver until this command settles (see
+    // core driver-activity.ts); CDP push mode never polls.
+    const closeCommandWindow = beginDriverCommand(methodName)
     const settle = makeSettle(
       hooks,
       describeCall(methodName, args, fromElement, this, startTime),
-      closeInputWindow
+      closeCommandWindow
     )
 
     let result: unknown

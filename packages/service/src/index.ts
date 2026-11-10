@@ -2,7 +2,7 @@
 import logger from '@wdio/logger'
 import {
   attachTraceArtifact,
-  beginInputDispatch,
+  beginDriverCommand,
   captureAndAttachScreenshot,
   clearReadValues,
   configureInputMasking,
@@ -150,7 +150,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  slot because WDIO serialises commands per session; a concurrent pair (e.g.
    *  multiremote) closes the earlier window early, degrading to unguarded
    *  polling rather than stalling the recorder. */
-  #closeInputWindow?: () => void
+  #closeCommandWindow?: () => void
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
@@ -713,8 +713,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#commandStack.reset()
     // No command is in flight after a reset; without this a window stranded by a
     // spec boundary would keep dropping frames until its bound expired.
-    this.#closeInputWindow?.()
-    this.#closeInputWindow = undefined
+    this.#closeCommandWindow?.()
+    this.#closeCommandWindow = undefined
     this.#assertionTracker.reset()
     this.#sessionCapturer.resetLastSelector()
     this.#sessionCapturer.resetRetryTracker()
@@ -790,13 +790,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser || isServiceProbe(command)) {
       return
     }
-    // Suppress screenshot polling for the duration of an input-dispatching
-    // command: a poll landing inside chromedriver's click, between computing the
-    // element's coordinates and dispatching at them, makes the click report
-    // success while activating nothing. Opened before the pre-action probes below
-    // so it spans the whole command.
-    this.#closeInputWindow?.()
-    this.#closeInputWindow = beginInputDispatch(command)
+    // Holds the filmstrip poll off the driver for the whole command (see
+    // driver-activity.ts); opened before the pre-action probes so it spans them.
+    this.#closeCommandWindow?.()
+    this.#closeCommandWindow = beginDriverCommand(command)
     // `url` is the one start-of-recording signal every runner reaches (Mocha,
     // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
     if (command === 'url') {
@@ -900,8 +897,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (this.#injecting || isServiceProbe(command)) {
       return
     }
-    this.#closeInputWindow?.()
-    this.#closeInputWindow = undefined
+    this.#closeCommandWindow?.()
+    this.#closeCommandWindow = undefined
 
     // Record every element resolution, even those below the top-level command
     // boundary — an `expect($('#flash'))` resolves its element inside the
