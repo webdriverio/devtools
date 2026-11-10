@@ -929,4 +929,20 @@ describe('BrowserProxy driver-activity window', () => {
     callBack?.({ value: 'hi' })
     expect(isDriverBusy()).toBe(false)
   })
+
+  it('opens no window for a function that never calls back', () => {
+    const browser = {
+      actions: () => ({ move: () => undefined }),
+      myCustomCommand: () => undefined
+    } as unknown as NightwatchBrowser
+    const { capturer } = makeCapturer()
+    new BrowserProxy(capturer, makeTestManager(), () => ({
+      uid: 'uid-a'
+    })).wrapBrowserCommands(browser)
+
+    const b = browser as unknown as Record<string, (...a: unknown[]) => unknown>
+    b.actions()
+    b.myCustomCommand()
+    expect(isDriverBusy()).toBe(false)
+  })
 })
