@@ -436,17 +436,24 @@ _ATOM_SCRIPT_COMMANDS = {
 }
 
 
-def _action_capture_enabled(driver: Any) -> bool:
-    if not _state["trace"] or not _state["a11y"] or not _state.get("element_scripts"):
+def _page_trees_enabled(driver: Any) -> bool:
+    if not _state["a11y"] or not _state.get("element_scripts"):
         return False
     return not driver_is_native_app(driver)
 
 
-def _action_capture_due(driver: Any, command: str) -> bool:
-    initial = _state["test"].awaiting_initial_frame and command in MAPPED_COMMANDS
-    if command in READ_ONLY_COMMANDS and not initial:
-        return False
-    return _action_capture_enabled(driver)
+def _capture_due(command: str, awaiting_initial_frame: bool) -> bool:
+    """Mirrors core's `TestCapture.queue` gate over shared's `skipsCapture`: a
+    known read, wait or lookup reuses the capture before it, unless it is the
+    test's first mapped command."""
+    if command not in READ_ONLY_COMMANDS:
+        return True
+    return awaiting_initial_frame and command in MAPPED_COMMANDS
+
+
+def _takes_capture(command: str) -> bool:
+    """Whether this command takes the per-action capture, its screenshot included."""
+    return _state["trace"] and _capture_due(command, _state["test"].awaiting_initial_frame)
 
 
 def _capture_timer(
@@ -466,26 +473,38 @@ def _capture_action_snapshot(
     shot: Optional[str],
     timer: Optional[capture_timing.CaptureTimer] = None,
 ) -> Optional[ActionSnapshot]:
-    """Read the page's element tree beside one action, for the trace's A11y tab.
+    """Record one action's capture: its screenshot and, on a page, its element
+    tree for the trace's A11y tab.
 
-    Trace mode only, and only with the scripts in hand — the JS adapters run
-    them in-process, this adapter fetches them from the backend. Two extra
-    round trips per command is the cost; live mode pays neither.
+    Trace mode only. The tree needs the scripts in hand (the JS adapters run
+    them in-process, this adapter fetches them from the backend) and costs two
+    round trips. A native app gets the screenshot alone: both reads are page
+    script and can only fail there.
 
     Goes through the guarded executor, or each read lands back in this same hook
     and the timeline grows an `executeScript` row beside every action — the bug
     the CDP window-handle read caused, in a path that runs far more often.
-
-    Skipped entirely on a native app: both reads are page script, they run on
-    every action, and neither can do anything but fail there.
     """
-    if not _action_capture_enabled(driver):
+    if not _state["trace"]:
         return None
-    scripts = _state.get("element_scripts")
-    run = _guarded_execute_script(driver)
     snapshot: ActionSnapshot = {"timestamp": timestamp, "command": command}
     if shot:
         snapshot["screenshot"] = shot
+    if _page_trees_enabled(driver):
+        _read_page_trees(driver, snapshot, timer)
+    if snapshot.keys() <= {"timestamp", "command"}:
+        return None
+    _state["action_snapshots"].append(snapshot)
+    return snapshot
+
+
+def _read_page_trees(
+    driver: Any,
+    snapshot: ActionSnapshot,
+    timer: Optional[capture_timing.CaptureTimer],
+) -> None:
+    scripts = _state["element_scripts"]
+    run = _guarded_execute_script(driver)
     # Two reads, two panes: `elements` carries the interactable boxes, the
     # accessibility tree becomes the A11y tab's text. Capturing only the first
     # left that tab reporting "no accessibility snapshot for this command" with
@@ -505,10 +524,6 @@ def _capture_action_snapshot(
             continue
         if isinstance(value, list) and value:
             snapshot[key] = value
-    if "elements" not in snapshot and "accessibilityTree" not in snapshot:
-        return None
-    _state["action_snapshots"].append(snapshot)
-    return snapshot
 
 
 def _maybe_capture_action_snapshot(
@@ -523,7 +538,7 @@ def _maybe_capture_action_snapshot(
     before them."""
     initial = _state["test"].awaiting_initial_frame and command in MAPPED_COMMANDS
     _note_final_frame_driver(driver)
-    if not _action_capture_due(driver, command):
+    if not _takes_capture(command):
         return
     if initial:
         _state["test"].awaiting_initial_frame = False
@@ -572,7 +587,7 @@ def _note_final_frame_driver(driver: Any) -> None:
 
 
 def _capture_final_frame(driver: Any) -> bool:
-    if not _action_capture_enabled(driver):
+    if not _state["trace"]:
         return False
     stamp = _final_frame_stamp(
         _state["test"].rows, _state["test"].started_ms, _state["test"].last_captured_ts
@@ -1229,12 +1244,14 @@ def install(
         # WebDriver.execute returns the full response dict; the useful payload
         # is response["value"].
         value = result.get("value") if isinstance(result, dict) else result
-        # One screenshot per command on this (main) thread — attached to the
-        # command (so selecting it shows the page) AND reused as a screencast
-        # frame, so we pay for only a single screenshot round-trip either way.
+        # One screenshot on this (main) thread, attached to the row and reused
+        # as a screencast frame. Trace mode takes it only with the capture: a
+        # read's row shows the capture before it, as in the JS adapters.
         command = _capture_command(driver_command, params)
-        timer = _capture_timer(self, command, poll)
-        shot = timer.read("screenshot", _take_screenshot, self) if timer else _take_screenshot(self)
+        shot = timer = None
+        if not _state["trace"] or _takes_capture(command):
+            timer = _capture_timer(self, command, poll)
+            shot = timer.read("screenshot", _take_screenshot, self) if timer else _take_screenshot(self)
         selector = element_locators.selector_for_command(driver_command, params, value)
         _remember_read_value(driver_command, params, value, selector)
         row = capturer.capture_command(

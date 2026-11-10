@@ -17,6 +17,7 @@ import {
   resolveCaptureMask,
   resourceUrlKey,
   RUNNER_ENV,
+  skipsCapture,
   type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
@@ -30,6 +31,7 @@ import {
   type CapturedPerformancePayload,
   type CaptureTimingSummary
 } from '@wdio/devtools-core'
+import { TestCapture } from '@wdio/devtools-core/test-capture'
 import { rememberElementLocator } from '../src/helpers/element-locators.js'
 import {
   tagElementConditions,
@@ -87,7 +89,8 @@ const RUNNERS = [
   'finalFrameStamp',
   'captureTimingSummary',
   'collectorMaskPrelude',
-  'resourceUrlKey'
+  'resourceUrlKey',
+  'captureGate'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -476,6 +479,29 @@ describe('resourceUrlKey', () => {
   ).cases) {
     it(c.name, () => {
       expect(resourceUrlKey(c.url)).toBe(c.expect)
+    })
+  }
+})
+
+describe('captureGate', () => {
+  for (const c of section<
+    Named & {
+      awaitingInitialFrame: boolean
+      expect: { command: string; capture: boolean }
+    }
+  >('captureGate').cases) {
+    it(c.name, () => {
+      const capture = new TestCapture()
+      capture.awaitingInitialFrame = c.awaitingInitialFrame
+      const queued = capture.queue(
+        c.expect.command,
+        1,
+        !skipsCapture(c.expect.command),
+        [],
+        [],
+        async () => null
+      )
+      expect(queued !== undefined).toBe(c.expect.capture)
     })
   }
 })

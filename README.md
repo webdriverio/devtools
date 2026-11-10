@@ -49,44 +49,48 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 |---|---|---|---|---|
 | One row per command in the Actions list | ✓ | ✓ | ✓ | ✓ |
 | Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ ¹ | ✓ |
-| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ |
+| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ ² |
 | Browser console logs | ✓ | ✓ | ✓ | ✓ |
 | Source tab opens the test line that ran the command | ✓ | ✓ | ✓ | ✓ |
 | Metadata tab (session, capabilities, device) | ✓ | ✓ | ✓ | ✓ |
 | Performance timings on navigation rows | ✓ | ✓ | ✓ | ✓ |
 | Failed command in the Errors tab, with the browser's message | ✓ | ✓ | ✓ | ✓ |
-| Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
+| Run, Rerun and Run all from the dashboard | ◐ ³ | ◐ ³ | ◐ ³ | ✓ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
-| Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
-| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
-| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
-| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
+| Dashboard window opens by itself in live mode, and can be turned off | ◐ ⁴ | ✓ ⁵ | ◐ ⁶ | ✓ ⁷ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁸ | ✓ | ✕ ⁹ | ✕ ¹⁰ |
+| Force the test browser headless (`headless`) | ✕ ¹¹ | ◐ ¹² | ✕ ¹¹ | ✕ ¹¹ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹³ | ✓ ¹⁴ | ◐ ¹³ | ◐ ¹³ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
-² Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
+² Every command row takes a screenshot in live mode; in trace mode a read, wait or lookup takes none and its row shows the capture before it.
 
-³ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
+³ Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.
 
-⁴ Turn it off with `openUi: false`.
+⁴ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
 
-⁵ Nightwatch always opens the dashboard in live mode.
+⁵ Turn it off with `openUi: false`.
 
-⁶ Turn it off with `DEVTOOLS_OPEN=0`.
+⁶ Nightwatch always opens the dashboard in live mode.
 
-⁷ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
+⁷ Turn it off with `DEVTOOLS_OPEN=0`.
 
-⁸ No option: every command row takes a screenshot.
+⁸ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
 
-⁹ No option: set headless in the browser capabilities, as for any run.
+⁹ No option: every command row takes a screenshot.
 
-¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+¹⁰ No option. Every command row takes a screenshot in live mode; in trace mode a read, wait or lookup takes none and its row shows the capture before it.
 
-¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+¹¹ No option: set headless in the browser capabilities, as for any run.
 
-¹² Brings Safari to the front before each element click, type, clear and submit.
+¹² The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+
+¹³ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+
+¹⁴ Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -400,7 +404,7 @@ raw records: /out/capture-timing-1.ndjson
 - **Columns.** The JS adapters issue every read of a capture at once and the driver serves them in order, so a read's time from issue to settle includes waiting behind the reads before it. `svc` subtracts that wait: it is the read's own cost. `process` is the in-process step that turns the reads into a snapshot (page-source parsing and locator generation on native). `capture` is the whole capture.
 - **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
 - **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
-- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no screenshot and no record.
 
 To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
 
@@ -679,7 +683,7 @@ The player is the `show-trace` bin of the Node backend the adapter already needs
 
 Capture is always opt-in, and there are three ways to say yes — `--devtools` / `--devtools-trace` for one run, `devtools` / `devtools_trace` under `[tool.pytest.ini_options]` for a project, `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches to a running backend) for a shell. Highest wins, in that order. A plain script calls `devtools.enable(trace=True)` instead.
 
-A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
+A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, screenshots and command selectors. As in the JS adapters, only a command that can change the page takes a capture; a read, wait or lookup shows the capture before it. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
 
 Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure`: nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test. Password fields are masked in the replayed page by default here too: `mask_inputs` / `--devtools-no-mask-inputs` turns it off and `mask_selectors` / `--devtools-mask-selector` masks more (see [Password masking](#-password-masking)).
 

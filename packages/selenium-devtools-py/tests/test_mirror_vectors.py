@@ -58,6 +58,7 @@ RUNNERS = {
     "captureTimingSummary",
     "collectorMaskPrelude",
     "resourceUrlKey",
+    "captureGate",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -406,6 +407,23 @@ class TestResourceUrlKey(unittest.TestCase):
         for case in _cases("resourceUrlKey"):
             with self.subTest(case["name"]):
                 self.assertEqual(page_resources.url_key(case["url"]), case["expect"])
+
+
+class TestCaptureGate(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("captureGate"):
+            with self.subTest(case["name"]):
+                params = {"script": case["script"], "args": []} if "script" in case else {}
+                command = instrumentation._capture_command(case["command"], params)
+                self.assertEqual(
+                    {
+                        "command": command,
+                        "capture": instrumentation._capture_due(
+                            command, case["awaitingInitialFrame"]
+                        ),
+                    },
+                    case["expect"],
+                )
 
 
 if __name__ == "__main__":
