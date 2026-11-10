@@ -14,6 +14,7 @@ import {
   type ScreenshotResourceEvent
 } from '@wdio/devtools-trace'
 import { parseTraceZip } from '../src/trace-reader.js'
+import { commandImage, frameImages } from './reader-entries.js'
 import {
   TraceType,
   type ActionSnapshot,
@@ -528,12 +529,13 @@ describe('a written trace stores each screenshot once', () => {
     const { zip } = await written()
     const data = parseTraceZip(zip)
     expect(data.trace.networkRequests).toEqual([])
+    expect(data.responseBodies).toBeUndefined()
     expect(data.trace.commands.map((c) => c.command)).toEqual([
       'url',
       'click',
       'getText'
     ])
-    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
+    expect(frameImages(zip, data)).toEqual([PNG, JPEG])
     expect(data.trace.commands[1]!.snapshotText).toBe('- button "Go"')
   })
 
@@ -554,9 +556,10 @@ describe('a written trace stores each screenshot once', () => {
       false
     )
 
-    const data = parseTraceZip(zipSync(legacy))
-    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
-    expect(data.trace.commands.map((c) => c.screenshot)).toEqual([
+    const zip = zipSync(legacy)
+    const data = parseTraceZip(zip)
+    expect(frameImages(zip, data)).toEqual([PNG, JPEG])
+    expect(data.trace.commands.map((c) => commandImage(zip, data, c))).toEqual([
       PNG,
       JPEG,
       JPEG

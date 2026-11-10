@@ -1,15 +1,13 @@
-// A zip's stored stylesheets and fonts back as `PageResource`s; a zip without the index (older ones, foreign ones) has none.
+// A zip's stored stylesheets and fonts as entries for the player to read; a zip without the index (older ones, foreign ones) has none.
 
 import { strFromU8 } from 'fflate'
 import {
   TRACE_ZIP_ENTRIES,
-  type PageResource,
   type PageResourceKind,
-  type TraceLog
+  type PageResourceRef
 } from '@wdio/devtools-shared'
 
-import { bytesToBase64 } from './base64.js'
-import type { TraceZipEntries } from './trace-reader-types.js'
+import type { TraceEntries } from './trace-reader-types.js'
 import { parseNdjson } from './trace-reader-utils.js'
 
 const KINDS: ReadonlySet<string> = new Set<PageResourceKind>([
@@ -17,22 +15,18 @@ const KINDS: ReadonlySet<string> = new Set<PageResourceKind>([
   'font'
 ])
 
-/** The trace's `pageResources`, omitted for a zip that stored none. */
-export function pageResourcesOf(
-  files: TraceZipEntries
-): Pick<TraceLog, 'pageResources'> {
-  const resources = parsePageResources(files)
-  return resources.length > 0 ? { pageResources: resources } : {}
-}
-
-function parsePageResources(files: TraceZipEntries): PageResource[] {
-  const index = files[TRACE_ZIP_ENTRIES.pageResources]
+/** The stored page resources whose bytes the zip holds. */
+export function pageResourcesOf({
+  names,
+  entries
+}: TraceEntries): PageResourceRef[] {
+  const index = entries[TRACE_ZIP_ENTRIES.pageResources]
   if (!index) {
     return []
   }
-  const resources: PageResource[] = []
-  for (const entry of parseNdjson(strFromU8(index))) {
-    const { url, sha1, mimeType, kind } = entry
+  const resources: PageResourceRef[] = []
+  for (const line of parseNdjson(strFromU8(index))) {
+    const { url, sha1, mimeType, kind, size } = line
     if (
       typeof url !== 'string' ||
       typeof sha1 !== 'string' ||
@@ -42,16 +36,16 @@ function parsePageResources(files: TraceZipEntries): PageResource[] {
     ) {
       continue
     }
-    const data = files[`${TRACE_ZIP_ENTRIES.resourcesDir}/${sha1}`]
-    if (!data) {
+    const entry = `${TRACE_ZIP_ENTRIES.resourcesDir}/${sha1}`
+    if (!names.has(entry)) {
       continue
     }
     resources.push({
       url,
       mimeType,
       kind: kind as PageResourceKind,
-      data: bytesToBase64(data),
-      size: data.byteLength
+      entry,
+      size: typeof size === 'number' ? size : 0
     })
   }
   return resources

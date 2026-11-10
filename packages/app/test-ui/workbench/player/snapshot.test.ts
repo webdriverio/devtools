@@ -1,14 +1,18 @@
 import type {
   CommandLog,
   Metadata,
-  MetadataBySession
+  MetadataBySession,
+  TracePlayerFrame
 } from '@wdio/devtools-shared'
 
 import {
   commandContext,
+  framesContext,
   metadataBySessionContext,
   metadataContext,
-  mutationContext
+  mutationContext,
+  playerArchiveContext,
+  type PlayerArchive
 } from '@/controller/context.js'
 // The collector itself, by path: `packages/app` deliberately does not depend on
 // `packages/script`, so there is no alias for it. Imported here — and only here —
@@ -25,6 +29,7 @@ import '@components/browser/snapshot.js'
 
 import { commandLog, mutation } from '../../support/builders.js'
 import { mountWithContext, settle } from '../../support/mount.js'
+import { playerArchive } from '../../support/trace-archive.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   CANCEL_ARIA_LABEL,
@@ -96,6 +101,8 @@ interface Inputs {
   mutations?: TraceMutation[]
   metadata?: Metadata
   metadataBySession?: MetadataBySession
+  frames?: TracePlayerFrame[]
+  archive?: PlayerArchive
 }
 
 function mountBrowser(inputs: Inputs = {}): Promise<Browser> {
@@ -103,7 +110,12 @@ function mountBrowser(inputs: Inputs = {}): Promise<Browser> {
     { context: commandContext, value: inputs.commands ?? [] },
     { context: mutationContext, value: inputs.mutations ?? [] },
     { context: metadataContext, value: inputs.metadata ?? viewportMetadata },
-    { context: metadataBySessionContext, value: inputs.metadataBySession ?? {} }
+    {
+      context: metadataBySessionContext,
+      value: inputs.metadataBySession ?? {}
+    },
+    { context: framesContext, value: inputs.frames ?? [] },
+    { context: playerArchiveContext, value: inputs.archive }
   ])
 }
 
@@ -992,6 +1004,60 @@ describe('wdio-devtools-browser', () => {
 
       expect(shadowAll(el, PLACEHOLDER)).toHaveLength(1)
       expect(shadowAll(el, SCREENSHOT)).toHaveLength(0)
+    })
+  })
+
+  describe("a player trace's frames, read from its zip", () => {
+    /** The DOM-less trace as the reader builds it: no screenshot on any row, its images as zip entries. */
+    const playerInputs = (): Inputs => ({
+      commands: domlessTrace.commands.map((command) => ({
+        ...command,
+        screenshot: undefined
+      })),
+      frames: [
+        {
+          timestamp: domlessTrace.navigate.timestamp,
+          entry: 'resources/login'
+        },
+        {
+          timestamp: domlessTrace.clickSubmit.timestamp,
+          entry: 'resources/secure'
+        }
+      ],
+      archive: playerArchive({
+        'resources/login': LOGIN_SHOT,
+        'resources/secure': SECURE_SHOT
+      })
+    })
+
+    const shownImage = (el: Browser) =>
+      waitFor(() => {
+        const img = shadow<HTMLImageElement>(el, SCREENSHOT)
+        return img?.complete && img.naturalWidth > 0 ? img : null
+      }, 'the frame image to load')
+
+    it("shows the selected row's frame as an object URL", async () => {
+      const inputs = playerInputs()
+      const el = await mountBrowser(inputs)
+      selectCommand(inputs.commands![0]!)
+
+      const img = await shownImage(el)
+
+      expect(img.src).toMatch(/^blob:/)
+      expect(img.src).toBe(inputs.archive!.entries.cachedUrl('resources/login'))
+    })
+
+    it('shows the frame before a row that captured none', async () => {
+      const inputs = playerInputs()
+      const el = await mountBrowser(inputs)
+      selectCommand(inputs.commands![2]!)
+
+      await waitFor(
+        () =>
+          shadow<HTMLImageElement>(el, SCREENSHOT)?.src ===
+          inputs.archive!.entries.cachedUrl('resources/secure'),
+        "the preceding row's frame"
+      )
     })
   })
 

@@ -250,3 +250,27 @@ export function mergeSuite(
     suites: finalSuites
   }
 }
+
+/** The root suites a `suites` context holds, keyed by uid; a chunk entry without a uid is skipped. */
+export function suiteMapOf(
+  chunks: readonly Record<string, SuiteStatsFragment>[]
+): Map<string, SuiteStatsFragment> {
+  const suiteMap = new Map<string, SuiteStatsFragment>()
+  for (const chunk of chunks) {
+    for (const [uid, suite] of Object.entries(chunk)) {
+      if (suite?.uid) {
+        suiteMap.set(uid, suite)
+      }
+    }
+  }
+  return suiteMap
+}
+
+/** The root suites of incoming `suites` frames, in order; empty chunks and uid-less entries are skipped. */
+export function rootSuitesOf(
+  payloads: readonly (Record<string, SuiteStatsFragment> | undefined)[]
+): SuiteStatsFragment[] {
+  return payloads.flatMap((chunk) =>
+    Object.values(chunk ?? {}).filter((suite) => Boolean(suite?.uid))
+  )
+}

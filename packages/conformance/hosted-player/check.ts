@@ -207,7 +207,16 @@ async function openTrace(
   if (opened.alerts.length) {
     throw new Error(`${trace.name}: ${opened.alerts.join('; ')}`)
   }
-  const state = await expandAll(browser, trace.name)
+  const expanded = await expandAll(browser, trace.name)
+  // Thumbnails fill in as their images are read from the zip.
+  const state = expanded.frames
+    ? expanded
+    : await waitForState(
+        browser,
+        (current) => current.frames > 0,
+        OPEN_TIMEOUT_MS,
+        `${trace.name}: no frame in the filmstrip`
+      )
   for (const url of state.resources) {
     observed.requested.add(url)
   }

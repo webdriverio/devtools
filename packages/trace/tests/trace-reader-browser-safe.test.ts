@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { TraceType } from '@wdio/devtools-shared'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { bytesToBase64 } from '../src/base64.js'
 import { writeTraceZip } from '../src/trace-exporter.js'
-import { parseTraceZip } from '../src/trace-reader.js'
+import { openTraceArchive, readTracePayload } from '../src/trace-reader.js'
+import { bytesZipSource } from '../src/zip-index.js'
 
 // The hosted trace player bundles the reader for the browser, and Vite only
 // warns when it stubs a Node built-in, so the build alone would not catch one.
@@ -55,7 +55,7 @@ afterEach(async () => {
   )
 })
 
-async function recordedZip(): Promise<Uint8Array> {
+async function recordedZip(): Promise<Uint8Array<ArrayBuffer>> {
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'browser-safe-'))
   dirs.push(outputDir)
   const shot = Buffer.from('a screenshot').toString('base64')
@@ -86,13 +86,17 @@ async function recordedZip(): Promise<Uint8Array> {
 describe('trace-reader in a browser', () => {
   // An import walk cannot see a Node global, which is how `Buffer` once
   // reached the hosted player and failed every trace with a screenshot.
-  it('parses a recorded trace with no Buffer in scope', async () => {
+  it('reads a recorded trace with no Buffer in scope', async () => {
     const zip = await recordedZip()
     vi.stubGlobal('Buffer', undefined)
 
-    const { frames, trace } = parseTraceZip(zip)
+    const archive = await openTraceArchive(bytesZipSource(new Uint8Array(zip)))
+    const { frames, trace } = await readTracePayload(archive)
 
-    expect(frames.map(({ screenshot }) => atob(screenshot))).toEqual([
+    const images = await Promise.all(
+      frames.map(({ entry }) => archive.read(entry))
+    )
+    expect(images.map((image) => new TextDecoder().decode(image))).toEqual([
       'a screenshot'
     ])
     expect(trace.sources).toEqual({ '/specs/login.ts': 'it("logs in")' })
@@ -108,32 +112,8 @@ describe('trace-reader in a browser', () => {
   })
 
   it('detects one when it is there', () => {
-    expect(bareImportsReachableFrom('read-trace-zip.ts')).toContain(
+    expect(bareImportsReachableFrom('trace-exporter.ts')).toContain(
       'node:fs/promises'
     )
-  })
-})
-
-describe('bytesToBase64', () => {
-  const bytes = new Uint8Array(100_003).map((_, index) => (index * 31) % 256)
-  const expected = Buffer.from(bytes).toString('base64')
-
-  it('encodes through Buffer under Node', () => {
-    expect(bytesToBase64(bytes)).toBe(expected)
-  })
-
-  it('encodes through btoa with neither native encoder', () => {
-    vi.stubGlobal('Buffer', undefined)
-
-    expect(bytesToBase64(bytes)).toBe(expected)
-    expect(bytesToBase64(new Uint8Array())).toBe('')
-  })
-
-  it('prefers the native encoder where the runtime has one', () => {
-    const native = Object.assign(new Uint8Array([1]), {
-      toBase64: () => 'native'
-    })
-
-    expect(bytesToBase64(native)).toBe('native')
   })
 })

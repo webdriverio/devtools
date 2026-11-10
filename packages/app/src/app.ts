@@ -45,8 +45,8 @@ onThemeChange(applyDarkMode)
 @customElement('wdio-devtools')
 export class WebdriverIODevtoolsApplication extends Element {
   dataManager = new DataManagerController(this)
-  #traceRun = new TraceRunController(this, (data) =>
-    this.dataManager.loadPlayerData(data)
+  #traceRun = new TraceRunController(this, ({ data, archive }) =>
+    this.dataManager.loadPlayerData(data, archive)
   )
   #traceLink = new TraceLinkController(this, {
     isPlayer: () => this.dataManager.playerMode,
@@ -57,6 +57,7 @@ export class WebdriverIODevtoolsApplication extends Element {
         this,
         {
           one: async (bytes, onPhase) => {
+            this.#traceRun.cancelPending()
             await this.dataManager.openTraceArchive(bytes, onPhase)
             this.#traceRun.clear()
           },
@@ -168,7 +169,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   }
 
   #onTraceRunSelect = (event: CustomEvent<number>): void => {
-    this.#traceRun.select(event.detail)
+    void this.#traceRun.select(event.detail)
   }
 
   #onShowCommand = (event: Event): void => {
@@ -259,7 +260,7 @@ export class WebdriverIODevtoolsApplication extends Element {
   }
 
   #traceOpenBanner() {
-    const error = this.#traceOpen?.error
+    const error = this.#traceOpen?.error ?? this.#traceRun.error
     if (!error) {
       return nothing
     }
@@ -271,7 +272,10 @@ export class WebdriverIODevtoolsApplication extends Element {
       <span>${error}</span>
       <button
         aria-label="Dismiss"
-        @click="${() => this.#traceOpen?.dismissError()}"
+        @click="${() => {
+          this.#traceOpen?.dismissError()
+          this.#traceRun.dismissError()
+        }}"
       >
         ✕
       </button>

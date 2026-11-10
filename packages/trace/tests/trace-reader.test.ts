@@ -1,21 +1,21 @@
 import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { zipSync, strToU8 } from 'fflate'
-import type {
-  TraceActionChild,
-  TraceActionGroupNode
+import {
+  nearestFrame,
+  type TraceActionChild,
+  type TraceActionGroupNode
 } from '@wdio/devtools-shared'
 import {
-  parseTraceEntries,
+  isEagerEntry,
+  openTraceArchive,
   parseTraceZip,
-  unzipTraceZip
+  readTracePayload
 } from '../src/trace-reader.js'
-import {
-  buildSources,
-  nearestFrame,
-  stackToCallSource
-} from '../src/trace-reader-utils.js'
+import { buildSources, stackToCallSource } from '../src/trace-reader-utils.js'
 import type { BeforeEvent } from '../src/trace-reader-types.js'
+import { bytesZipSource } from '../src/zip-index.js'
+import { commandImage, frameImages } from './reader-entries.js'
 
 function allGroups(children: TraceActionChild[]): TraceActionGroupNode[] {
   return children.flatMap((child) =>
@@ -188,17 +188,23 @@ describe('parseTraceZip', () => {
     ])
   })
 
-  it('attaches the nearest frame screenshot to each command', () => {
-    const { trace } = parseTraceZip(fixtureZip())
-    expect(trace.commands[0].screenshot).toBe(IMG1)
-    expect(trace.commands[1].screenshot).toBe(IMG2)
-    expect(trace.commands[2].screenshot).toBe(IMG3)
+  it('resolves each command to the nearest frame, read only when shown', () => {
+    const zip = fixtureZip()
+    const data = parseTraceZip(zip)
+    expect(
+      data.trace.commands.map((command) => commandImage(zip, data, command))
+    ).toEqual([IMG1, IMG2, IMG3])
+    expect(data.trace.commands.some((command) => command.screenshot)).toBe(
+      false
+    )
   })
 
   it('rebuilds the frame filmstrip sorted by timestamp', () => {
-    const { frames, startTime, duration } = parseTraceZip(fixtureZip())
+    const zip = fixtureZip()
+    const data = parseTraceZip(zip)
+    const { frames, startTime, duration } = data
     expect(frames.length).toBe(3)
-    expect(frames[0].screenshot).toBe(IMG1)
+    expect(frameImages(zip, data)[0]).toBe(IMG1)
     expect(frames.map((f) => f.timestamp)).toEqual(
       [...frames.map((f) => f.timestamp)].sort((a, b) => a - b)
     )
@@ -745,13 +751,39 @@ function foreignFixtureZip(): Uint8Array {
   })
 }
 
-describe('unzipTraceZip and parseTraceEntries', () => {
-  // The hosted player runs the two steps separately to report each as a phase.
-  it('read a zip exactly as parseTraceZip does', () => {
-    const entries = unzipTraceZip(fixtureZip())
+describe('openTraceArchive and readTracePayload', () => {
+  it('read a zip exactly as parseTraceZip does', async () => {
+    const archive = await openTraceArchive(bytesZipSource(fixtureZip()))
 
-    expect(Object.keys(entries)).toContain('trace.trace')
-    expect(parseTraceEntries(entries)).toEqual(parseTraceZip(fixtureZip()))
+    expect(archive.names).toContain('trace.trace')
+    expect(await readTracePayload(archive)).toEqual(parseTraceZip(fixtureZip()))
+  })
+})
+
+describe('isEagerEntry', () => {
+  it('reads streams, sources and a11y text up front, and images, bodies and page resources on demand', () => {
+    expect(
+      [
+        'trace.trace',
+        '0-trace.trace',
+        'trace.network',
+        'trace.mutations',
+        'test.stacks',
+        'transcript.md',
+        'page-resources.ndjson',
+        'resources/src@abc.txt',
+        'resources/page@1-200-snapshot.txt'
+      ].every(isEagerEntry)
+    ).toBe(true)
+    expect(
+      [
+        'resources/abc',
+        'resources/abc.jpeg',
+        'resources/abc.png',
+        'resources/def.html',
+        'resources/page@1-200-elements.json'
+      ].some(isEagerEntry)
+    ).toBe(false)
   })
 })
 
@@ -783,12 +815,10 @@ describe('parseTraceZip with a foreign multi-stream zip', () => {
   })
 
   it('resolves bare-sha1 screencast refs via image extension fallbacks', () => {
-    const { frames, trace } = parseTraceZip(foreignFixtureZip())
-    expect(frames.map((f) => f.screenshot)).toEqual([
-      FOREIGN_IMG_A,
-      FOREIGN_IMG_B
-    ])
-    expect(trace.commands[0].screenshot).toBe(FOREIGN_IMG_A)
+    const zip = foreignFixtureZip()
+    const data = parseTraceZip(zip)
+    expect(frameImages(zip, data)).toEqual([FOREIGN_IMG_A, FOREIGN_IMG_B])
+    expect(commandImage(zip, data, data.trace.commands[0])).toBe(FOREIGN_IMG_A)
   })
 
   it('merges network streams and console events, picks the browser context', () => {
@@ -891,7 +921,7 @@ describe('glued callSource recovery from older zips', () => {
 })
 
 describe('nearestFrame', () => {
-  const frame = (timestamp: number) => ({ timestamp, screenshot: 'x' })
+  const frame = (timestamp: number) => ({ timestamp, entry: 'x' })
 
   it('shows a row the state it observed, not the one its successor produced', () => {
     // One capture per action means a row without one of its own (an assert row,

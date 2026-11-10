@@ -6,12 +6,15 @@
 // from before/after events, the filmstrip from screencast-frame events +
 // resources/*, console logs from console/stdio events, sources from stack
 // frames + src@ resources, and DOM mutations from the `.mutations` stream when
-// present. Fields the zip never carried (suites) come back empty. Constants,
-// event types, and pure helpers live in the sibling
-// trace-reader-{constants,types,utils,groups}.ts files.
+// present. Fields the zip never carried (suites) come back empty. Images,
+// stored bodies and page resources are named by entry, never read here: the
+// player reads each one from the zip when it shows it. Constants, event types,
+// and pure helpers live in the sibling trace-reader-{constants,types,utils,
+// groups}.ts files.
 
 import { unzipSync, strFromU8 } from 'fflate'
 import {
+  imageBytesDimensions,
   isMutationsTruncationMarker,
   TRACE_ZIP_ENTRIES,
   type CommandLog,
@@ -22,8 +25,16 @@ import {
   type TracePlayerFrame
 } from '@wdio/devtools-shared'
 
-import { bytesToBase64 } from './base64.js'
 import { pageResourcesOf } from './trace-reader-page-resources.js'
+import {
+  openZip,
+  ZIP_MAX_INFLATED_BYTES,
+  type ZipIndex,
+  type ZipSource
+} from './zip-index.js'
+
+// The app may import only this module from `trace`, so the sources it opens a zip over come through it.
+export { bytesZipSource, type ZipSource } from './zip-index.js'
 import {
   FRAME_RESOURCE_SUFFIXES,
   MUTATIONS_STREAM_SUFFIX,
@@ -43,6 +54,7 @@ import type {
   MergedEvents,
   ScreencastFrameEvent,
   StdioEvent,
+  TraceEntries,
   TraceZipEntries
 } from './trace-reader-types.js'
 import {
@@ -57,8 +69,8 @@ import {
   buildMetadata,
   buildSources,
   harToNetworkRequest,
-  nearestFrame,
   paramsToArgs,
+  responseBodyEntry,
   parseNdjson,
   stackToCallSource
 } from './trace-reader-utils.js'
@@ -156,33 +168,26 @@ function mergeStreams(streams: CategorizedEvents[]): MergedEvents {
 }
 
 function frameResource(
-  files: TraceZipEntries,
+  names: ReadonlySet<string>,
   sha1: string
-): Uint8Array | undefined {
-  for (const suffix of FRAME_RESOURCE_SUFFIXES) {
-    const data = files[`resources/${sha1}${suffix}`]
-    if (data) {
-      return data
-    }
-  }
-  return undefined
+): string | undefined {
+  return FRAME_RESOURCE_SUFFIXES.map(
+    (suffix) => `resources/${sha1}${suffix}`
+  ).find((name) => names.has(name))
 }
 
 function buildFrames(
-  files: TraceZipEntries,
+  names: ReadonlySet<string>,
   frameEvents: ScreencastFrameEvent[]
 ): { frames: TracePlayerFrame[]; maxTime: number } {
   const frames: TracePlayerFrame[] = []
   let maxTime = 0
   for (const event of frameEvents) {
-    const data = frameResource(files, event.sha1)
-    if (!data) {
+    const entry = frameResource(names, event.sha1)
+    if (!entry) {
       continue
     }
-    frames.push({
-      timestamp: event.timestamp,
-      screenshot: bytesToBase64(data)
-    })
+    frames.push({ timestamp: event.timestamp, entry })
     maxTime = Math.max(maxTime, event.timestamp)
   }
   frames.sort((a, b) => a.timestamp - b.timestamp)
@@ -206,12 +211,11 @@ function commandError(
   return undefined
 }
 
-/** Reconstruct one CommandLog from its before/after events + nearest frame. */
+/** Reconstruct one CommandLog from its before/after events; its image is the player's `nearestFrame`. */
 function reconstructCommand(
   before: BeforeEvent,
   after: AfterEvent | undefined,
   afters: Map<string, AfterEvent>,
-  frames: TracePlayerFrame[],
   snapshotText?: string
 ): CommandLog {
   const endTime = after?.endTime ?? before.startTime
@@ -236,10 +240,6 @@ function reconstructCommand(
   const callSource = stackToCallSource(before.stack)
   if (callSource) {
     command.callSource = callSource
-  }
-  const frame = nearestFrame(frames, command.timestamp)
-  if (frame) {
-    command.screenshot = frame.screenshot
   }
   if (snapshotText) {
     command.snapshotText = snapshotText
@@ -275,7 +275,6 @@ function buildSnapshotTextByCallId(
 
 function buildCommands(
   events: MergedEvents,
-  frames: TracePlayerFrame[],
   files: TraceZipEntries
 ): {
   commands: CommandLog[]
@@ -300,7 +299,6 @@ function buildCommands(
       before,
       after,
       events.afters,
-      frames,
       snapshotByCallId.get(callId)
     )
     command.callId = callId
@@ -337,15 +335,27 @@ function linkIssuedRows(
 }
 
 function parseNetworkStreams(
-  files: TraceZipEntries,
-  names: string[]
-): NetworkRequest[] {
-  return names
-    .flatMap((name) => parseNdjson(strFromU8(files[name])))
+  { names, entries }: TraceEntries,
+  streams: string[]
+): Pick<TracePlayerData, 'responseBodies'> & {
+  requests: NetworkRequest[]
+} {
+  const responseBodies: Record<string, string> = {}
+  const requests = streams
+    .flatMap((name) => parseNdjson(strFromU8(entries[name])))
     .filter((entry) => typeof entry.snapshot === 'object' && entry.snapshot)
-    .map((entry, index) =>
-      harToNetworkRequest(entry.snapshot as HarSnapshot, index, files)
-    )
+    .map((entry, index) => {
+      const snapshot = entry.snapshot as HarSnapshot
+      const request = harToNetworkRequest(snapshot, index)
+      const body = responseBodyEntry(snapshot, names)
+      if (body && request.responseBody === undefined) {
+        responseBodies[request.id] = body
+      }
+      return request
+    })
+  return Object.keys(responseBodies).length
+    ? { requests, responseBodies }
+    : { requests }
 }
 
 function parseMutationStreams(
@@ -390,63 +400,159 @@ function earliestWallTime(ctxs: ContextOptionsEvent[]): number {
   return wallTimes.length ? Math.min(...wallTimes) : 0
 }
 
-/** Unpack a trace.zip buffer into its entries, keyed by path. */
-export function unzipTraceZip(zip: Uint8Array): TraceZipEntries {
-  return unzipSync(zip)
+/** Entries the payload is built from; frame images, stored bodies and page resources are read only when shown. */
+export function isEagerEntry(name: string): boolean {
+  const prefix = `${TRACE_ZIP_ENTRIES.resourcesDir}/`
+  if (!name.startsWith(prefix)) {
+    return true
+  }
+  const resource = name.slice(prefix.length)
+  return resource.startsWith('src@') || resource.endsWith('-snapshot.txt')
 }
 
-/** Parse an in-memory trace.zip buffer into a player payload. Pure (no I/O). */
+/** A trace zip opened for reading: every entry name, and any entry's bytes on demand. */
+export type TraceArchive = ZipIndex
+
+/** Indexes a trace zip from its central directory, reading no entry yet. */
+export function openTraceArchive(source: ZipSource): Promise<TraceArchive> {
+  return openZip(source)
+}
+
+/** Eager entries inflated at once; a zip holds few, so this only bounds a hostile one. */
+const EAGER_READ_CONCURRENCY = 8
+
+/** Reads the entries the payload is built from, and nothing else, refusing a zip that declares more than a reader inflates at once. */
+export async function readTraceEntries(
+  archive: TraceArchive
+): Promise<TraceEntries> {
+  const eager = [...archive.names].filter(isEagerEntry)
+  const declared = eager.reduce(
+    (total, name) => total + (archive.sizeOf(name) ?? 0),
+    0
+  )
+  if (declared > ZIP_MAX_INFLATED_BYTES) {
+    throw new Error('The trace declares more data than the player reads')
+  }
+  const entries: TraceZipEntries = {}
+  for (let at = 0; at < eager.length; at += EAGER_READ_CONCURRENCY) {
+    const batch = eager.slice(at, at + EAGER_READ_CONCURRENCY)
+    const read = await Promise.all(batch.map((name) => archive.read(name)))
+    batch.forEach((name, i) => (entries[name] = read[i]!))
+  }
+  return { names: archive.names, entries }
+}
+
+/** The first frame's pixel size, and the largest frame's declared length, which bounds how many frames the player holds at once. */
+function withFrameSize(
+  data: TracePlayerData,
+  firstFrame: Uint8Array | undefined,
+  sizeOf: (entry: string) => number | undefined
+): TracePlayerData {
+  const largest = Math.max(
+    0,
+    ...data.frames.map(({ entry }) => sizeOf(entry) ?? 0)
+  )
+  const size = firstFrame && imageBytesDimensions(firstFrame)
+  return {
+    ...data,
+    ...(largest ? { frameBytes: largest } : {}),
+    ...(size ? { frameSize: size } : {})
+  }
+}
+
+/** The payload, plus the first frame's size read from its own entry. */
+export async function buildTracePayload(
+  entries: TraceEntries,
+  archive: TraceArchive
+): Promise<TracePlayerData> {
+  const data = parseTraceEntries(entries)
+  const first = data.frames[0]
+  // An unreadable image costs the filmstrip its shape, never the whole trace.
+  const image =
+    first && (await archive.read(first.entry).catch(() => undefined))
+  return withFrameSize(data, image, (entry) => archive.sizeOf(entry))
+}
+
+/** Opens nothing but the payload's entries and one frame of a trace zip. */
+export async function readTracePayload(
+  archive: TraceArchive
+): Promise<TracePlayerData> {
+  return buildTracePayload(await readTraceEntries(archive), archive)
+}
+
+/** Parse an in-memory trace.zip buffer into a player payload, inflating only the entries `isEagerEntry` names. Pure (no I/O). */
 export function parseTraceZip(zip: Uint8Array): TracePlayerData {
-  return parseTraceEntries(unzipTraceZip(zip))
+  const sizes = new Map<string, number>()
+  const entries = unzipSync(zip, {
+    filter: ({ name, originalSize }) => {
+      sizes.set(name, originalSize)
+      return isEagerEntry(name)
+    }
+  })
+  const data = parseTraceEntries({ names: new Set(sizes.keys()), entries })
+  const first = data.frames[0]?.entry
+  return withFrameSize(
+    data,
+    first
+      ? unzipSync(zip, { filter: ({ name }) => name === first })[first]
+      : undefined,
+    (entry) => sizes.get(entry)
+  )
 }
 
-/** Build the player payload from a trace.zip's unpacked entries. */
-export function parseTraceEntries(files: TraceZipEntries): TracePlayerData {
-  const names = Object.keys(files).sort()
+/** Build the player payload from a trace.zip's entry names and the bytes of its eager entries. */
+export function parseTraceEntries(files: TraceEntries): TracePlayerData {
+  const { names, entries } = files
+  const sorted = [...names].filter(isEagerEntry).sort()
   const entriesWith = (suffix: string) =>
-    names.filter((name) => name.endsWith(suffix))
-  const merged = parseAndMergeEventStreams(files, names)
-  const { frames, maxTime: frameMax } = buildFrames(files, merged.frameEvents)
-  const {
-    commands,
-    maxTime: cmdMax,
-    indexByCallId
-  } = buildCommands(merged, frames, files)
+    sorted.filter((name) => name.endsWith(suffix))
+  const merged = parseAndMergeEventStreams(entries, sorted)
+  const { frames, maxTime: frameMax } = buildFrames(names, merged.frameEvents)
+  const built = buildCommands(merged, entries)
+  const { commands } = built
   const groups = buildActionTree(
     merged.befores,
     merged.afters,
     commands,
-    indexByCallId
+    built.indexByCallId
   )
   const startTime = earliestWallTime(merged.ctxs)
-  const transcript = files[TRACE_ZIP_ENTRIES.transcript]
-    ? strFromU8(files[TRACE_ZIP_ENTRIES.transcript])
-    : undefined
+  const transcriptEntry = entries[TRACE_ZIP_ENTRIES.transcript]
+  const transcript = transcriptEntry && strFromU8(transcriptEntry)
+  const network = parseNetworkStreams(files, entriesWith(NETWORK_STREAM_SUFFIX))
+  const pageResources = pageResourcesOf(files)
   const trace: TraceLog = {
     mutations: parseMutationStreams(
-      files,
+      entries,
       entriesWith(MUTATIONS_STREAM_SUFFIX)
     ),
     logs: [],
     consoleLogs: buildConsoleLogs(merged.consoleEvents),
-    networkRequests: parseNetworkStreams(
-      files,
-      entriesWith(NETWORK_STREAM_SUFFIX)
-    ),
+    networkRequests: network.requests,
     metadata: buildMetadata(
       merged.ctxs.find((ctx) => ctx.browserName) ?? merged.ctxs[0]
     ),
     commands,
-    sources: buildSources(merged.befores.values(), files),
-    suites: [],
-    ...pageResourcesOf(files)
+    sources: buildSources(merged.befores.values(), entries),
+    suites: []
   }
   return {
     trace,
     frames,
     startTime,
-    duration: Math.max(0, Math.max(frameMax, cmdMax) - startTime),
-    ...(groups ? { groups } : {}),
-    ...(transcript ? { transcript } : {})
+    duration: Math.max(0, Math.max(frameMax, built.maxTime) - startTime),
+    ...withoutAbsent({
+      responseBodies: network.responseBodies,
+      pageResources: pageResources.length ? pageResources : undefined,
+      groups,
+      transcript: transcript || undefined
+    })
   }
+}
+
+/** `fields` without the ones that are undefined, so a zip that carried none leaves no key. */
+function withoutAbsent<T extends object>(fields: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined)
+  ) as Partial<T>
 }

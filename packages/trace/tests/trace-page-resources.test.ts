@@ -19,6 +19,10 @@ import {
 import { withoutResourceReReads } from '../src/trace-network.js'
 import { writeTraceZip, type TraceCapturer } from '../src/trace-exporter.js'
 import { parseTraceZip } from '../src/trace-reader.js'
+import { zipEntry } from './reader-entries.js'
+
+const b64String = (bytes: Uint8Array): string =>
+  Buffer.from(bytes).toString('base64')
 
 const PAGE = 'https://site.test/login'
 const b64 = (text: string) => Buffer.from(text).toString('base64')
@@ -316,17 +320,19 @@ describe('a trace with page resources, written and read back', () => {
     expect(Object.keys(unzipSync(bytes))).toContain(
       TRACE_ZIP_ENTRIES.pageResources
     )
-    const { trace } = parseTraceZip(bytes)
-    expect(trace.pageResources?.map((r) => [r.url, r.kind]).sort()).toEqual(
+    const { pageResources } = parseTraceZip(bytes)
+    expect(pageResources?.map((r) => [r.url, r.kind]).sort()).toEqual(
       [
         [SITE_CSS.url, 'stylesheet'],
         [PART_CSS.url, 'stylesheet'],
         [FONT.url, 'font']
       ].sort()
     )
-    expect(trace.pageResources?.find((r) => r.url === FONT.url)?.data).toBe(
-      b64('wOF2')
-    )
+    const font = pageResources?.find((r) => r.url === FONT.url)
+    expect(b64String(zipEntry(bytes, font!.entry))).toBe(b64('wOF2'))
+    expect(font?.size).toBe(4)
+    const { trace } = parseTraceZip(bytes)
+    expect(trace.pageResources).toBeUndefined()
     expect(trace.networkRequests.map((r) => r.url)).toHaveLength(1)
     await fs.rm(dir, { recursive: true, force: true })
   })
@@ -344,8 +350,8 @@ describe('a trace with page resources, written and read back', () => {
       },
       { outputDir: dir, sessionId: 's2' }
     )
-    const { trace } = parseTraceZip(new Uint8Array(await fs.readFile(zipPath)))
-    expect(trace.pageResources).toBeUndefined()
+    const data = parseTraceZip(new Uint8Array(await fs.readFile(zipPath)))
+    expect(data.pageResources).toBeUndefined()
     await fs.rm(dir, { recursive: true, force: true })
   })
 })

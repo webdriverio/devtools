@@ -595,19 +595,26 @@ export const recordedSessionMetadata: MetadataBySession = {
   }
 }
 
+/** The zip entries the filmstrip's frames name, and the image each holds. */
+export const FRAME_IMAGES: Record<string, string> = {
+  'resources/frame.png': FRAME_SHOT,
+  'resources/login.png': LOGIN_SHOT,
+  'resources/secure.png': SECURE_SHOT
+}
+
 const firstFrame: TracePlayerFrame = {
   timestamp: RUN_START,
-  screenshot: FRAME_SHOT
+  entry: 'resources/frame.png'
 }
 
 const typingFrame: TracePlayerFrame = {
   timestamp: RUN_START + 750,
-  screenshot: LOGIN_SHOT
+  entry: 'resources/login.png'
 }
 
 const lastFrame: TracePlayerFrame = {
   timestamp: RUN_START + 2000,
-  screenshot: SECURE_SHOT
+  entry: 'resources/secure.png'
 }
 
 export interface Filmstrip {
@@ -626,9 +633,9 @@ export interface Filmstrip {
 export const filmstrip: Filmstrip = {
   frames: [
     firstFrame,
-    { timestamp: RUN_START + 500, screenshot: SECURE_SHOT },
+    { timestamp: RUN_START + 500, entry: 'resources/secure.png' },
     typingFrame,
-    { timestamp: RUN_START + 1250, screenshot: FRAME_SHOT },
+    { timestamp: RUN_START + 1250, entry: 'resources/frame.png' },
     lastFrame
   ],
   first: firstFrame,

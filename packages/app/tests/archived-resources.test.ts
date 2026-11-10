@@ -2,21 +2,24 @@
  * @vitest-environment happy-dom
  */
 import { describe, expect, it } from 'vitest'
-import type { PageResource } from '@wdio/devtools-shared'
+import type { PageResourceKind } from '@wdio/devtools-shared'
 
 import { render } from 'preact'
-import { ArchivedResources } from '../src/components/browser/archived-resources.js'
+import {
+  ArchivedResources,
+  type StoredPageResource
+} from '../src/components/browser/archived-resources.js'
 import { replayDocument } from '../src/components/browser/vnode-transform.js'
-
-const b64 = (text: string) => btoa(text)
 
 function resource(
   url: string,
   body: string,
-  kind: PageResource['kind'] = 'stylesheet',
+  kind: PageResourceKind = 'stylesheet',
   mimeType = kind === 'stylesheet' ? 'text/css' : 'font/woff2'
-): PageResource {
-  return { url, kind, mimeType, data: b64(body), size: body.length }
+): StoredPageResource {
+  return kind === 'stylesheet'
+    ? { url, kind, mimeType, text: body }
+    : { url, kind, mimeType, blob: new Blob([body]) }
 }
 
 /** Records every blob it is handed, in order, under a readable name. */
@@ -126,9 +129,14 @@ describe('ArchivedResources', () => {
     ])
   })
 
-  it('replays an unreadable stored copy live', () => {
-    const archive = new ArchivedResources(fakeBlobs().api)
-    archive.load([{ ...resource(FONT, 'x', 'font'), data: '%%%' }])
+  it('replays a stored copy it cannot make a URL for live', () => {
+    const archive = new ArchivedResources({
+      create: () => {
+        throw new Error('quota')
+      },
+      revoke: () => {}
+    })
+    archive.load([resource(FONT, 'x', 'font')])
     expect(archive.urlFor(FONT)).toBeUndefined()
   })
 
