@@ -582,6 +582,12 @@ describe('DataManagerController', () => {
       expect(localStorage.getItem(CACHE_ID)).toBeNull()
     })
 
+    it('keeps a served trace out of the live cache', async () => {
+      await boot({ trace: playerData() })
+
+      expect(localStorage.getItem(CACHE_ID)).toBeNull()
+    })
+
     it('stays in live mode when the probe serves no trace', async () => {
       const { manager } = await boot()
 

@@ -1,12 +1,8 @@
 import fs from 'fs'
 import { createRequire } from 'node:module'
 import { parse } from '@babel/parser'
-import type {
-  Node as BabelNode,
-  NodePath,
-  TraverseOptions
-} from '@babel/traverse'
-import type { CallExpression } from '@babel/types'
+import type { NodePath, Visitor } from '@babel/traverse'
+import type { CallExpression, Node as BabelNode } from '@babel/types'
 import { parse as parseStackTrace } from 'stack-trace'
 
 type CalleeNode =
@@ -42,7 +38,7 @@ import {
 const require = createRequire(import.meta.url)
 const traverse = (
   require('@babel/traverse') as {
-    default: (parent: BabelNode, opts?: TraverseOptions) => void
+    default: (parent: BabelNode, opts?: Visitor) => void
   }
 ).default
 

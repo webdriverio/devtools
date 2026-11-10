@@ -11,10 +11,13 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
+  captureMaskPrelude,
   deviceFromCapabilities,
   isNativeAppSession,
+  resolveCaptureMask,
   resourceUrlKey,
-  RUNNER_ENV
+  RUNNER_ENV,
+  type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
@@ -83,6 +86,7 @@ const RUNNERS = [
   'waitRowNaming',
   'finalFrameStamp',
   'captureTimingSummary',
+  'collectorMaskPrelude',
   'resourceUrlKey'
 ]
 
@@ -452,6 +456,16 @@ describe('captureTimingSummary', () => {
         summary,
         formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
       }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('collectorMaskPrelude', () => {
+  for (const c of section<
+    Named & { options: CaptureMaskOptions; expect: string }
+  >('collectorMaskPrelude').cases) {
+    it(c.name, () => {
+      expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
     })
   }
 })

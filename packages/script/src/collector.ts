@@ -5,6 +5,7 @@ import { ResourceTimingCollector } from './collectors/resourceTiming.js'
 import { PageResourceCollector } from './collectors/pageResources.js'
 import type { TraceDrainOptions } from '@wdio/devtools-shared'
 import { assignRef, hasRef, parseDocument } from './utils.js'
+import { pageMask } from './masking.js'
 
 /**
  * When THIS document came into existence, as epoch ms.
@@ -113,6 +114,11 @@ export class DataCollector {
 
   getMetadata() {
     return this.#metadata
+  }
+
+  /** The mask selector list, read by the element scripts so an action snapshot masks what the DOM stream masks. */
+  maskSelector(): string | null {
+    return pageMask.selector
   }
 
   /** `opts.resources` is set by a trace-mode drain alone; without it nothing is read back or returned. */

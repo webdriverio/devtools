@@ -12,6 +12,7 @@ import type {
   TestRunnerId
 } from '../src/types.js'
 import { locatorsMatch } from '../src/locator-dialect.js'
+import { MASKED_VALUE } from '../src/input-mask.js'
 
 /** The scripts are injectable source, so they are run the way the adapters run
  *  them — `@wdio/elements` builds the same `new Function` wrapper. */
@@ -472,5 +473,54 @@ describe('accessible names', () => {
     const lists = a11yNodes(html).filter((n) => n.role === 'list')
 
     expect(lists.map((n) => n.name)).toEqual(['Steps', ''])
+  })
+})
+
+describe('masked elements', () => {
+  const withCollector = (selector: string | null) => {
+    // The element scripts read only `maskSelector`, so a stub stands in for the whole collector.
+    Object.assign(window, {
+      wdioTraceCollector: { maskSelector: () => selector }
+    })
+  }
+
+  it('names an element under a mask selector by the placeholder, and locates it by CSS', () => {
+    withCollector('.account')
+    try {
+      const html =
+        '<p class="account"><a href="/acct" id="acct">DE89 3704</a></p><a href="/help">Help</a>'
+      for (const nodes of [a11yNodes(html), interactables(html)]) {
+        expect(JSON.stringify(nodes)).not.toContain('DE89')
+        expect(locatorFor(nodes, MASKED_VALUE)).toBe('#acct')
+        expect(locatorFor(nodes, 'Help')).toBe('//a[contains(., "Help")]')
+      }
+    } finally {
+      delete window.wdioTraceCollector
+    }
+  })
+
+  it('leaves a masked descendant out of its ancestor’s name and text locator', () => {
+    withCollector('.acct')
+    try {
+      const html =
+        '<button id="pay">Pay <span class="acct">DE89 3704</span></button>' +
+        '<div id="owner">Owner <span class="acct">Jane Roe</span></div>'
+      for (const nodes of [a11yNodes(html), interactables(html)]) {
+        expect(JSON.stringify(nodes)).not.toMatch(/DE89|Jane Roe/)
+      }
+      const a11y = a11yNodes(html)
+      expect(locatorFor(a11y, `Pay ${MASKED_VALUE}`)).toBe('#pay')
+      expect(locatorFor(a11y, `Owner ${MASKED_VALUE}`)).toBe('#owner')
+      expect(a11y.find((n) => n.name === `Owner ${MASKED_VALUE}`)?.role).toBe(
+        'statictext'
+      )
+    } finally {
+      delete window.wdioTraceCollector
+    }
+  })
+
+  it('masks nothing without a collector to ask', () => {
+    const nodes = a11yNodes('<a href="/acct" class="account">DE89 3704</a>')
+    expect(locatorFor(nodes, 'DE89 3704')).toBe('//a[contains(., "DE89 3704")]')
   })
 })

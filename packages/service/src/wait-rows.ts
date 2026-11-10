@@ -76,6 +76,14 @@ export class WaitRows {
     }
   }
 
+  /** Closes a wait from its running row when its own hook never ran, so it keeps its call site, selector and start. */
+  closeOpen(id: number, error: CommandLog['error']): void {
+    const running = this.#rows.get(id)
+    if (running) {
+      this.close({ ...running, error, timestamp: Date.now() }, id)
+    }
+  }
+
   reset(): void {
     this.#issued.clear()
     this.#rows.clear()

@@ -333,6 +333,31 @@ same. In a plain script, an assertion whose observed value could not be read
 names no element, since guessing from the expected value alone could box an
 element that once read the same text.
 
+### Masking password fields
+
+On by default: the page the dashboard and the archive replay never shows what
+was typed into a password field. The page collector replaces the value of every
+`<input type="password">` with `••••` (fixed, so the length does not leak) in
+the DOM it records: the anchor, every `input`/`change` record and every `value`
+attribute mutation. A field a show-password toggle turned into a text input
+stays masked. Every other field is recorded as typed. The `send_keys` row keeps
+the real text, password included, so the Actions list and `transcript.md` show
+what the test typed.
+
+| Setting | `enable()` | pytest | ini | env |
+|---|---|---|---|---|
+| Turn password masking off | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
+| Also mask elements by CSS selector (text and value) | `mask_selectors=[".account-number"]` | `--devtools-mask-selector .account-number` (repeatable) | `devtools_mask_selectors` (one per line) | `DEVTOOLS_MASK_SELECTORS=.a,.b` |
+
+Precedence is the command line, then the ini file, then the environment.
+
+Masking only changes the replayed page. The typed password is still in the
+`send_keys` row, the trace's action events and `transcript.md`; a literal
+credential in your test source reaches the Source tab; console lines, request
+bodies and errors carry whatever the page or the test put there;
+screenshots and screencast frames are pixels; and a password field the page
+turns into a text field before the collector sees it is recorded as typed.
+
 ### Parallel runs (`pytest -n`)
 
 **pytest-xdist works with no extra configuration.** Every process reporting into

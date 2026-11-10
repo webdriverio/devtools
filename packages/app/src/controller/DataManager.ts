@@ -265,7 +265,7 @@ export class DataManagerController implements ReactiveController {
     this.actionGroupsContextProvider.setValue(data.groups)
     this.transcriptContextProvider.setValue(data.transcript)
     this.playerArchiveContextProvider.setValue(prepared.archive)
-    // The cache only backs a live socket; a player trace is reopened from its zip.
+    // The cache only backs a live socket; a player trace there would replay as the next live run.
     this.loadTraceFile(data.trace, false)
     archivedResources.load(prepared.resources)
     this.hasConnectionProvider.setValue(true)

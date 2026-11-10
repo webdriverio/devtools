@@ -12,7 +12,8 @@ export const WITHOUT_BIDI_ANCHOR =
   'Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.'
 export const WITHOUT_BIDI_DRAIN =
   'Without BiDi a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.'
-export const SELENIUM_JS_FILMSTRIP = 'CDP push (Chromium), polling elsewhere'
+export const SELENIUM_JS_FILMSTRIP =
+  'Chromium streams over CDP; other browsers poll.'
 export const NETWORK_FLOOR =
   "Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari."
 export const NO_CUCUMBER_STEP_RERUN =

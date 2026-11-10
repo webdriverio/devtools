@@ -47,22 +47,22 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| One row per command in the Actions list | ✅ | ✅ | ✅ | ✅ |
-| Waits show as one row with what they issued nested under it | ✅ | ✅ | ⚠️ no element-wait polls ¹ | ✅ |
-| Screenshot on every command row | ✅ | ✅ | ✅ | ✅ |
-| Browser console logs | ✅ | ✅ | ✅ | ✅ |
-| Source tab opens the test line that ran the command | ✅ | ✅ | ✅ | ✅ |
-| Metadata tab (session, capabilities, device) | ✅ | ✅ | ✅ | ✅ |
-| Performance timings on navigation rows | ✅ | ✅ | ✅ | ✅ |
-| Failed command in the Errors tab, with the browser's message | ✅ | ✅ | ✅ | ✅ |
-| Run, Rerun and Run all from the dashboard | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ⚠️ no Cucumber step rerun ² | ✅ |
-| Preserve & Rerun (compare a failed run with its rerun) | ✅ | ✅ | ✅ | ✅ |
-| Dashboard window opens by itself in live mode, and can be turned off | ⚠️ always opens ³ | ✅ `openUi: false` | ⚠️ always opens ⁴ | ✅ `DEVTOOLS_OPEN=0` |
-| Turn off per-command screenshots (`captureScreenshots`) | ❌ ⁵ | ✅ | ❌ ⁶ | ❌ ⁶ |
-| Force the test browser headless (`headless`) | ❌ ⁷ | ⚠️ Chrome only ⁸ | ❌ ⁷ | ❌ ⁷ |
-| Safari kept frontmost so input lands (live mode) | ⚠️ once ⁹ | ✅ before each element input | ⚠️ once ⁹ | ⚠️ once ⁹ |
+| One row per command in the Actions list | ✓ | ✓ | ✓ | ✓ |
+| Waits show as one row with what they issued nested under it | ✓ | ✓ | ◐ ¹ | ✓ |
+| Screenshot on every command row | ✓ | ✓ | ✓ | ✓ |
+| Browser console logs | ✓ | ✓ | ✓ | ✓ |
+| Source tab opens the test line that ran the command | ✓ | ✓ | ✓ | ✓ |
+| Metadata tab (session, capabilities, device) | ✓ | ✓ | ✓ | ✓ |
+| Performance timings on navigation rows | ✓ | ✓ | ✓ | ✓ |
+| Failed command in the Errors tab, with the browser's message | ✓ | ✓ | ✓ | ✓ |
+| Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
+| Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
+| Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
+| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ A `waitUntil` row holds the commands its condition issued; a `waitForElement*` row has nothing under it, because Nightwatch polls for the element through its own transport rather than `browser`.
 
@@ -70,17 +70,23 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 ³ The service always opens the dashboard in live mode; `devtoolsCapabilities` picks its browser but cannot skip it.
 
-⁴ Nightwatch always opens the dashboard in live mode.
+⁴ Turn it off with `openUi: false`.
 
-⁵ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
+⁵ Nightwatch always opens the dashboard in live mode.
 
-⁶ No option: every command row takes a screenshot.
+⁶ Turn it off with `DEVTOOLS_OPEN=0`.
 
-⁷ No option: set headless in the browser capabilities, as for any run.
+⁷ No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.
 
-⁸ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+⁸ No option: every command row takes a screenshot.
 
-⁹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+⁹ No option: set headless in the browser capabilities, as for any run.
+
+¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+
+¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+
+¹² Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -137,6 +143,32 @@ When BiDi is active in Selenium or Nightwatch, the per-command Chrome performanc
 
 **Without BiDi: Safari, and every session Appium serves.** Neither driver exposes BiDi, so there the Network tab is filled by the page itself, through the same injected collector that records the DOM. It patches `fetch` / `XMLHttpRequest` (method, headers, status and body of each call the page makes) and reads the document's **Resource Timing** buffer: every load the browser made (the document, scripts, styles, images, fonts) with its timing phases and size, plus a status on Chromium. What Resource Timing cannot see are headers and bodies, and on Safari the status; each such row says so in its detail card, and its `trace.network` entry carries `_source: "resource-timing"`. When BiDi is serving the session, meaning it has delivered a network event and not merely accepted a subscription (Appium's BiDi shim accepts one and sends nothing), the Resource Timing rows are dropped at ingest so a request is listed once; Nightwatch's performance log, read after the page is drained, upgrades those rows in place with the headers and status it has. A native app session has no document, so it has no network capture at all. Only a device- or proxy-level capture outside the adapters can see that traffic.
 
+### 🔒 Password masking
+
+The page a run replays never shows what was typed into a password field, in live and trace mode alike, on all four adapters. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: in the DOM anchor, the field-state records and every `value` attribute mutation, keystroke by keystroke. A field a show-password toggle turned into a text input stays masked. An empty field stays empty, and every other field (text, email, search, textareas, editable regions) is recorded as typed.
+
+Command rows are not masked: the Actions list, the trace's action titles and `transcript.md` show the real text a `setValue` / `sendKeys` / `send_keys` typed, password included, so a failing step can be read as it ran.
+
+`maskSelectors` masks more of the replayed page: the text, the value and the `aria-label`, `title`, `alt` and `placeholder` attributes of every element a CSS selector matches, and of everything inside it, password or not (an account number, an address). The A11y tab names such an element `••••`, an ancestor's name reads `••••` where the masked text sat, and neither the A11y tab nor the element list locates either by its text. `maskInputs: false` turns the password masking off; selectors given in `maskSelectors` still apply.
+
+| Option | Values | Default | Description |
+|---|---|---|---|
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page. `false` records them as typed (a password's live value still stays out of the DOM anchor). |
+| `maskSelectors` | `string[]` | `[]` | CSS selectors whose matches have their text and value masked in the replayed page too. |
+
+The Python adapter takes the same options as `enable(mask_inputs=..., mask_selectors=[...])`, `--devtools-no-mask-inputs` / `--devtools-mask-selector`, the `devtools_mask_inputs` / `devtools_mask_selectors` ini keys, or `DEVTOOLS_MASK_INPUTS=0` / `DEVTOOLS_MASK_SELECTORS=".a,.b"`.
+
+**Not covered.** Masking only changes the replayed page. Treat a trace as sensitive as the run that produced it:
+
+- **Command rows.** A typed password is in the row that typed it, the trace's action events and `transcript.md`, and in a value read back or an assertion that compares it.
+- **Test source.** A credential written as a literal in the test file appears in the Source tab and the suite tree.
+- **Pixels.** Screenshots, the screencast and the filmstrip show the page as the browser painted it (a password field paints dots).
+- **Everything outside the DOM.** Console lines, request and response bodies (a login POST) and errors carry whatever the page or the test put there.
+- **Text the page displays by itself**, unless a `maskSelectors` entry covers it. Under a selector, attributes other than `value`, `aria-label`, `title`, `alt` and `placeholder` (`data-*`, `href`, ...) replay as written.
+- **A password field the collector never saw as one.** A field the page creates as `type="password"` and turns into a text field before the collector reads it is recorded as typed.
+- **A policy changed mid-run.** Selenium's `configure()` after a driver was built keeps the policy its collector was registered with until the next session.
+- **Native apps.** A native session has no DOM to mask.
+
 ### 📦 Trace mode (trace.zip)
 
 The dashboard runs in one of **two modes**, set per adapter via the shared `mode` option:
@@ -155,24 +187,25 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| Trace mode + `show-trace` player | ✅ | ✅ | ✅ | ✅ |
-| DOM time-travel (mutation capture) | ✅ | ⚠️ with BiDi ¹ | ⚠️ with BiDi ¹ | ✅ |
-| Network requests (browser sessions) | ✅ | ⚠️ with BiDi ² | ⚠️ with BiDi ³ | ✅ |
-| Stylesheets and fonts stored in the trace (`traceResources`, browser sessions) | ✅ | ✅ | ✅ | ✅ |
-| Screencast (`filmstrip` / video) | ✅ CDP push (Chrome), polling elsewhere | ✅ CDP push (Chromium), polling elsewhere | ⚠️ polling only ⁴ | ✅ CDP push (Chromium), one frame per command elsewhere |
-| Per-test granularity (`traceGranularity: 'test'`) | ✅ | ✅ | ⚠️ ⁵ | ✅ |
-| Retry-aware retention (`tracePolicy`) | ✅ | ✅ | ⚠️ `retain-on-failure` only ⁶ | ⚠️ `retain-on-failure` only ⁷ |
-| Per-test `screenshot` / `video`, attached to Allure | ✅ | ✅ | ⚠️ produce-only ⁸ | ❌ ⁹ |
-| Cucumber Feature→Scenario→Step nesting | ⚠️ Scenario→Step ¹⁰ | ✅ | ⚠️ Feature→Scenario ¹¹ | ❌ ¹² |
-| Assertion capture (`captureAssertions`) | ✅ | ⚠️ `node:assert` only ¹³ | ⚠️ no `expect` ¹⁴ | ✅ |
-| BiDi console / network capture | ✅ auto | ✅ auto | ⚠️ opt-in ¹⁵ | ✅ auto |
-| A11y tab + pick-locator overlay (trace player) | ✅ | ✅ | ✅ | ✅ |
-| Transcript + Copy-for-LLM (trace player) | ✅ | ✅ | ✅ | ✅ |
-| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✅ | ✅ | ✅ | ❌ zip only ¹⁶ |
-| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✅ | ✅ | ⚠️ opt-in ¹⁷ | ❌ ¹⁸ |
-| Network without BiDi (Safari, Appium mobile browsers) | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ | ⚠️ ¹⁹ |
+| Trace mode + `show-trace` player | ✓ | ✓ | ✓ | ✓ |
+| DOM time-travel (mutation capture) | ✓ | ◐ ¹ | ◐ ¹ | ✓ |
+| Network requests (browser sessions) | ✓ | ◐ ² | ◐ ³ | ✓ |
+| Stylesheets and fonts stored in the trace (`traceResources`, browser sessions) | ✓ | ✓ | ✓ | ✓ |
+| Screencast (`filmstrip` / video) | ✓ ⁴ | ✓ ⁵ | ◐ ⁶ | ✓ ⁷ |
+| Per-test granularity (`traceGranularity: 'test'`) | ✓ | ✓ | ◐ ⁸ | ✓ |
+| Retry-aware retention (`tracePolicy`) | ✓ | ✓ | ◐ ⁹ | ◐ ¹⁰ |
+| Per-test `screenshot` / `video`, attached to Allure | ✓ | ✓ | ◐ ¹¹ | ✕ ¹² |
+| Cucumber Feature→Scenario→Step nesting | ◐ ¹³ | ✓ | ◐ ¹⁴ | ✕ ¹⁵ |
+| Assertion capture (`captureAssertions`) | ✓ | ◐ ¹⁶ | ◐ ¹⁷ | ✓ |
+| BiDi console / network capture | ✓ ¹⁸ | ✓ ¹⁸ | ◐ ¹⁹ | ✓ ¹⁸ |
+| A11y tab + pick-locator overlay (trace player) | ✓ | ✓ | ✓ | ✓ |
+| Transcript + Copy-for-LLM (trace player) | ✓ | ✓ | ✓ | ✓ |
+| Password fields masked in the replayed page (`maskInputs`, `maskSelectors`) | ✓ | ✓ | ✓ | ✓ |
+| Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
+| Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²³ | ◐ ²³ | ◐ ²³ | ◐ ²³ |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Without BiDi (Safari, Appium) the page collector is injected after each navigation, so a page the test leaves within tens of milliseconds is never captured.
 
@@ -180,41 +213,49 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ³ Without BiDi (`bidi: true`) or Chrome's performance log (`goog:loggingPrefs`), a page the test leaves within tens of milliseconds is never drained, so its requests are not listed.
 
-⁴ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
+⁴ Chrome streams over CDP; other browsers poll.
 
-⁵ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
+⁵ Chromium streams over CDP; other browsers poll.
 
-⁶ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
+⁶ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
 
-⁷ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
+⁷ Chromium streams over CDP; other browsers take one frame per command.
 
-⁸ Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
+⁸ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
 
-⁹ The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
+⁹ For `describe/it` and exports-object tests, `--retries` reruns a testcase internally without firing the per-test hooks again, so the other policies behave like `retain-on-failure`; Cucumber scenarios record every attempt.
 
-¹⁰ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
+¹⁰ Nothing the Python adapter sends carries an attempt number, so the retry-aware policies behave like `retain-on-failure`.
 
-¹¹ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
+¹¹ Nightwatch has no live Allure attach API, so per-test screenshots and videos are written to disk and listed in the manifest but not attached.
 
-¹² The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
+¹² The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.
 
-¹³ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
+¹³ The service records no feature ancestry for a scenario, so the trace nests Scenario→Step.
 
-¹⁴ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
+¹⁴ Nightwatch steps are not stamped as nested groups, so the trace nests Feature→Scenario.
 
-¹⁵ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
+¹⁵ The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.
 
-¹⁶ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
+¹⁶ `node:assert` rows pass and fail; jest-style `expect()` and chai produce no rows at all, and a failing matcher only marks its test failed.
 
-¹⁷ Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
+¹⁷ `assert.*`, `verify.*` and `node:assert` rows pass and fail; Nightwatch's `expect` API produces no rows.
 
-¹⁸ The Python adapter writes no artifacts manifest.
+¹⁸ Attached by itself when the session supports BiDi.
 
-¹⁹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
+¹⁹ Nightwatch turns it on with `bidi: true` plus `webSocketUrl: true` in the capabilities.
+
+²⁰ The Python adapter has no option for it and sends no format in its export request, so the backend writes a zip.
+
+²¹ Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.
+
+²² The Python adapter writes no artifacts manifest.
+
+²³ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 <!-- capability-matrix:readme-trace:end -->
 
-In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI.
+In trace mode no DevTools UI window opens. At session end the adapter writes trace artifacts into a `test-results/` folder (created next to the resolved spec/config directory), suitable for offline replay, AI-agent diffing, or any consumer that prefers a portable artifact over a live UI. The WebdriverIO service prints the path of each trace it wrote when its worker finishes.
 
 | Adapter | How to enable |
 |---|---|
@@ -273,7 +314,7 @@ pnpm show-trace a/trace.zip b/trace.zip              # several zips
 
 Each zip is read once, as the list fills in, and kept for when it is picked. Anything in the folder that is not a `.zip` (screenshots, videos, the artifacts manifest) is skipped; a zip that cannot be opened stays in the list with the reason, and the rest open normally. A zip records no test state, so the outcome is read from the trace itself: **failed** when an action or step in it failed, **passed** when it holds actions and none failed, **unknown** when it holds none. An assertion library that records no row (a jest `expect`, chai) can fail a test whose trace still reads as passed. One zip opens exactly as before, with no list.
 
-**Hosted player: [trace.webdriver.io](https://trace.webdriver.io).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page takes its stylesheets and fonts from the archive (see `traceResources` below) and loads its images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks `http` images, and any stylesheet the trace did not store, so a trace of an `http` site written with `traceResources: 'none'` can render unstyled there and fully in `show-trace`. To try the hosted build locally:
+**Hosted player (`trace.webdriver.io`, not deployed yet).** The same player as a web page, for opening a trace without installing anything: pick one or several `.zip` files, or drop them or a folder of them on the page. The archive is parsed in the browser tab and never uploaded, which matters because a trace records everything the run showed or typed. Run controls are absent, as in `show-trace`. A trace from someone else is treated as untrusted: its replayed page runs no script, in the hosted player, `show-trace` and the live dashboard alike. A replayed page takes its stylesheets and fonts from the archive (see `traceResources` below) and loads its images from the site under test, as it does in `show-trace`; from an `https` page the browser blocks `http` images, and any stylesheet the trace did not store, so a trace of an `http` site written with `traceResources: 'none'` can render unstyled there and fully in `show-trace`. To try the hosted build locally:
 
 ```sh
 pnpm player:hosted   # builds it and serves it at http://localhost:4173 under the production headers
@@ -301,6 +342,8 @@ The hash names a position in the trace, for a `?trace=` URL, a picked file and `
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
 | `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page, live and trace mode alike; `false` records them as typed. Command rows always keep the typed text. See [Password masking](#-password-masking). |
+| `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match in the replayed page. |
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Which page resources the trace stores so its replay does not load them from the site. `'styles'` stores the stylesheets and fonts each archive's pages used, each once by content hash, capped at 1 MiB per resource and 8 MiB per archive (past the cap a resource replays live); `'none'` stores nothing. Images always replay from the site. The page collector reads each one back from the browser's HTTP cache, cross-origin ones only where the site allows CORS (a same-origin stylesheet it cannot read again falls back to its parsed rules), and the trace leaves those reads out of its network rows. Live mode reads nothing back. |
 | `emitArtifactsManifest` | `boolean` | auto | Write `devtools-artifacts-<sessionId>.json` next to the trace — the index reporters/CI read to discover produced artifacts. Off by default; auto-enabled when an Allure reporter is detected (Nightwatch stays opt-in). |
 
@@ -399,20 +442,22 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 | Feature | WebdriverIO | Selenium | Nightwatch | Python |
 |---|---|---|---|---|
-| Network without BiDi (Safari, Appium mobile browsers) | ⚠️ ¹ | ⚠️ ¹ | ⚠️ ¹ | ⚠️ ¹ |
-| Mobile browser sessions (Chrome on Android, Safari on iOS) | ✅ | ✅ | ✅ | ✅ |
-| iOS (XCUITest): native apps and Safari | ✅ | ✅ | ✅ | ✅ |
-| Native session detected, page-side capture skipped | ✅ | ✅ | ✅ | ✅ |
-| Follows a hybrid app into its webview | ⚠️ string form only ² | ⚠️ ³ | ⚠️ ³ | ⚠️ ³ |
-| Native app network through appium-interceptor (`appium:intercept`) | ✅ Android | ✅ Android | ✅ Android | ✅ Android |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ¹ | ◐ ¹ | ◐ ¹ | ◐ ¹ |
+| Mobile browser sessions (Chrome on Android, Safari on iOS) | ✓ | ✓ | ✓ | ✓ |
+| iOS (XCUITest): native apps and Safari | ✓ | ✓ | ✓ | ✓ |
+| Native session detected, page-side capture skipped | ✓ | ✓ | ✓ | ✓ |
+| Follows a hybrid app into its webview | ◐ ² | ◐ ³ | ◐ ³ | ◐ ³ |
+| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ |
 
-✅ supported. ⚠️ partial, with the limit in the note below. ❌ not supported. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
+✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 ² Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
 
 ³ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
+
+⁴ Android only; appium-interceptor is an Android plugin.
 
 <!-- capability-matrix:readme-mobile:end -->
 
@@ -542,6 +587,8 @@ Common options (all optional):
 | `screenshot` | `'off'` \| `'on'` \| `'only-on-failure'` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `video` | `'off'` \| `<tracePolicy>` | `'off'` | Per-test; needs `traceGranularity: 'test'` |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows |
+| `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page; `false` records them as typed |
+| `maskSelectors` | `string[]` | `[]` | Also mask text and value under these selectors in the replayed page |
 
 **Full option reference:** [`@wdio/devtools-service` README](./packages/service/README.md#reference) — plus the [Nightwatch](./packages/nightwatch-devtools/README.md#reference) and [Selenium](./packages/selenium-devtools/README.md#reference) references.
 
@@ -627,7 +674,7 @@ Capture is always opt-in, and there are three ways to say yes — `--devtools` /
 
 A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
 
-Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure` — nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test.
+Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure`: nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test. Password fields are masked in the replayed page by default here too: `mask_inputs` / `--devtools-no-mask-inputs` turns it off and `mask_selectors` / `--devtools-mask-selector` masks more (see [Password masking](#-password-masking)).
 
 → **[`selenium-devtools-py`](./packages/selenium-devtools-py/README.md)** — pytest and plain-script setup, trace mode, assertions, run controls, Preserve & Rerun, and parallel runs.
 
