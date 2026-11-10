@@ -114,7 +114,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 - **Automatic Video Recording**: Captures a continuous `.webm` video of the browser session alongside the existing snapshot and DOM mutation views
 - **Per-framework modes**:
   - **WebdriverIO**: CDP push mode for Chrome/Chromium (efficient, no per-command overhead); polling fallback for other browsers
-  - **Selenium WebDriver**: CDP push mode via `selenium-webdriver/bidi`; polling fallback otherwise
+  - **Selenium WebDriver**: CDP push mode when the session advertises a CDP endpoint (Chromium); polling otherwise, Safari and Appium included
   - **Nightwatch.js**: Polling mode (Nightwatch doesn't expose a stable CDP escape hatch); works on every browser Nightwatch supports
 - **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
 - **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action

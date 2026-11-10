@@ -274,7 +274,7 @@ DevTools.configure({
 
 Detailed sub-options: `quality` (0–100 JPEG quality, default 70), `maxWidth`/`maxHeight` (frame size, default 1280×720), `captureFormat` (`'jpeg'` or `'png'`), `pollIntervalMs` (used for non-Chrome browsers; default 200ms).
 
-Uses Chrome DevTools Protocol push mode where available; falls back to screenshot polling for Firefox / Safari with no config change.
+Uses Chrome DevTools Protocol push mode when the session's capabilities advertise a CDP endpoint (`se:cdp`, or a `debuggerAddress` under `goog:chromeOptions` / `ms:edgeOptions`), which local and Grid Chromium sessions do; every other session (Firefox, Safari, Appium) goes straight to screenshot polling with no config change. A CDP connection that fails anyway also falls back to polling.
 
 #### `headless` — hide the test browser window
 **Default:** `false` (the test browser is visible). Set to `true` to run the **test** browser without a window — useful for CI servers or when the popping window is annoying. The dashboard window is unaffected and still opens.

@@ -24,7 +24,7 @@ export interface DriverMetadataResult {
   metadata: Record<string, unknown> | undefined
 }
 
-type CapGet = (k: string) => unknown
+export type CapGet = (k: string) => unknown
 
 /**
  * A plain bag from selenium's `Capabilities`, whose data lives in a private
@@ -50,7 +50,7 @@ function serializeCapabilities(capabilities: unknown): Record<string, unknown> {
   return caps?.serialize?.() ?? (capabilities as Record<string, unknown>) ?? {}
 }
 
-function makeCapGet(capabilities: unknown): CapGet {
+export function makeCapGet(capabilities: unknown): CapGet {
   return (k: string) => {
     const caps = capabilities as
       | {
