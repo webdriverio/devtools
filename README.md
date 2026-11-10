@@ -203,7 +203,8 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 | Password fields masked in the replayed page (`maskInputs`, `maskSelectors`) | ✓ | ✓ | ✓ | ✓ |
 | Unpacked trace output (`traceFormat: 'ndjson-directory'`) | ✓ | ✓ | ✓ | ✕ ²⁰ |
 | Artifacts manifest for CI and reporters (`emitArtifactsManifest`) | ✓ | ✓ | ◐ ²¹ | ✕ ²² |
-| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²³ | ◐ ²³ | ◐ ²³ | ◐ ²³ |
+| Prints where each kept trace was written | ✓ ²³ | ◐ ²⁴ | ◐ ²⁴ | ◐ ²⁵ |
+| Network without BiDi (Safari, Appium mobile browsers) | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ | ◐ ²⁶ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
@@ -251,7 +252,13 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ²² The Python adapter writes no artifacts manifest.
 
-²³ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
+²³ Printed to stdout whatever the `logLevel`.
+
+²⁴ Logs the path at info level through the adapter's logger rather than printing it, so a run that hides info messages does not show it.
+
+²⁵ Logs the path (the folder, for per-test traces) at info level through Python's `logging`, which hides info messages unless the run enables them (`--log-cli-level=INFO` under pytest).
+
+²⁶ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
 <!-- capability-matrix:readme-trace:end -->
 

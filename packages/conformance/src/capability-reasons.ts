@@ -20,3 +20,21 @@ export const NO_CUCUMBER_STEP_RERUN =
   'Under Cucumber a Gherkin step has no CLI filter of its own, so the dashboard reruns scenarios and features, not single steps.'
 export const STARTUP_CAPS_ONLY =
   "Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native."
+export const TRACE_PATH_INFO_LOG =
+  "Logs the path at info level through the adapter's logger rather than printing it, so a run that hides info messages does not show it."
+export const PYTHON_TRACE_PATH_LOG =
+  "Logs the path (the folder, for per-test traces) at info level through Python's `logging`, which hides info messages unless the run enables them (`--log-cli-level=INFO` under pytest)."
+export const NIGHTWATCH_ONE_SLICE_PER_MODULE =
+  'Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.'
+export const SELENIUM_ARTIFACTS_BY_HAND =
+  'No test covers the adapter producing and attaching the per-test files; check by hand with `pnpm --filter @wdio/selenium-devtools example:mocha:allure`.'
+export const PYTHON_NO_ARTIFACT_OPTIONS =
+  'The Python adapter has no `screenshot` / `video` options and no Allure attachment yet.'
+export const PYTHON_NO_GHERKIN_GROUPS =
+  'The Python adapter stamps no Feature or Step groups, so a pytest-bdd scenario is one flat test group with no Feature parent and no Step children.'
+export const NIGHTWATCH_ROW_SCREENSHOT_BY_HAND =
+  'No unit test attaches the row screenshot; check the dashboard with `pnpm demo:nightwatch`.'
+export const NIGHTWATCH_METADATA_BY_HAND =
+  'No test asserts the capabilities in the metadata the adapter sends; check the Metadata tab with `pnpm demo:nightwatch`.'
+export const SERVICE_MANIFEST_BY_HAND =
+  'No test covers the service turning the manifest on when an Allure reporter is configured; check by hand with one configured.'
