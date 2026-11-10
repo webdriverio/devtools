@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { describe, it, expect } from 'vitest'
 import { zipSync, strToU8 } from 'fflate'
 import { parseTraceZip } from '../src/trace-reader.js'
+import { responseBodyOf } from './reader-entries.js'
 
 const sha1 = (data: string): string =>
   createHash('sha1').update(data).digest('hex')
@@ -106,10 +107,11 @@ function fixtureZip(): Uint8Array {
 }
 
 function bodyByUrl(url: string): string | undefined {
-  const data = parseTraceZip(fixtureZip())
+  const zip = fixtureZip()
+  const data = parseTraceZip(zip)
   const request = data.trace.networkRequests.find((r) => r.url === url)
   expect(request).toBeDefined()
-  return request?.responseBody
+  return responseBodyOf(zip, data, request!.id)
 }
 
 describe('trace-reader response bodies', () => {

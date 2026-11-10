@@ -64,6 +64,7 @@ coverage/
 
 # pnpm state, cache, logs, and debug files
 /packages/**/*.mjs
+!/packages/*/bin/*.mjs
 
 .claude
 
@@ -73,4 +74,3 @@ examples/**/allure-report*/
 packages/**/allure-results*/
 packages/**/allure-report*/
 examples/wdio/cucumber/wdio.allure.conf.ts
-

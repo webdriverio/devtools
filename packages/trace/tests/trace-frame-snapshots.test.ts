@@ -14,6 +14,7 @@ import {
   type ScreenshotResourceEvent
 } from '@wdio/devtools-trace'
 import { parseTraceZip } from '../src/trace-reader.js'
+import { commandImage, frameImages } from './reader-entries.js'
 import {
   TraceType,
   type ActionSnapshot,
@@ -69,6 +70,25 @@ describe('FrameSnapshotIndex', () => {
     const index = new FrameSnapshotIndex([snap()])
     expect(index.claimAfter(1000, 'call@1')).toBeUndefined()
     expect(index.refs()).toEqual([])
+  })
+
+  it('resolves every read row to the capture of the latest earlier page change', () => {
+    const index = new FrameSnapshotIndex([
+      snap({ timestamp: 100, command: 'click', screenshot: 'A1' }),
+      snap({ timestamp: 200, command: 'click', screenshot: 'B2' })
+    ])
+    expect(index.claimAfter(50, 'read@0')).toBeUndefined()
+    const reads: [number, string][] = [
+      [150, 'A1'],
+      [160, 'A1'],
+      [250, 'B2']
+    ]
+    for (const [ts, shot] of reads) {
+      const id = `read@${ts}`
+      expect(index.claimAfter(ts, id)).toBe(`after@${id}`)
+      const ref = index.refs().find((r) => r.callId === id)!
+      expect(ref.snapshot.screenshot).toBe(shot)
+    }
   })
 
   it('ignores snapshots without a screenshot', () => {
@@ -528,12 +548,13 @@ describe('a written trace stores each screenshot once', () => {
     const { zip } = await written()
     const data = parseTraceZip(zip)
     expect(data.trace.networkRequests).toEqual([])
+    expect(data.responseBodies).toBeUndefined()
     expect(data.trace.commands.map((c) => c.command)).toEqual([
       'url',
       'click',
       'getText'
     ])
-    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
+    expect(frameImages(zip, data)).toEqual([PNG, JPEG])
     expect(data.trace.commands[1]!.snapshotText).toBe('- button "Go"')
   })
 
@@ -554,9 +575,10 @@ describe('a written trace stores each screenshot once', () => {
       false
     )
 
-    const data = parseTraceZip(zipSync(legacy))
-    expect(data.frames.map((f) => f.screenshot)).toEqual([PNG, JPEG])
-    expect(data.trace.commands.map((c) => c.screenshot)).toEqual([
+    const zip = zipSync(legacy)
+    const data = parseTraceZip(zip)
+    expect(frameImages(zip, data)).toEqual([PNG, JPEG])
+    expect(data.trace.commands.map((c) => commandImage(zip, data, c))).toEqual([
       PNG,
       JPEG,
       JPEG

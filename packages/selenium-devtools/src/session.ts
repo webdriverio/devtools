@@ -337,7 +337,15 @@ export class SessionCapturer extends SessionCapturerBase {
       // "Cannot read properties of undefined (reading 'getTraceData')" errors.
       let recovered = false
       const traceData = await drainCollectorWithRecovery({
-        drain: () => exec(driver, collectorDrainExpression(forceAnchor)),
+        drain: () =>
+          exec(
+            driver,
+            collectorDrainExpression(
+              forceAnchor,
+              this.pageResourceStore.mode,
+              this.pageResourceStore.storedKeys
+            )
+          ),
         injectIntoCurrentDocument: async () => {
           recovered = true
           await this.injectScript()

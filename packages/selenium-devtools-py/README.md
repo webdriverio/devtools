@@ -264,6 +264,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | live |
 | Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm` | `screencastFrames` | trace |
 | A11y tree + element rects | run the backend's page-side element scripts beside each action | `actionSnapshots` | trace |
+| Stylesheets + fonts | the page collector reads back what the page loaded, from the HTTP cache, when the drain asks (`collectorDrainResources`) | `pageResources`, `resourceReReads` | trace |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
 delegate to `self._parent.execute`, so the one wrapper sees them as
@@ -331,6 +332,31 @@ test counts. A value read from the page itself, such as `driver.title` or
 same. In a plain script, an assertion whose observed value could not be read
 names no element, since guessing from the expected value alone could box an
 element that once read the same text.
+
+### Masking password fields
+
+On by default: the page the dashboard and the archive replay never shows what
+was typed into a password field. The page collector replaces the value of every
+`<input type="password">` with `••••` (fixed, so the length does not leak) in
+the DOM it records: the anchor, every `input`/`change` record and every `value`
+attribute mutation. A field a show-password toggle turned into a text input
+stays masked. Every other field is recorded as typed. The `send_keys` row keeps
+the real text, password included, so the Actions list and `transcript.md` show
+what the test typed.
+
+| Setting | `enable()` | pytest | ini | env |
+|---|---|---|---|---|
+| Turn password masking off | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
+| Also mask elements by CSS selector (text and value) | `mask_selectors=[".account-number"]` | `--devtools-mask-selector .account-number` (repeatable) | `devtools_mask_selectors` (one per line) | `DEVTOOLS_MASK_SELECTORS=.a,.b` |
+
+Precedence is the command line, then the ini file, then the environment.
+
+Masking only changes the replayed page. The typed password is still in the
+`send_keys` row, the trace's action events and `transcript.md`; a literal
+credential in your test source reaches the Source tab; console lines, request
+bodies and errors carry whatever the page or the test put there;
+screenshots and screencast frames are pixels; and a password field the page
+turns into a text field before the collector sees it is recorded as typed.
 
 ### Parallel runs (`pytest -n`)
 
@@ -503,6 +529,7 @@ per-command screenshots that both modes capture:
 | Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
 | A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
+| Stylesheets and fonts the pages used, stored once each by content hash so the replay does not load them from the site (images still do); the collector's reads of them are left out of the network rows | on | `DEVTOOLS_TRACE_RESOURCES=none`, `--devtools-trace-resources none`, ini `devtools_trace_resources = none`, or `enable(trace_resources="none")` |
 
 Two things worth knowing. **How many archives a run writes, and which are kept,**
 is set by `--devtools-trace-granularity` and `--devtools-trace-policy` (see

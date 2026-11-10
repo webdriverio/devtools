@@ -23,7 +23,8 @@
   },
   "types": "./src/index.ts",
   "scripts": {
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "measure:reader": "tsx scripts/measure-reader.ts"
   },
   "license": "MIT",
   "devDependencies": {

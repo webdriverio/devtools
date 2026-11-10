@@ -2,7 +2,11 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { TRACE_API, traceZipUrl } from '@wdio/devtools-shared'
+import {
+  TRACE_API,
+  traceZipUrl,
+  type LegacyTracePlayerData
+} from '@wdio/devtools-shared'
 
 import { start } from '../src/index.js'
 import { collectTraceZips, traceRunFiles } from '../src/trace-files.js'
@@ -77,7 +81,7 @@ describe('traceRunFiles', () => {
   })
 })
 
-describe('trace-serve mode with several zips', () => {
+describe('trace-serve mode', () => {
   beforeEach(() => {
     vi.mocked(utils.getDevtoolsApp).mockResolvedValue('/mock/app/path')
     vi.mocked(utils.getCollectorSource).mockResolvedValue('// collector')
@@ -91,11 +95,9 @@ describe('trace-serve mode with several zips', () => {
       traceRun: traceRunFiles([a, b], root)
     })
 
-    const single = await server.inject({ method: 'GET', url: TRACE_API.get })
     const listing = await server.inject({ method: 'GET', url: TRACE_API.run })
     const second = await server.inject({ method: 'GET', url: traceZipUrl(1) })
 
-    expect(single.statusCode).toBe(204)
     expect(listing.json()).toEqual({
       traces: [
         { path: 'run/a/trace.zip', url: '/api/trace/zip/0' },
@@ -105,6 +107,44 @@ describe('trace-serve mode with several zips', () => {
     expect(second.headers['content-type']).toBe('application/zip')
     expect(second.body).toBe('zip-b')
     await server.close()
+  })
+
+  it('serves a single zip as a run of one, for the app to read like any other', async () => {
+    const a = await write('trace.zip', 'zip-a')
+    const { server } = await start({
+      port: 0,
+      traceRun: traceRunFiles([a], root)
+    })
+
+    const listing = await server.inject({ method: 'GET', url: TRACE_API.run })
+    const zip = await server.inject({ method: 'GET', url: traceZipUrl(0) })
+
+    expect(listing.json()).toEqual({
+      traces: [{ path: 'trace.zip', url: '/api/trace/zip/0' }]
+    })
+    expect(zip.body).toBe('zip-a')
+    await server.close()
+  })
+
+  it('serves a payload a caller reconstructed on the payload route, and 204 there otherwise', async () => {
+    const trace = {
+      trace: { commands: [] },
+      frames: [],
+      startTime: 1,
+      duration: 0
+    } as unknown as LegacyTracePlayerData
+    const served = await start({ port: 0, trace })
+    const given = await served.server.inject({
+      method: 'GET',
+      url: TRACE_API.get
+    })
+    expect(given.json()).toEqual(trace)
+    await served.server.close()
+
+    const live = await start({ port: 0 })
+    const none = await live.server.inject({ method: 'GET', url: TRACE_API.get })
+    expect(none.statusCode).toBe(204)
+    await live.server.close()
   })
 
   it('serves nothing outside the listing', async () => {

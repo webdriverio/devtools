@@ -5,6 +5,7 @@ import {
   beginInputDispatch,
   captureAndAttachScreenshot,
   clearReadValues,
+  configureInputMasking,
   errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
@@ -39,6 +40,7 @@ import {
 } from './action-snapshot.js'
 import {
   isWaitCommand,
+  skipsCapture,
   type ActionSnapshot,
   type TestMetadataMap
 } from '@wdio/devtools-shared'
@@ -57,8 +59,10 @@ import {
 import { ScreencastLifecycle } from './screencast-lifecycle.js'
 import { attachBidiListeners } from './bidi-listeners.js'
 import { type ServiceOptions, TraceType } from './types.js'
+import type { GetSnapshotOptions, GetSnapshotResult } from '@wdio/elements'
 import {
   CONTEXT_CHANGE_COMMANDS,
+  HOOKS_SETTLE_TIMEOUT_MS,
   INTERNAL_COMMANDS,
   LOCATOR_COMMANDS,
   PAGE_TRANSITION_COMMANDS
@@ -70,6 +74,7 @@ import { publishConfigFile } from './standalone.js'
 import { InterceptedNetwork } from './intercepted-network.js'
 import {
   CommandStack,
+  HooksInFlight,
   isServiceWork,
   runAsServiceWork,
   type CommandFrame
@@ -79,6 +84,7 @@ export * from './types.js'
 export const launcher = DevToolsAppLauncher
 
 const log = logger('@wdio/devtools-service')
+const INITIAL_CAPTURE_MAX_ATTEMPTS = 2
 
 export { setupForDevtools } from './standalone.js'
 
@@ -102,6 +108,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
+    configureInputMasking(serviceOptions)
     this.#assertionTracker = new AssertionTracker({
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,
@@ -137,6 +144,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   /** Which commands are rows: top-level user commands, and the commands an open wait issued. */
   #commandStack = new CommandStack()
+  #hooksInFlight = new HooksInFlight()
 
   /** Closes the running command's screenshot-polling suppression window. Single
    *  slot because WDIO serialises commands per session; a concurrent pair (e.g.
@@ -159,6 +167,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Wall-clock ms at the current test's start, set in beforeTest/beforeScenario;
    *  the lower bound of that test's video frame window (per-test slicing). */
   #currentTestStartWallTime = 0
+  #awaitingInitialCapture = true
+  #initialCaptureAttempts = 0
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -242,6 +252,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       wdioCaps['wdio:devtoolsOptions']
     )
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
+    this.#sessionCapturer.pageResourceStore.configure(this.#options)
     // The dashboard window took the front; Safari clicks reach nothing there.
     if ((this.#options.mode ?? 'live') === 'live') {
       const caps = browser.capabilities as
@@ -300,17 +311,21 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * @wdio/elements' getSnapshot() directly — no trace-mode overhead,
      * no screenshot round-trip, no page-settling.
      *
-     * Returns { text, elements } — see @wdio/elements SnapshotResult.
+     * Returns { format, text, elements, refs? } — see @wdio/elements GetSnapshotResult.
      */
     browser.addCommand(
       'getSnapshot',
-      async (options?: { inViewportOnly?: boolean }) => {
+      async (options?: GetSnapshotOptions): Promise<GetSnapshotResult> => {
         try {
           const { getSnapshot } = await import('@wdio/elements')
-          return await getSnapshot(browser, options ?? { inViewportOnly: true })
+          return await getSnapshot(browser, options)
         } catch (err) {
           log.warn(`getSnapshot failed: ${errorMessage(err)}`)
-          return { text: '[Snapshot unavailable]', elements: {} }
+          return {
+            format: 'legacy',
+            text: '[Snapshot unavailable]',
+            elements: {}
+          }
         }
       }
     )
@@ -380,6 +395,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }) {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
+    this.#awaitingInitialCapture = true
+    this.#initialCaptureAttempts = 0
     this.#currentStepIndex = 0
     this.#currentStepUid = undefined
 
@@ -413,6 +430,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   beforeTest(test?: { file?: string; title?: string; fullTitle?: string }) {
     this.resetStack()
     this.#currentTestStartWallTime = Date.now()
+    this.#awaitingInitialCapture = true
+    this.#initialCaptureAttempts = 0
 
     // Track test identity for command tagging. Generate a stable UID
     // from file + title so commands can be partitioned across reruns.
@@ -455,11 +474,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   // afterStep fires right after each step, so the failing assertion lands next
   // to the step's actions rather than after reloadSession at scenario end.
-  afterStep(
+  async afterStep(
     _step?: unknown,
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
+    await this.#closeOpenWaits(result?.error)
     this.#currentStepUid = undefined
     this.#assertionTracker.handleOutcome(result?.error)
   }
@@ -485,6 +505,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     },
     result?: TestOutcomeResult
   ) {
+    await this.#closeOpenWaits(result?.error)
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     const uid =
       uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
@@ -500,6 +521,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
+    await this.#closeOpenWaits(result?.error)
     this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
@@ -567,6 +589,17 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     return this.#assertionTracker.afterAssertion(params)
   }
 
+  /** Drains until the page's resource reads finish; true when any drain since the last action anchored a new document. */
+  async #settlePageResources(browser: WebdriverIO.Browser): Promise<boolean> {
+    const capturer = this.#sessionCapturer
+    let navigated = capturer.replacedDocumentInLastDrain
+    await capturer.pageResourceStore.settle(async () => {
+      await capturer.captureTrace(browser, true)
+      navigated ||= capturer.replacedDocumentInLastDrain
+    })
+    return navigated
+  }
+
   async #finalizePerScenario() {
     if (this.#options.mode !== 'trace' || !this.#browser) {
       return
@@ -578,12 +611,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // otherwise never be captured before teardown. forceAnchor: the destination's
     // async initial anchor may not have run yet, so anchor it synchronously here.
     await this.#sessionCapturer.captureTrace(this.#browser, true)
+    const navigated = await this.#settlePageResources(this.#browser)
     // Named after the action it captures, because that is what it is: every
     // other row's result comes from the NEXT action's pre-capture, so the last
     // action's has no successor and this is the only capture of it. A session
     // that ran no action names it FINAL_SNAPSHOT_COMMAND, which the per-test
     // screenshot reads as "post-teardown frame, do not use".
-    const lastAction = this.#lastAction()
+    const lastChange = this.#lastCommandWhere(
+      (command) => !skipsCapture(command)
+    )
+    const lastAction =
+      lastChange && lastChange.timestamp >= this.#currentTestStartWallTime
+        ? lastChange
+        : this.#lastAction()
     // A session with no action has no timestamp of its own to key on, so its
     // frame is recognised by the marker instead — otherwise `Date.now()` differs
     // between the per-test finalize and `after()` and both capture.
@@ -605,7 +645,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!alreadyCaptured) {
       await settleAfterLastAction(
         this.#browser,
-        this.#sessionCapturer.replacedDocumentInLastDrain,
+        navigated,
         this.#sessionCapturer.currentContext
       )
       const snap = await captureActionSnapshot(
@@ -641,18 +681,32 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  self-scopes, and a slot already filled at its own boundary converges on
    *  `alreadyCaptured`. */
   #lastAction(): { command: string; timestamp: number } | undefined {
+    return this.#lastCommandWhere(() => true)
+  }
+
+  #lastCommandWhere(
+    predicate: (command: string) => boolean
+  ): { command: string; timestamp: number } | undefined {
     const commands = this.#sessionCapturer.commandsLog
     for (let i = commands.length - 1; i >= 0; i--) {
       const cmd = commands[i]!
-      if (this.#isActionCommand(cmd.command)) {
+      if (this.#isActionCommand(cmd.command) && predicate(cmd.command)) {
         return cmd
       }
     }
     return undefined
   }
 
-  #lastActionTimestamp(): number {
-    return this.#lastAction()?.timestamp ?? Date.now()
+  /** Before the outcome marks a row and the slice is flushed, so the wait carries the failure rather than its last poll. */
+  async #closeOpenWaits(error: unknown) {
+    if (!(await this.#hooksInFlight.settled(HOOKS_SETTLE_TIMEOUT_MS))) {
+      log.warn(
+        `a command hook was still running ${HOOKS_SETTLE_TIMEOUT_MS} ms after its test ended`
+      )
+    }
+    for (const id of this.#commandStack.takeOpenWaits()) {
+      this.#sessionCapturer.closeOpenWait(id, error)
+    }
   }
 
   private resetStack() {
@@ -721,8 +775,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   // than before widens the window in which a concurrent command's hooks are dropped.
   beforeCommand(command: string, args: string[]): Promise<void> {
     const issuedByService = isServiceWork()
-    return runAsServiceWork(() =>
-      this.#beforeCommand(command, args, issuedByService)
+    return this.#hooksInFlight.track(
+      runAsServiceWork(() =>
+        this.#beforeCommand(command, args, issuedByService)
+      )
     )
   }
 
@@ -767,8 +823,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // the previous action left behind. Taken HERE, before the command is issued,
     // because that is the one moment the driver is guaranteed idle and the app
     // at rest — a capture taken the instant a command returns catches whatever
-    // transition it started. Stamped at the previous action's end (or now, for
-    // the first, which makes it the initial frame). Trace mode only.
+    // transition it started. Stamped at the previous page-changing command's
+    // end (or now, for the first, which makes it the initial frame). Trace mode
+    // only.
+    //
+    // Reads/waits inherit the last page-changing capture; capturing them costs a page-source round trip.
     //
     // Not while a mobile-web Appium session has a document to probe — the
     // re-entrant probes can deadlock a serialising driver (#374). A native
@@ -781,16 +840,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#browser,
         this.#sessionCapturer.currentContext
       ) &&
-      this.#isActionCommand(command)
+      this.#isActionCommand(command) &&
+      (!skipsCapture(command) || this.#awaitingInitialCapture)
     ) {
-      // Stamped at the previous action's end so this capture IS that action's
+      // Stamped at the previous page-changing command's end so this capture IS that command's
       // result — except across a test boundary, where that slot already holds
       // its own finalize capture and a second frame at the same timestamp lets
       // the richer-screenshot merge replace it (with a reloadSession between
       // the tests, the row then replays the post-reload page). The first
       // capture of a test stamps now instead, the same rule the session's first
       // capture uses to become the initial frame.
-      const previousEnd = this.#lastActionTimestamp()
+      const previousEnd =
+        this.#lastCommandWhere((cmd) => !skipsCapture(cmd))?.timestamp ??
+        Date.now()
       const snap = await captureActionSnapshot(
         this.#browser,
         command,
@@ -803,6 +865,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)
       }
+      if (
+        this.#awaitingInitialCapture &&
+        (snap?.screenshot ||
+          ++this.#initialCaptureAttempts >= INITIAL_CAPTURE_MAX_ATTEMPTS)
+      ) {
+        this.#awaitingInitialCapture = false
+      }
     }
   }
 
@@ -813,8 +882,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     error?: Error
   ) {
     const issuedByService = isServiceWork()
-    return runAsServiceWork(() =>
-      this.#afterCommand(command, args, result, error, issuedByService)
+    return this.#hooksInFlight.track(
+      runAsServiceWork(() =>
+        this.#afterCommand(command, args, result, error, issuedByService)
+      )
     )
   }
 
@@ -922,6 +993,16 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // Clean up console patching
     this.#sessionCapturer.cleanup()
+    this.#announceTraces()
+  }
+
+  /** WDIO configs usually run at `logLevel: 'warn'`, hiding core's info line; printed after cleanup so it never lands in a trace's console. */
+  #announceTraces() {
+    for (const { kind, path, retained } of this.#artifacts) {
+      if (kind === 'trace' && retained && path) {
+        process.stdout.write(`DevTools trace saved to ${path}\n`)
+      }
+    }
   }
 
   /**

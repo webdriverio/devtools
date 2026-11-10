@@ -2,6 +2,7 @@
   "example": "nightwatch-bdd",
   "runFails": true,
   "sourceFiles": ["examples/nightwatch/bdd/smoke-test.js"],
+  "pageResources": ["/css/fixture.css", "/fonts/fixture-icons.woff2"],
   "traceBudget": {
     "maxBytes": 330000,
     "measuredBytes": 260322,

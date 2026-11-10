@@ -45,7 +45,7 @@ export const READ_PLAYER_STATE = `${COLLECT_NODES}
     rows: byTag('wdio-devtools-command-item').map((el) => text(inShadow(el, 'code.label'))),
     groups: byTag('wdio-devtools-group-item').length,
     frames: byTag('wdio-devtools-trace-timeline').reduce(
-      (count, el) => count + (el.shadowRoot ? el.shadowRoot.querySelectorAll('img[src^="data:image/"]').length : 0),
+      (count, el) => count + (el.shadowRoot ? el.shadowRoot.querySelectorAll('img[src^="data:image/"], img[src^="blob:"]').length : 0),
       0
     ),
     resources: performance.getEntriesByType('resource').map((entry) => entry.name)
@@ -113,4 +113,35 @@ export function cspViolationReporter(prefix: string): string {
     )
   })
 }`
+}
+
+export interface TracePosition {
+  /** Label of the action row marked active, or null with none. */
+  activeRow: string | null
+  /** Label of the bottom dock's open tab, or null with none. */
+  dockTab: string | null
+  /** The page address's hash, `#` included. */
+  hash: string
+}
+
+/** Returns a `TracePosition`. */
+export const READ_TRACE_POSITION = `${COLLECT_NODES}
+  const row = nodes.find((el) => el.localName === 'wdio-devtools-command-item' && el.hasAttribute('active'))
+  const dock = nodes.find((el) => el.localName === 'wdio-devtools-tabs' && el.getAttribute('cacheid') === 'activeWorkbenchTab')
+  const tab = dock ? dock.querySelector(':scope > wdio-devtools-tab[active]') : null
+  return {
+    activeRow: row ? text(inShadow(row, 'code.label')) : null,
+    dockTab: tab ? tab.getAttribute('label') : null,
+    hash: location.hash
+  }
+`
+
+/** Clicks the action row labelled `label`; resolves whether one was found. */
+export function clickRow(label: string): string {
+  return `${COLLECT_NODES}
+  const row = nodes.find((el) => el.localName === 'wdio-devtools-command-item' && text(inShadow(el, 'code.label')) === ${JSON.stringify(label)})
+  const target = row && inShadow(row, 'code.label')
+  if (target) target.click()
+  return Boolean(target)
+`
 }

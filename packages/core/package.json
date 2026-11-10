@@ -50,6 +50,6 @@
     "@xmldom/xmldom": "^0.9.12",
     "stacktrace-parser": "^0.1.11",
     "ws": "^8.22.0",
-    "xpath": "^0.0.34"
+    "xpath": "^0.0.36"
   }
 }

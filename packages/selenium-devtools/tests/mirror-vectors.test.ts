@@ -11,12 +11,17 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
+  captureMaskPrelude,
   deviceFromCapabilities,
   isNativeAppSession,
-  RUNNER_ENV
+  resolveCaptureMask,
+  resourceUrlKey,
+  RUNNER_ENV,
+  type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
+  finalFrameStamp,
   formatCaptureTimingSummary,
   resolveAdapterOutputDir,
   resolveRunId,
@@ -79,7 +84,10 @@ const RUNNERS = [
   'nestedWaitIdentity',
   'performancePayload',
   'waitRowNaming',
-  'captureTimingSummary'
+  'finalFrameStamp',
+  'captureTimingSummary',
+  'collectorMaskPrelude',
+  'resourceUrlKey'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -412,6 +420,27 @@ describe('waitRowNaming', () => {
   }
 })
 
+describe('finalFrameStamp', () => {
+  type Row = { command: string; timestamp: number }
+  for (const c of section<
+    Named & {
+      commands: Row[]
+      testStartMs: number
+      lastCapturedTimestamp: number | null
+      expect: Row | null
+    }
+  >('finalFrameStamp').cases) {
+    it(c.name, () => {
+      const stamp = finalFrameStamp(
+        c.commands,
+        c.testStartMs,
+        c.lastCapturedTimestamp ?? undefined
+      )
+      expect(stamp).toEqual(c.expect)
+    })
+  }
+})
+
 describe('captureTimingSummary', () => {
   for (const c of section<
     Named & {
@@ -427,6 +456,26 @@ describe('captureTimingSummary', () => {
         summary,
         formatted: formatCaptureTimingSummary(summary, c.file ?? undefined)
       }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('collectorMaskPrelude', () => {
+  for (const c of section<
+    Named & { options: CaptureMaskOptions; expect: string }
+  >('collectorMaskPrelude').cases) {
+    it(c.name, () => {
+      expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
+    })
+  }
+})
+
+describe('resourceUrlKey', () => {
+  for (const c of section<Named & { url: string; expect: string }>(
+    'resourceUrlKey'
+  ).cases) {
+    it(c.name, () => {
+      expect(resourceUrlKey(c.url)).toBe(c.expect)
     })
   }
 })

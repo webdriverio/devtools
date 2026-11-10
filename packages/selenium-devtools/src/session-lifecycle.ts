@@ -25,6 +25,7 @@ import {
   type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
+import type { TraceResourcesMode } from '@wdio/devtools-shared'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
 import { TestReporter } from './reporter.js'
@@ -64,6 +65,7 @@ export interface SessionLifecycleCtx {
     traceGranularity?: TraceGranularity
     tracePolicy?: TraceRetentionPolicy
     filmstrip?: boolean
+    traceResources?: TraceResourcesMode
     video?: TraceVideoPolicy
     emitArtifactsManifest?: boolean
   }
@@ -138,6 +140,7 @@ export async function onDriverCreated(
       : { hostname: ctx.options.hostname, port: ctx.options.port },
     driver
   )
+  ctx.sessionCapturer.pageResourceStore.configure(ctx.options)
   // Dashboard closed AFTER tests finished → wind the runner down so the user
   // doesn't have to Ctrl+C. Ignore during a live run: a momentary reconnect
   // blip during tests must not abort them.
@@ -306,6 +309,7 @@ export async function onDriverEnd(ctx: SessionLifecycleCtx): Promise<void> {
     await (ctx.options.mode === 'trace'
       ? ctx.sessionCapturer.captureTrace(true)
       : ctx.sessionCapturer.drainAfterLiveCommand())
+    await settlePageResources(ctx)
   }
   if (ctx.screencast && ctx.sessionId) {
     if (ctx.options.mode === 'trace') {
@@ -644,4 +648,14 @@ export async function completeShutdown(
   }
   log.info(`🛑 Shutdown complete (${Date.now() - shutdownStart}ms)`)
   process.exit(0)
+}
+
+/** Drains until the page's stylesheet and font reads finish, before a trace slice or the session's end; a no-op in live mode. */
+export async function settlePageResources(
+  ctx: Pick<SessionLifecycleCtx, 'driver' | 'sessionCapturer'>
+): Promise<void> {
+  const capturer = ctx.sessionCapturer
+  if (ctx.driver && capturer) {
+    await capturer.pageResourceStore.settle(() => capturer.captureTrace(true))
+  }
 }

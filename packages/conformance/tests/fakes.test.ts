@@ -10,7 +10,8 @@ import {
   ELEMENT_KEY,
   ELEMENT_TEXT,
   RENDERED_AFTER_MS,
-  RULES
+  RULES,
+  SESSION_TIMEOUTS
 } from '../src/constants.js'
 import { FakeWebDriver } from '../src/fake-webdriver.js'
 import { runAdapter, runScenario } from '../src/harness.js'
@@ -175,6 +176,20 @@ describe('the fake BiDi endpoint', () => {
   })
 })
 
+describe('the fake session', () => {
+  // Regression: GET /timeouts answered null, and WebdriverIO 10.1+ failed every BiDi execute on it.
+  it('answers the W3C default timeouts, in the capabilities and over GET /timeouts', async () => {
+    const driver = await start('silent')
+    const { capabilities } = (await session(driver)) as {
+      capabilities: { timeouts?: unknown }
+    }
+    expect(capabilities.timeouts).toEqual(SESSION_TIMEOUTS)
+    expect(await call(driver, 'GET', '/session/conformance/timeouts')).toEqual(
+      SESSION_TIMEOUTS
+    )
+  })
+})
+
 describe('the fake network', () => {
   const navigate = (driver: FakeWebDriver, path: string) =>
     call(driver, 'POST', '/session/conformance/url', { url: driver.url(path) })
@@ -288,6 +303,24 @@ describe('the fake network', () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     ws.close()
     expect(events).toEqual([])
+  })
+})
+
+describe('the fake WebDriver', () => {
+  // WebdriverIO 10.1 destructures this before every BiDi execute; a null answer made every script throw unsent.
+  it('answers GET /timeouts with the W3C defaults and a POST with null, as Set Timeouts does', async () => {
+    const driver = await start('live')
+    await session(driver)
+    expect(await call(driver, 'GET', '/session/conformance/timeouts')).toEqual({
+      script: 30_000,
+      pageLoad: 300_000,
+      implicit: 0
+    })
+    expect(
+      await call(driver, 'POST', '/session/conformance/timeouts', {
+        implicit: 5
+      })
+    ).toBeNull()
   })
 })
 

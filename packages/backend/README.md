@@ -9,7 +9,7 @@ The server that the three adapter packages connect to and the dashboard UI talks
 - **Baseline store** (in-memory) — captures a snapshot of a failing test attempt, plus per-uid metadata, so the "Preserve & Rerun" flow can show a side-by-side diff.
 - **Rerun spawner** (`runner.ts`) — spawns the user's `wdio` / `nightwatch` / `selenium` binary with rerun filters built from the dashboard's payload.
 - **Worker-message handler** — dispatches messages from spawned workers (config path, session id, video path, ...).
-- **Trace serving** (`show-trace.ts`, with the reader from `@wdio/devtools-trace`) — reconstructs a recorded `trace.zip` and boots the server in a read-only **trace-serve** mode that backs the DevTools UI's trace player. No worker connects in this mode.
+- **Trace serving** (`show-trace.ts`): serves recorded `trace.zip`s in a read-only **trace-serve** mode that backs the DevTools UI's trace player, which reads each zip itself. No worker connects in this mode.
 
 ## Framework awareness
 
@@ -19,17 +19,17 @@ Lives only in `runner.ts` and `framework-filters.ts`. Both branch on a typed `Te
 
 Trace mode (see the [root README](../../README.md#-trace-mode-tracezip)) writes a portable `trace.zip`; the backend is what opens it back up.
 
-- **CLI** (`src/show-trace.ts`): `runShowTraceCli` resolves its arguments, each a zip or a folder searched for zips (`trace-files.ts`). One zip is read with `readTraceZip` and served through `start({ trace })` in trace-serve mode; several are served through `start({ traceRun })`, which lists them at `TRACE_API.run` and serves each one's bytes at `TRACE_API.zip` by its position in that list (never by a path from the request), for the app to read and list with their outcomes. It then prints the URL and opens the default browser. Run it from this repo with the root script:
+- **CLI** (`src/show-trace.ts`): `runShowTraceCli` resolves its arguments, each a zip or a folder searched for zips (`trace-files.ts`), and serves them through `start({ traceRun })` in trace-serve mode, which lists them at `TRACE_API.run` and serves each one's bytes at `TRACE_API.zip` by its position in that list (never by a path from the request). The app reads every zip itself, with the same reader the hosted player runs: one zip opens directly in the player, several are listed with their outcomes. It then prints the URL and opens the default browser. Run it from this repo with the root script:
 
   ```sh
   pnpm show-trace path/to/trace.zip
   pnpm show-trace test-results/      # every zip under the folder, as a list
   ```
 
-  The same entry is shipped as a `show-trace` **bin** by the backend (`./dist/show-trace.js`) and by each adapter (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools` each ship a thin `bin/show-trace.mjs`), so `npx show-trace <trace.zip>` works in any project that installs an adapter — backend need only be a transitive dependency. In trace-serve mode `start({ trace })` exposes the reconstructed payload at `TRACE_API.get` and skips the worker/rerun machinery. It is one of the backend's two bins; the other, `devtools-backend` (`./dist/server.js`), starts the live dashboard server described under [Public API](#public-api).
+  The same entry is shipped as a `show-trace` **bin** by the backend (`./dist/show-trace.js`) and by each adapter (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools` each ship a thin `bin/show-trace.mjs`), so `npx show-trace <trace.zip>` works in any project that installs an adapter; backend need only be a transitive dependency. In trace-serve mode the server skips the worker/rerun machinery; in live mode `TRACE_API.run` answers 204, which is how the app tells the two apart on boot. `start({ trace })` still serves a payload a caller reconstructed at `TRACE_API.get` (204 there otherwise), typed `LegacyTracePlayerData`: the shape backends from before the app read zips served for one zip, each frame carrying its image inline as base64 `screenshot`. The app probes it when no zips are listed and plays the payload; frames without an inline image are left out of the filmstrip. It is one of the backend's two bins; the other, `devtools-backend` (`./dist/server.js`), starts the live dashboard server described under [Public API](#public-api).
 
-- **Reader** (`packages/trace/src/trace-reader.ts`, with sibling `trace-reader-{constants,types,utils,groups}.ts`; the disk read is `read-trace-zip.ts`) — `parseTraceZip` / `readTraceZip` reconstruct a `TracePlayerData` payload from the archive. It accepts this repo's own exporter output **and foreign zips** written by other tools (every `.trace` entry is an action-event stream, every `.network` a HAR stream, `.stacks` sidecars carry call stacks). It rebuilds:
-  - **commands** — from `before`/`after` action events, with call source, result, error, nearest screenshot frame, and pointer hit point;
+- **Reader** (`packages/trace/src/trace-reader.ts`, with sibling `trace-reader-{constants,types,utils,groups}.ts` and the zip index `zip-index.ts`), which the app runs: `openTraceArchive` and `readTracePayload` reconstruct a `TracePlayerData` payload from the archive's streams, leaving frame images, stored network bodies and stored page resources in the zip, named by entry, for the player to read as it shows them. It accepts this repo's own exporter output **and foreign zips** written by other tools (every `.trace` entry is an action-event stream, every `.network` a HAR stream, `.stacks` sidecars carry call stacks). It rebuilds:
+  - **commands**: from `before`/`after` action events, with call source, result, error and pointer hit point (the player shows each the nearest screenshot frame);
   - **DOM mutations** — from the `.mutations` NDJSON stream (drives the player's DOM time-travel);
   - **network** — HAR entries from `.network` streams;
   - **console** — from `console`/`stdout`/`stderr` events;

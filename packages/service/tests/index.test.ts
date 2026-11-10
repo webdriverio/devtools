@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
+  captureMask,
+  configureInputMasking,
   INPUT_DISPATCH_MAX_HOLD_MS,
   isInputDispatchInFlight,
   rememberReadValue,
@@ -30,6 +32,10 @@ vi.mock('stack-trace', () => ({
   parse: () => stackMock.frames
 }))
 const mockSessionCapturerInstance = {
+  pageResourceStore: {
+    configure: vi.fn(),
+    settle: vi.fn().mockResolvedValue(undefined)
+  },
   afterCommand: vi.fn(),
   openWait: vi.fn(() => 42),
   sendUpstream: vi.fn(),
@@ -103,6 +109,12 @@ vi.mock('../src/intercepted-network.js', () => ({
   })
 }))
 
+const elementsMock = vi.hoisted(() => ({
+  getSnapshot: vi.fn(),
+  snapshotRenderer: vi.fn(() => 'legacy')
+}))
+vi.mock('@wdio/elements', () => elementsMock)
+
 vi.mock('node:fs/promises', () => ({
   default: { writeFile: vi.fn().mockResolvedValue(undefined) }
 }))
@@ -137,6 +149,7 @@ describe('DevtoolsService - Internal Command Filtering', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    elementsMock.snapshotRenderer.mockReturnValue('legacy')
     mockSessionCapturerInstance.afterCommand.mockClear()
     mockSessionCapturerInstance.sendUpstream.mockClear()
     service = new DevToolsHookService()
@@ -156,6 +169,66 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       })
       expect(true).toBe(true)
     })
+  })
+
+  describe('getSnapshot command', () => {
+    const getSnapshotCommand = (): ((options?: object) => Promise<unknown>) => {
+      const call = mockBrowser.addCommand.mock.calls.find(
+        ([name]: [string]) => name === 'getSnapshot'
+      )
+      return call[1]
+    }
+
+    beforeEach(async () => {
+      elementsMock.getSnapshot.mockReset()
+      await service.before({} as any, [], mockBrowser)
+    })
+
+    it('passes the caller options through unchanged', async () => {
+      elementsMock.getSnapshot.mockResolvedValue({
+        format: 'legacy',
+        text: 'T',
+        elements: {}
+      })
+
+      await getSnapshotCommand()()
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(
+        mockBrowser,
+        undefined
+      )
+
+      await getSnapshotCommand()({ inViewportOnly: false })
+      expect(elementsMock.getSnapshot).toHaveBeenLastCalledWith(mockBrowser, {
+        inViewportOnly: false
+      })
+    })
+
+    it.each(['legacy', 'snapshot'] as const)(
+      'reports nothing rendered as legacy while %s is the configured renderer',
+      async (renderer) => {
+        elementsMock.snapshotRenderer.mockReturnValue(renderer)
+        elementsMock.getSnapshot.mockRejectedValue(new Error('no tree'))
+
+        await expect(getSnapshotCommand()()).resolves.toEqual({
+          format: 'legacy',
+          text: '[Snapshot unavailable]',
+          elements: {}
+        })
+      }
+    )
+  })
+
+  it('configures the page-resource store from the run\u2019s options', async () => {
+    const traced = new DevToolsHookService({
+      mode: 'trace',
+      traceResources: 'none'
+    })
+    await traced.before({} as any, [], mockBrowser)
+    expect(
+      mockSessionCapturerInstance.pageResourceStore.configure
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'trace', traceResources: 'none' })
+    )
   })
 
   // Regression: a request the app made after the test's last command was left out of that test's trace.
@@ -543,6 +616,16 @@ describe('DevtoolsService - Screencast Integration', () => {
         (call: unknown[]) => call[1]
       )
       expect(logged).toEqual(['addValue'])
+    })
+  })
+
+  describe('page mask policy', () => {
+    it('sets the run’s policy from the service options', () => {
+      new DevToolsHookService({ maskInputs: false, maskSelectors: ['.iban'] })
+      expect(captureMask()).toEqual({ inputs: false, selectors: ['.iban'] })
+      new DevToolsHookService()
+      expect(captureMask()).toEqual({ inputs: true, selectors: [] })
+      configureInputMasking()
     })
   })
 })

@@ -406,10 +406,13 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` writes each to `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. Trace mode only. |
 | `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Trace mode only. |
 | `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast into the trace for frame-by-frame scrubbing in the player. Trace mode only. |
+| `traceResources` | `'styles'` \| `'none'` | `'styles'` | Trace mode only. `'styles'` stores the stylesheets and fonts each archive's pages used, once each by content hash, so the player replays them from the archive rather than the site; `'none'` stores nothing. Images always replay from the site. See the [root README](../../README.md#options) for caps and how the reads are kept out of the network rows. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Trace mode only. |
 | `captureAssertions` | `boolean` | `true` | Capture `node:assert` assertions (both passing and failing) as trace action rows. Set `false` to opt out. |
+| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), live and trace mode alike. `false` records them as typed. Command rows always keep the typed text. See [Password masking](../../README.md#-password-masking) for what is and is not covered. |
+| `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |
 
 `ScreencastOptions`:
 

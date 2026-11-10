@@ -7,6 +7,11 @@ updates:
     time: "11:00"
   open-pull-requests-limit: 10
   versioning-strategy: increase-if-necessary
+  ignore:
+    # TypeScript 7.0 breaks lint (typescript-eslint does not support it).
+    # Review when TypeScript 7.1 is stable and typescript-eslint supports it.
+    - dependency-name: "typescript"
+      update-types: ["version-update:semver-major"]
   groups:
     patch-deps-updates:
       update-types:

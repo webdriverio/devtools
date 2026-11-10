@@ -22,7 +22,10 @@ from selenium_devtools import (
     capture_timing,
     capturer,
     device,
+    input_masking,
+    instrumentation,
     output_dir,
+    page_resources,
     performance,
     read_value_locators,
     run_id,
@@ -51,7 +54,10 @@ RUNNERS = {
     "nestedWaitIdentity",
     "performancePayload",
     "waitRowNaming",
+    "finalFrameStamp",
     "captureTimingSummary",
+    "collectorMaskPrelude",
+    "resourceUrlKey",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -350,6 +356,18 @@ class TestWaitRowNaming(unittest.TestCase):
                 self.assertEqual({"command": command, "selector": selector}, case["expect"])
 
 
+class TestFinalFrameStamp(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("finalFrameStamp"):
+            with self.subTest(case["name"]):
+                rows = [(row["command"], row["timestamp"]) for row in case["commands"]]
+                stamp = instrumentation._final_frame_stamp(
+                    rows, case["testStartMs"], case["lastCapturedTimestamp"]
+                )
+                expect = None if case["expect"] is None else (case["expect"]["command"], case["expect"]["timestamp"])
+                self.assertEqual(stamp, expect)
+
+
 class TestCaptureTimingSummary(unittest.TestCase):
     def test_cases(self):
         for case in _cases("captureTimingSummary"):
@@ -362,6 +380,32 @@ class TestCaptureTimingSummary(unittest.TestCase):
                     },
                     case["expect"],
                 )
+
+
+def _fresh_mask(options: Dict[str, Any]) -> None:
+    """The vectors' camelCase options as keywords, explicit so the environment cannot leak in."""
+    input_masking.configure(
+        mask_inputs=options.get("maskInputs", True),
+        mask_selectors=options.get("maskSelectors", []),
+    )
+
+
+class TestCollectorMaskPrelude(unittest.TestCase):
+    def tearDown(self):
+        _fresh_mask({})
+
+    def test_cases(self):
+        for case in _cases("collectorMaskPrelude"):
+            with self.subTest(case["name"]):
+                _fresh_mask(case["options"])
+                self.assertEqual(input_masking.capture_mask_prelude(), case["expect"])
+
+
+class TestResourceUrlKey(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("resourceUrlKey"):
+            with self.subTest(case["name"]):
+                self.assertEqual(page_resources.url_key(case["url"]), case["expect"])
 
 
 if __name__ == "__main__":

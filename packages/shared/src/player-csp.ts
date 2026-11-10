@@ -4,9 +4,10 @@ const PLAYER_CSP_DIRECTIVES: readonly (readonly [string, string])[] = [
   ['default-src', "'self'"],
   ['script-src', "'self'"],
   ['connect-src', "'self'"],
-  ['style-src', "'self' 'unsafe-inline' https: http:"],
+  // blob: is where the replay serves the stylesheets and fonts a trace stored.
+  ['style-src', "'self' 'unsafe-inline' https: http: blob:"],
   ['img-src', '* data: blob:'],
-  ['font-src', '* data:'],
+  ['font-src', '* data: blob:'],
   ['media-src', "'self' data: blob:"],
   ['object-src', "'none'"],
   ['base-uri', "'self' https: http:"],
@@ -21,6 +22,14 @@ export function playerCsp(connectSrc: readonly string[] = []): string {
       ? `${name} ${value} ${connectSrc.join(' ')}`
       : `${name} ${value}`
   ).join('; ')
+}
+
+// A trace opened by `?trace=<url>` can live on any https host; every other directive is the local player's.
+const HOSTED_CONNECT_SRC: readonly string[] = ['https:']
+
+/** The policy trace.webdriver.io sends: the player's, with `connect-src` widened to https for `?trace=`. */
+export function hostedPlayerCsp(): string {
+  return playerCsp(HOSTED_CONNECT_SRC)
 }
 
 // A Host header is reflected into the policy only when it names a host, never a header fragment.

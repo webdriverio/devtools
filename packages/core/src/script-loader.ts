@@ -2,9 +2,14 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 
-import { isBrowserInternalUrl, schemeOf } from '@wdio/devtools-shared'
+import {
+  isBrowserInternalUrl,
+  schemeOf,
+  withCaptureMask
+} from '@wdio/devtools-shared'
 
 import { errorMessage } from './error.js'
+import { captureMask } from './capture-mask.js'
 
 const require = createRequire(import.meta.url)
 
@@ -33,7 +38,7 @@ export function collectorSourceCandidates(entry: string): string[] {
   ]
 }
 
-/** The collector bundle's raw source. Callers wrap it for their own injection
+/** The collector bundle's raw source, preceded by the run's mask policy. Callers wrap it for their own injection
  *  mechanism — an async IIFE for a `<script>` body, a function declaration for a
  *  BiDi preload script. */
 export async function loadCollectorSource(): Promise<string> {
@@ -43,7 +48,10 @@ export async function loadCollectorSource(): Promise<string> {
   const failures: string[] = []
   for (const candidate of candidates) {
     try {
-      return await fs.readFile(candidate, 'utf-8')
+      return withCaptureMask(
+        await fs.readFile(candidate, 'utf-8'),
+        captureMask()
+      )
     } catch (err) {
       // Not this shape — record it and try the next, so a genuine failure
       // reports every place that was looked at rather than only the last.

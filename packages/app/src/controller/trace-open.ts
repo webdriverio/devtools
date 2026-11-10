@@ -1,10 +1,12 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 
 import { TRACE_OPEN_EVENT } from './constants.js'
+import { downloadTrace, traceUrlFrom } from './trace-download.js'
 import type {
   TraceOpenPhase,
   TraceOpenProgress
 } from './trace-parse-protocol.js'
+import { traceParamFrom } from '../utils/trace-link.js'
 import { sourcesFromDrop, type TraceSource } from '../utils/trace-sources.js'
 
 type Host = ReactiveControllerHost & HTMLElement
@@ -17,7 +19,7 @@ export interface TraceOpenTargets {
 
 const fileName = (path: string): string => path.split('/').pop() || path
 
-/** The hosted player's open flow: files or folders picked in the UI or dropped anywhere. */
+/** The hosted player's open flow: files or folders picked in the UI or dropped anywhere, or a zip `?trace=` names. */
 export class TraceOpenController implements ReactiveController {
   opening = false
   phase?: TraceOpenPhase
@@ -25,10 +27,17 @@ export class TraceOpenController implements ReactiveController {
 
   readonly #host: Host
   readonly #targets: TraceOpenTargets
+  readonly #onUserOpen: () => void
 
-  constructor(host: Host, targets: TraceOpenTargets) {
+  /** `onUserOpen` runs as the viewer opens a trace by hand, never for the one `?trace=` names. */
+  constructor(
+    host: Host,
+    targets: TraceOpenTargets,
+    onUserOpen: () => void = () => {}
+  ) {
     this.#host = host
     this.#targets = targets
+    this.#onUserOpen = onUserOpen
     host.addController(this)
   }
 
@@ -36,6 +45,10 @@ export class TraceOpenController implements ReactiveController {
     this.#host.addEventListener(TRACE_OPEN_EVENT, this.#onAnnounced)
     window.addEventListener('dragover', this.#onDragOver)
     window.addEventListener('drop', this.#onDrop)
+    const linked = traceParamFrom(window.location.search)
+    if (linked !== null) {
+      void this.openUrl(linked)
+    }
   }
 
   hostDisconnected() {
@@ -56,10 +69,38 @@ export class TraceOpenController implements ReactiveController {
     this.error = undefined
     if (sources.length > 1) {
       this.#targets.many(sources)
+      this.#onUserOpen()
       this.#host.requestUpdate()
       return
     }
-    await this.#openOne(sources[0])
+    await this.#openOne(sources[0], this.#onUserOpen)
+  }
+
+  /** Downloads and opens the zip at `raw`, resolved against `page`; only https or `page`'s own origin is fetched. */
+  async openUrl(raw: string, page = new URL(window.location.href)) {
+    if (this.opening) {
+      return
+    }
+    let url: URL
+    try {
+      if (!raw.trim()) {
+        throw new Error('The trace parameter is empty')
+      }
+      url = traceUrlFrom(raw, page)
+    } catch (error) {
+      this.error = `Could not open the trace URL: ${(error as Error).message}`
+      this.#host.requestUpdate()
+      return
+    }
+    this.error = undefined
+    // Named by host and path alone: a signed URL's query is a credential, not a name.
+    await this.#openOne({
+      path: `${url.host}${url.pathname}`,
+      read: () => {
+        this.#onPhase('downloading')
+        return downloadTrace(url, { page })
+      }
+    })
   }
 
   dismissError() {
@@ -67,11 +108,13 @@ export class TraceOpenController implements ReactiveController {
     this.#host.requestUpdate()
   }
 
-  async #openOne(source: TraceSource) {
+  // `onLoaded` runs before the player renders the new trace, so nothing reads the address in between.
+  async #openOne(source: TraceSource, onLoaded = () => {}) {
     this.opening = true
     this.#host.requestUpdate()
     try {
       await this.#targets.one(await source.read(), this.#onPhase)
+      onLoaded()
     } catch (error) {
       this.error = `Could not open ${fileName(source.path)}: ${(error as Error).message}`
     } finally {

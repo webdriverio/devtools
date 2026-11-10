@@ -2,12 +2,15 @@ import { randomInt } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { WebSocket } from 'ws'
 import type {
+  CollectorDrainPayload,
   CommandLog,
   ConsoleLog,
   LogLevel,
   LogSource,
   Metadata,
   NetworkRequest,
+  PageResource,
+  ResourceReRead,
   SerializedError,
   TraceMutation
 } from '@wdio/devtools-shared'
@@ -24,6 +27,8 @@ import {
 } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
+import { TestCapture } from './test-capture.js'
+import { PageResourceStore } from './page-resource-store.js'
 import {
   CONSOLE_METHODS,
   LOG_SOURCES,
@@ -112,6 +117,16 @@ export abstract class SessionCapturerBase {
   mutations: TraceMutation[] = []
   traceLogs: string[] = []
   metadata?: Metadata
+  /** Stylesheets and fonts read back by the page in trace mode, for the trace writer. */
+  readonly pageResourceStore = new PageResourceStore()
+
+  get pageResources(): readonly PageResource[] {
+    return this.pageResourceStore.resources
+  }
+
+  get resourceReReads(): readonly ResourceReRead[] {
+    return this.pageResourceStore.reReads
+  }
 
   /** Whether this session drove an app rather than a browser. Resolved from
    *  the published metadata because selenium's own `getCapabilities()` is
@@ -137,6 +152,13 @@ export abstract class SessionCapturerBase {
    *  captured as if it had no DOM. */
   get hasDocument(): boolean {
     return sessionHasDocument(this.metadata?.capabilities, this.currentContext)
+  }
+
+  /** Per-test capture state for adapters that capture after each command. */
+  readonly testCapture = new TestCapture()
+
+  resetTestCapture(): void {
+    this.testCapture.reset()
   }
 
   // ── Construction ────────────────────────────────────────────────────────
@@ -462,13 +484,7 @@ export abstract class SessionCapturerBase {
    * fetch/XHR rows still carry the bodies nothing else captures.
    */
   protected processTracePayload(
-    payload: {
-      mutations?: unknown
-      traceLogs?: unknown
-      consoleLogs?: unknown
-      networkRequests?: unknown
-      metadata?: unknown
-    },
+    payload: CollectorDrainPayload,
     opts: {
       skipConsoleLogs?: boolean
       skipNetworkRequests?: boolean
@@ -500,24 +516,30 @@ export abstract class SessionCapturerBase {
     this.recordNetworkRequests(
       this.#acceptedNetworkRequests(networkRequests, opts)
     )
+    this.pageResourceStore.ingest(payload)
 
-    if (Array.isArray(mutations) && mutations.length > 0) {
-      const batch = mutations as TraceMutation[]
-      reattributeDomAnchors(
-        batch,
-        (anchorOwnTime) =>
-          opts.anchorTimestamp ?? this.anchorOwnerTimestamp(anchorOwnTime),
-        this.mutations[this.mutations.length - 1]?.timestamp ?? 0
-      )
-      this.mutations.push(...batch)
-      this.sendUpstream('mutations', batch)
-    }
+    this.#ingestMutations(mutations, opts.anchorTimestamp)
 
     if (Array.isArray(traceLogs) && traceLogs.length > 0) {
       const logs = traceLogs as string[]
       this.traceLogs.push(...logs)
       this.sendUpstream('logs', logs)
     }
+  }
+
+  #ingestMutations(mutations: unknown, anchorTimestamp?: number): void {
+    if (!Array.isArray(mutations) || mutations.length === 0) {
+      return
+    }
+    const batch = mutations as TraceMutation[]
+    reattributeDomAnchors(
+      batch,
+      (anchorOwnTime) =>
+        anchorTimestamp ?? this.anchorOwnerTimestamp(anchorOwnTime),
+      this.mutations[this.mutations.length - 1]?.timestamp ?? 0
+    )
+    this.mutations.push(...batch)
+    this.sendUpstream('mutations', batch)
   }
 
   #tagBrowserConsoleLogs(consoleLogs: unknown): ConsoleLog[] {

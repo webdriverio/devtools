@@ -2,6 +2,7 @@
   "example": "selenium-mocha",
   "runFails": true,
   "sourceFiles": ["examples/selenium-js/mocha/example.js"],
+  "pageResources": ["/css/fixture.css", "/fonts/fixture-icons.woff2"],
   "traceBudget": {
     "maxBytes": 200000,
     "measuredBytes": 158349,

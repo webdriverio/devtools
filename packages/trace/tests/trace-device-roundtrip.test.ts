@@ -6,7 +6,7 @@ import { TraceType, type Metadata } from '@wdio/devtools-shared'
 import { writeTraceZip } from '../src/trace-exporter.js'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { readTraceZip } from '../src/read-trace-zip.js'
+import { parseTraceZip } from '../src/trace-reader.js'
 
 /**
  * Writes a zip with the writer and reads it back with the reader, proving the
@@ -41,7 +41,7 @@ async function roundTrip(metadata: Metadata): Promise<Metadata> {
     },
     { outputDir, sessionId: 'abc12345' }
   )
-  return (await readTraceZip(zip)).trace.metadata
+  return parseTraceZip(new Uint8Array(await fs.readFile(zip))).trace.metadata
 }
 
 describe('the device a capture was recorded on, written then read back', () => {

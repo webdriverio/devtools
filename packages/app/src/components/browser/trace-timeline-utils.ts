@@ -37,3 +37,13 @@ export function formatTimecode(ms: number): string {
     .toString()
     .padStart(2, '0')}`
 }
+
+/** At most `max` of `frames`, spread evenly over the list and always keeping the first and last. */
+export function sampleFrames<T>(frames: readonly T[], max: number): T[] {
+  const count = Math.max(2, Math.floor(max))
+  if (frames.length <= count) {
+    return [...frames]
+  }
+  const step = (frames.length - 1) / (count - 1)
+  return Array.from({ length: count }, (_, i) => frames[Math.round(i * step)]!)
+}

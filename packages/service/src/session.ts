@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises'
 import url from 'node:url'
 
 import logger from '@wdio/logger'
 import { parse } from 'stack-trace'
-import { resolve } from 'import-meta-resolve'
 import { SevereServiceError } from 'webdriverio'
 import type { WebDriverCommands } from '@wdio/protocols'
 
@@ -26,6 +24,7 @@ import {
   errorMessage,
   getRequestType,
   isSessionGoneError,
+  loadCollectorSource,
   loadInjectableScript,
   LOG_SOURCES,
   rememberReadValue,
@@ -36,6 +35,7 @@ import {
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
+import { toCommandError } from './assert-capture.js'
 import { directProbes } from './direct-probes.js'
 import type { CommandNesting } from './command-stack.js'
 import { WaitRows } from './wait-rows.js'
@@ -293,6 +293,13 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#retryTracker.recordCapture(sig, id)
   }
 
+  /** Closes a wait left open when its test or step ended, with that test's failure or as passed; an assertion failure stays on its own row. */
+  closeOpenWait(id: number, testError: unknown): void {
+    this.#restoreWaitSelector(id)
+    this.#waitRows.closeOpen(id, toCommandError(testError))
+    this.#retryTracker.reset()
+  }
+
   /** Drop retry state at test/scenario boundaries so a deliberate re-issue of
    *  the same call in the next test counts as fresh, not a retry. */
   resetRetryTracker(): void {
@@ -449,9 +456,7 @@ export class SessionCapturer extends SessionCapturerBase {
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
     try {
-      const script = await resolve('@wdio/devtools-script', import.meta.url)
-      const source = (await fs.readFile(url.fileURLToPath(script))).toString()
-      const functionDeclaration = `async () => { ${source} }`
+      const functionDeclaration = `async () => { ${await loadCollectorSource()} }`
 
       await browser.scriptAddPreloadScript({
         functionDeclaration
@@ -533,18 +538,7 @@ export class SessionCapturer extends SessionCapturerBase {
       // that serialises per session both reads take the direct path (#374).
       const direct = directProbes(browser)
       const payload = await drainCollectorWithRecovery({
-        drain: () =>
-          direct
-            ? direct.runScript(collectorDrainExpression(forceAnchor))
-            : browser.execute((anchor) => {
-                if (typeof window.wdioTraceCollector === 'undefined') {
-                  return null
-                }
-                if (anchor) {
-                  window.wdioTraceCollector.captureCurrentDom()
-                }
-                return window.wdioTraceCollector.getTraceData()
-              }, forceAnchor),
+        drain: () => this.#drainOnce(browser, direct, forceAnchor),
         injectIntoCurrentDocument: () =>
           this.injectIntoCurrentDocument(browser),
         currentUrl: () =>
@@ -578,6 +572,36 @@ export class SessionCapturer extends SessionCapturerBase {
     } catch (err) {
       log.error(`Failed to capture trace: ${errorMessage(err)}`)
     }
+  }
+
+  /** One atomic check-and-read of the collector, asking for page resources when the run stores them. */
+  #drainOnce(
+    browser: WebdriverIO.Browser,
+    direct: ReturnType<typeof directProbes>,
+    forceAnchor: boolean
+  ): Promise<unknown> {
+    const { mode, storedKeys } = this.pageResourceStore
+    if (direct) {
+      return direct.runScript(
+        collectorDrainExpression(forceAnchor, mode, storedKeys)
+      )
+    }
+    return browser.execute(
+      (anchor, resources, stored) => {
+        if (typeof window.wdioTraceCollector === 'undefined') {
+          return null
+        }
+        if (anchor) {
+          window.wdioTraceCollector.captureCurrentDom()
+        }
+        return window.wdioTraceCollector.getTraceData(
+          resources === 'none' ? undefined : { resources, stored }
+        )
+      },
+      forceAnchor,
+      mode,
+      [...storedKeys]
+    )
   }
 
   // Protocol-level capture survives pages that rewrite their own console.
@@ -730,6 +754,7 @@ export class SessionCapturer extends SessionCapturerBase {
         type: getRequestType(pending.url, contentType),
         timestamp: pending.timestamp,
         startTime: pending.startTime,
+        wallTime: pending.timestamp,
         endTime,
         time: endTime - pending.startTime,
         requestHeaders: pending.requestHeaders,
@@ -762,6 +787,7 @@ export class SessionCapturer extends SessionCapturerBase {
         type: 'other',
         timestamp: pending.timestamp,
         startTime: pending.startTime,
+        wallTime: pending.timestamp,
         endTime,
         time: endTime - pending.startTime,
         requestHeaders: pending.requestHeaders

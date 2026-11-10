@@ -12,9 +12,13 @@ SCOPE_SOURCES = "sources"
 SCOPE_MUTATIONS = "mutations"
 SCOPE_SCREENCAST_FRAMES = "screencastFrames"
 SCOPE_ACTION_SNAPSHOTS = "actionSnapshots"
+SCOPE_PAGE_RESOURCES = "pageResources"
+SCOPE_RESOURCE_RE_READS = "resourceReReads"
 SCOPE_REPLACE_COMMAND = "replaceCommand"
 
-DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'screencast', 'screencastFrames', 'sources', 'suites'])
+DATA_SCOPES = frozenset(['actionSnapshots', 'commands', 'config', 'consoleLogs', 'logs', 'metadata', 'mutations', 'networkRequests', 'pageResources', 'resourceReReads', 'screencast', 'screencastFrames', 'sources', 'suites'])
+READ_ONLY_COMMANDS = frozenset(['$', '$$', 'element', 'elementScreenshot', 'elements', 'findChildElement', 'findChildElements', 'findElement', 'findElementFromShadowRoot', 'findElements', 'findElementsFromShadowRoot', 'getAccessibleName', 'getActiveElement', 'getAlertText', 'getAllCookies', 'getAllWindowHandles', 'getAriaRole', 'getAttribute', 'getAvailableLogTypes', 'getCSSProperty', 'getCapabilities', 'getComputedLabel', 'getComputedRole', 'getContextHandles', 'getCookie', 'getCookies', 'getCredentials', 'getCssProperty', 'getCssValue', 'getCurrentContextHandle', 'getCurrentUrl', 'getDomAttribute', 'getDownloadableFiles', 'getElementAriaLabel', 'getElementAriaRole', 'getElementAttribute', 'getElementProperty', 'getElementRect', 'getElementShadowRoot', 'getElementSize', 'getElementTagName', 'getElementText', 'getElementValueOfCssProperty', 'getFirstElementChild', 'getHTML', 'getId', 'getLastElementChild', 'getLocation', 'getLog', 'getLogTypes', 'getNetworkConnection', 'getNextSibling', 'getPageSource', 'getPreviousSibling', 'getProperty', 'getRect', 'getScreenOrientation', 'getSession', 'getShadowRoot', 'getSize', 'getTagName', 'getText', 'getTimeouts', 'getTitle', 'getUrl', 'getValue', 'getWindowHandle', 'getWindowHandles', 'getWindowPosition', 'getWindowRect', 'getWindowSize', 'hasDescendants', 'isClickable', 'isDisplayed', 'isElementEnabled', 'isElementSelected', 'isEnabled', 'isExisting', 'isFocused', 'isLogAvailable', 'isPresent', 'isSelected', 'isVisible', 'printPage', 'screenshot', 'source', 'status', 'takeScreenshot', 'title', 'w3cGetActiveElement', 'w3cGetAlertText', 'w3cGetCurrentWindowHandle', 'w3cGetWindowHandles', 'wait', 'waitForClickable', 'waitForDisplayed', 'waitForElementLocated', 'waitForElementNotPresent', 'waitForElementNotVisible', 'waitForElementPresent', 'waitForElementVisible', 'waitForEnabled', 'waitForExist', 'waitUntil', 'windowHandle', 'windowHandles'])
+MAPPED_COMMANDS = frozenset(['addValue', 'back', 'clear', 'clearElement', 'click', 'clickElement', 'doubleClick', 'dragAndDrop', 'execute', 'executeAsync', 'forward', 'get', 'getAttribute', 'getCSSProperty', 'getCssValue', 'getCurrentUrl', 'getElementAttribute', 'getElementProperty', 'getElementRect', 'getElementTagName', 'getElementText', 'getElementValueOfCssProperty', 'getLocation', 'getPageSource', 'getProperty', 'getRect', 'getSize', 'getTagName', 'getText', 'getTitle', 'getUrl', 'getValue', 'goBack', 'goForward', 'isClickable', 'isDisplayed', 'isElementEnabled', 'isElementSelected', 'isEnabled', 'isExisting', 'isFocused', 'isSelected', 'keys', 'moveTo', 'navigateTo', 'newWindow', 'refresh', 'scrollIntoView', 'selectByVisibleText', 'sendKeys', 'sendKeysToElement', 'setValue', 'submit', 'switchToFrame', 'switchToParentFrame', 'switchToWindow', 'to', 'touchAction', 'url', 'wait', 'waitForClickable', 'waitForDisplayed', 'waitForElementLocated', 'waitForElementNotPresent', 'waitForElementNotVisible', 'waitForElementPresent', 'waitForElementVisible', 'waitForEnabled', 'waitForExist', 'waitUntil'])
 CONTROL_SCOPES = frozenset(['clearCommands', 'clearExecutionData', 'clientConnected', 'clientDisconnected', 'config', 'replaceCommand', 'testStopped'])
 
 COLLECTOR_PATH = "/api/collector"
@@ -37,3 +41,9 @@ ENV_REUSE = "DEVTOOLS_APP_REUSE"
 ENV_REUSE_HOST = "DEVTOOLS_APP_HOST"
 ENV_REUSE_PORT = "DEVTOOLS_APP_PORT"
 ENV_LAUNCH_COMMAND = "DEVTOOLS_RERUN_LAUNCH_COMMAND"
+
+TRACE_RESOURCES_MODES = ('none', 'styles')
+DEFAULT_TRACE_RESOURCES = "styles"
+PAGE_RESOURCE_SETTLE_TIMEOUT_S = 2.0
+PAGE_RESOURCE_SETTLE_POLL_S = 0.1
+MAX_STORED_RESOURCE_KEYS = 512

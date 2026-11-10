@@ -1,6 +1,8 @@
-import { answerParseRequest } from './trace-parse.js'
-import type { TraceParseRequest } from './trace-parse-protocol.js'
+import { createTraceReader } from './trace-parse.js'
+import type { TraceReaderRequest } from './trace-parse-protocol.js'
 
-addEventListener('message', (event: MessageEvent<TraceParseRequest>) => {
-  answerParseRequest(event.data.bytes, (message) => postMessage(message))
+const answer = createTraceReader((message) => postMessage(message))
+
+addEventListener('message', (event: MessageEvent<TraceReaderRequest>) => {
+  void answer(event.data)
 })

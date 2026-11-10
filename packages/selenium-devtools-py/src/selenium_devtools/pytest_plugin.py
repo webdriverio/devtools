@@ -12,10 +12,11 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import selenium_devtools as devtools
-from . import assertions, frames, read_value_locators, rerun
+from . import assertions, frames, instrumentation, read_value_locators, rerun
+from ._contract import TRACE_RESOURCES_MODES
 from .constants import ENV_OPT_IN, ENV_PORT, LOGGER_NAME
 from .utils import now_ms
 
@@ -63,9 +64,39 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         help="One trace archive per run (default) or one per test. Implies --devtools-trace.",
     )
     group.addoption(
+        "--devtools-trace-resources",
+        default=None,
+        choices=TRACE_RESOURCES_MODES,
+        help="Store the page's stylesheets and fonts in the trace (styles, default) or nothing (none).",
+    )
+    group.addoption(
         "--devtools-trace-policy",
         default=None,
         help="Which runs keep their trace archive. Implies --devtools-trace.",
+    )
+    group.addoption(
+        "--devtools-no-mask-inputs",
+        action="store_true",
+        default=None,
+        help="Leave password fields unmasked in the replayed page.",
+    )
+    group.addoption(
+        "--devtools-mask-selector",
+        action="append",
+        default=None,
+        help="Also mask the text and value of elements matching this CSS selector in the replayed page. Repeatable.",
+    )
+    parser.addini(
+        "devtools_mask_inputs",
+        "Mask password fields in the replayed page (default true).",
+        type="bool",
+        default=None,
+    )
+    parser.addini(
+        "devtools_mask_selectors",
+        "CSS selectors whose elements have their text and value masked in the replayed page, one per line.",
+        type="linelist",
+        default=None,
     )
     parser.addini(
         "devtools",
@@ -89,6 +120,11 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         "One trace archive per run, or one per test. Implies devtools_trace.",
         default=None,
     )
+    parser.addini(
+        "devtools_trace_resources",
+        "Page resources a trace stores: styles (default) or none.",
+        default=None,
+    )
 
 
 def _ini_raw(config, name: str):  # noqa: ANN001, ANN201
@@ -97,7 +133,8 @@ def _ini_raw(config, name: str):  # noqa: ANN001, ANN201
         value = config.getini(name)
     except (ValueError, KeyError):  # option not registered (another plugin's parser)
         return None
-    return None if value is None or value == "" else value
+    # pytest 7 and early 8 answer an unset bool or linelist ini with [] rather than its None default.
+    return None if value is None or value == "" or value == [] else value
 
 
 def _ini(config, name: str) -> Optional[bool]:  # noqa: ANN001
@@ -119,6 +156,15 @@ def _resolve_trace_granularity(config) -> Optional[str]:  # noqa: ANN001
     return str(value) if value else None
 
 
+def _resolve_trace_resources(config) -> Optional[str]:  # noqa: ANN001
+    """Which page resources a trace stores: CLI, else ini, else undecided (`enable()` reads the env); an unset ini read as ``[]`` is unset."""
+    cli = config.getoption("--devtools-trace-resources", None)
+    if cli:
+        return str(cli)
+    value = _ini_raw(config, "devtools_trace_resources")
+    return str(value) if value and value != [] else None
+
+
 def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
     """Which runs keep their archive: CLI, else ini, else undecided.
 
@@ -130,6 +176,22 @@ def _resolve_trace_policy(config) -> Optional[str]:  # noqa: ANN001
         return str(cli)
     value = _ini_raw(config, "devtools_trace_policy")
     return str(value) if value else None
+
+
+def _resolve_mask_inputs(config) -> Optional[bool]:  # noqa: ANN001
+    """Whether password fields are masked: CLI, else ini, else undecided (``enable()`` reads the environment)."""
+    if config.getoption("--devtools-no-mask-inputs", None):
+        return False
+    return _ini(config, "devtools_mask_inputs")
+
+
+def _resolve_mask_selectors(config) -> Optional[List[str]]:  # noqa: ANN001
+    """Selectors to mask: CLI, else ini, else undecided."""
+    cli = config.getoption("--devtools-mask-selector", None)
+    if cli:
+        return [str(s) for s in cli]
+    value = _ini_raw(config, "devtools_mask_selectors")
+    return [str(s) for s in value] if value else None
 
 
 def _overridden(config, name: str) -> bool:  # noqa: ANN001
@@ -493,6 +555,9 @@ def pytest_configure(config) -> None:  # noqa: ANN001
             trace=trace,
             trace_policy=_resolve_trace_policy(config),
             trace_granularity=_resolve_trace_granularity(config),
+            trace_resources=_resolve_trace_resources(config),
+            mask_inputs=_resolve_mask_inputs(config),
+            mask_selectors=_resolve_mask_selectors(config),
         )
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation
@@ -589,6 +654,7 @@ def pytest_runtest_logstart(nodeid, location) -> None:  # noqa: ANN001
         return
     _registry.mark_start(nodeid)
     read_value_locators.reset()
+    instrumentation.reset_test_capture()
     capturer = devtools.get_capturer()
     if capturer is None:
         return
@@ -643,6 +709,9 @@ def pytest_runtest_logreport(report) -> None:  # noqa: ANN001
         return
     from . import instrumentation
 
+    if report.when == "call":
+        instrumentation.settle_page_resources(capturer)
+        instrumentation.capture_final_frame()
     instrumentation.drain_native_network(capturer)
     file, line, name = report.location
     _registry.record(

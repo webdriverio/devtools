@@ -1,0 +1,89 @@
+{
+  "source": "examples-smoke CI artifact, run 42769524119 at ee505b9c (2026-11-10): selenium-mocha/1/trace-eff2f1290e32c2977f3762437ea9b612.zip",
+  "runner": "selenium-webdriver",
+  "browserName": "chrome",
+  "commands": {
+    "count": 17,
+    "failed": 2,
+    "titles": [
+      "Element.getText()",
+      "Element.getText()",
+      "Element.waitForExist(\"#devtools-never-rendered\")",
+      "Element.waitForExist(\"h2\")",
+      "Element.waitForExist(\"h2\")",
+      "Page.getTitle()",
+      "Page.getTitle()",
+      "Page.navigate(\"http://127.0.0.1:4567\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "assert.equal(\"Login Page\", \"Login Page\")",
+      "assert.equal(\"Login Page\", \"This Is Not The Heading\")",
+      "assert.match(\"The Internet\", \"/The Internet/\")",
+      "assert.match(\"The Internet\", \"/The Internet/\")"
+    ],
+    "withSnapshotText": 17,
+    "withCallSource": 17
+  },
+  "consoleLogs": 49,
+  "networkRequests": {
+    "count": 17,
+    "urls": [
+      "http://127.0.0.1:4567/",
+      "http://127.0.0.1:4567/css/fixture.css",
+      "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "http://127.0.0.1:4567/login"
+    ]
+  },
+  "mutations": {
+    "count": 6,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "e82000fd372106fc387e2e4b20db73d1b1fea485",
+    "7483445832ca797e5d0577e147051db9cf8c3d59",
+    "e82000fd372106fc387e2e4b20db73d1b1fea485",
+    "36fd276a41af15b4330b3f58894543838c5eefab",
+    "e82000fd372106fc387e2e4b20db73d1b1fea485"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/selenium-js/mocha/example.js"
+  ],
+  "transcript": true,
+  "inlineScreenshots": 0,
+  "snapshotScreenshots": [
+    "resources/page@eff2f129-1794292630720.png",
+    "resources/page@eff2f129-1794292630720.png",
+    "resources/page@eff2f129-1794292630720.png",
+    "resources/page@eff2f129-1794292630720.png",
+    "resources/page@eff2f129-1794292632464.png",
+    "resources/page@eff2f129-1794292632464.png",
+    "resources/page@eff2f129-1794292632464.png",
+    "resources/page@eff2f129-1794292634098.png",
+    "resources/page@eff2f129-1794292634098.png",
+    "resources/page@eff2f129-1794292634098.png",
+    "resources/page@eff2f129-1794292634098.png",
+    "resources/page@eff2f129-1794292635264.png",
+    "resources/page@eff2f129-1794292635264.png",
+    "resources/page@eff2f129-1794292636497.png",
+    "resources/page@eff2f129-1794292637525.png",
+    "resources/page@eff2f129-1794292637525.png",
+    "resources/page@eff2f129-1794292637525.png"
+  ],
+  "pageResources": [
+    {
+      "url": "http://127.0.0.1:4567/css/fixture.css",
+      "kind": "stylesheet",
+      "mimeType": "text/css",
+      "size": 229
+    },
+    {
+      "url": "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "kind": "font",
+      "mimeType": "font/woff2",
+      "size": 18
+    }
+  ]
+}

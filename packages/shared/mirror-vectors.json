@@ -604,6 +604,58 @@
         }
       ]
     },
+    "finalFrameStamp": {
+      "mirrors": {
+        "ts": "core/final-frame.ts finalFrameStamp",
+        "py": "instrumentation.py _final_frame_stamp"
+      },
+      "notes": "commands are the test's rows in completion order. expect is the stamp the end-of-test capture takes, or null when no row follows the last capture. A stamp at the last capture names the last row at or before it, and a stamp at a row names that row.",
+      "cases": [
+        {
+          "name": "no capture yet stamps the test's last row",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": null,
+          "expect": { "command": "getText", "timestamp": 1200 }
+        },
+        {
+          "name": "a capture from before the test started does not count",
+          "commands": [
+            { "command": "click", "timestamp": 500 },
+            { "command": "getText", "timestamp": 1200 },
+            { "command": "click", "timestamp": 1300 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 900,
+          "expect": { "command": "click", "timestamp": 1300 }
+        },
+        {
+          "name": "no row after the capture takes none",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 1200,
+          "expect": null
+        },
+        {
+          "name": "rows after the capture stamp it, owned by the last row at or before it",
+          "commands": [
+            { "command": "click", "timestamp": 1100 },
+            { "command": "getText", "timestamp": 1200 },
+            { "command": "click", "timestamp": 1300 },
+            { "command": "getText", "timestamp": 1400 }
+          ],
+          "testStartMs": 1000,
+          "lastCapturedTimestamp": 1250,
+          "expect": { "command": "getText", "timestamp": 1250 }
+        }
+      ]
+    },
     "captureTimingSummary": {
       "mirrors": { "ts": "core/capture-timing.ts summarizeCaptureTiming + formatCaptureTimingSummary", "py": "capture_timing.py summarize + format_summary" },
       "notes": "wall and file are null when not given. Halves round up in both languages, which Python's round() does not do on its own; the second case is the one that tells them apart.",
@@ -705,6 +757,69 @@
             "formatted": "[devtools] capture timing: 0 captures (0 native), busy 0.0 s\nms = issue to settle; the driver serves one request at a time, so svc (settle minus the previous probe's settle) is a probe's own cost and the rest is queueing\nprobe (ms)  n  total  median  p95  max  svc total  svc median"
           }
         }
+      ]
+    },
+    "collectorMaskPrelude": {
+      "mirrors": {
+        "ts": "shared/input-mask.ts resolveCaptureMask + captureMaskPrelude",
+        "py": "input_masking.py configure + capture_mask_prelude"
+      },
+      "notes": "The declaration each adapter puts ahead of the collector source; the bundle reads it as a free variable. JSON with no spaces and raw non-ASCII, which JSON.stringify and json.dumps(separators=(',', ':'), ensure_ascii=False) agree on. Blank selectors are dropped and the rest trimmed. `<`, `>`, `/`, U+2028 and U+2029 are written as \\uXXXX escapes, so a selector can never end the script or a comment around it.",
+      "cases": [
+        {
+          "name": "the default masks password fields and names no selectors",
+          "options": {},
+          "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[]};\n"
+        },
+        {
+          "name": "the opt-out",
+          "options": {
+            "maskInputs": false
+          },
+          "expect": "var __wdioCaptureMask = {\"inputs\":false,\"selectors\":[]};\n"
+        },
+        {
+          "name": "selectors are trimmed and blanks dropped",
+          "options": {
+            "maskSelectors": [
+              " .account-number ",
+              "",
+              "[data-private=\"true\"]"
+            ]
+          },
+          "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[\".account-number\",\"[data-private=\\\"true\\\"]\"]};\n"
+        },
+        {
+          "name": "non-ASCII stays raw",
+          "options": {
+            "maskSelectors": [
+              "[aria-label=\"Kontonummer ü\"]"
+            ]
+          },
+          "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[\"[aria-label=\\\"Kontonummer ü\\\"]\"]};\n"
+        },
+        {
+          "name": "a selector cannot end the script or a comment it is written into",
+          "options": {
+            "maskSelectors": ["a[title=\"</script><!--*/\"]", "p\u2028b"]
+          },
+          "expect": "var __wdioCaptureMask = {\"inputs\":true,\"selectors\":[\"a[title=\\\"\\u003c\\u002fscript\\u003e\\u003c!--*\\u002f\\\"]\",\"p\\u2028b\"]};\n"
+        }
+      ]
+    },
+    "resourceUrlKey": {
+      "mirrors": {
+        "ts": "shared/page-resources.ts resourceUrlKey",
+        "py": "page_resources.py url_key"
+      },
+      "notes": "The key a trace drain names a stored resource by, so the page skips reading it again; both sides hash the URL's UTF-8 bytes.",
+      "cases": [
+        {"name": "an empty URL", "url": "", "expect": "ztntfp"},
+        {"name": "a stylesheet", "url": "https://site.test/css/site.css", "expect": "ihufww"},
+        {"name": "a font with a query", "url": "https://cdn.test/fonts/icons.woff2?v=4.7.0", "expect": "8cwn8a"},
+        {"name": "non-ASCII, hashed as UTF-8", "url": "https://site.test/café/üml.css", "expect": "bw1t0i"},
+        {"name": "outside the Basic Multilingual Plane", "url": "https://site.test/😀.css", "expect": "10dc522"},
+        {"name": "a lone surrogate, encoded as U+FFFD like TextEncoder", "url": "https://site.test/\ud800.css", "expect": "1cjj3d2"}
       ]
     }
   }

@@ -8,7 +8,19 @@ export const HOSTED_PLAYER = import.meta.env.MODE === 'hosted'
 export const TRACE_OPEN_EVENT = 'app-trace-open'
 export const TRACE_RUN_SELECT_EVENT = 'app-trace-run-select'
 export const TRACE_FILE_ACCEPT = '.zip,application/zip'
+/** The player's dock announces it has built its tabs, then each tab opened since (label as detail). */
+export const DOCK_TABS_READY_EVENT = 'app-dock-tabs-ready'
+export const DOCK_TAB_CHANGE_EVENT = 'app-dock-tab-change'
+/** Opens a dock tab; `linked` matches the label without case and leaves the remembered tab alone. */
+export const OPEN_DOCK_TAB_EVENT = 'open-dock-tab'
+/** Largest zip `?trace=` downloads; the tab holds the zip, but reads its entries one at a time as they are shown. */
+export const TRACE_DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024
+/** Bytes of a shown trace's images and bodies kept read; past this the least recently shown are dropped and read again when needed. */
+export const TRACE_ENTRY_CACHE_BYTES = 64 * 1024 * 1024
+/** How long a `?trace=` download may receive nothing before it is stopped. */
+export const TRACE_DOWNLOAD_IDLE_TIMEOUT_MS = 30_000
 export const TRACE_OPEN_PHASE_LABEL: Record<TraceOpenPhase, string> = {
+  downloading: 'Downloading the trace…',
   reading: 'Reading the file…',
   unpacking: 'Unpacking the archive…',
   building: 'Building the timeline…'

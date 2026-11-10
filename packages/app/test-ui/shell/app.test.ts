@@ -1,5 +1,3 @@
-import type { TracePlayerData } from '@wdio/devtools-shared'
-
 import '@/app.js'
 import type { WebdriverIODevtoolsApplication } from '@/app.js'
 import {
@@ -25,7 +23,8 @@ import {
   openClientSocket,
   standaloneMetadata,
   testrunnerMetadata,
-  tracePlayerData,
+  traceZip,
+  type ServedZips,
   waitFor
 } from './fixtures.js'
 import type { FakeBackend } from './fixtures.js'
@@ -60,13 +59,13 @@ let backend: FakeBackend | undefined
 afterEach(() => {
   backend?.restore()
   backend = undefined
-  // The player path caches the trace it loaded, and the sidebar remembers its
+  // A live socket caches the trace it delivered, and the sidebar remembers its
   // width — both would otherwise decide what the next mount renders.
   localStorage.removeItem(CACHE_ID)
   localStorage.removeItem('sidebarWidth')
 })
 
-async function mountApp(options: { trace?: TracePlayerData } = {}) {
+async function mountApp(options: { served?: ServedZips } = {}) {
   backend = installFakeBackend(options)
   return mount<WebdriverIODevtoolsApplication>(APP)
 }
@@ -86,9 +85,9 @@ async function liveApp(...frames: Frame[]) {
   return { app, socket }
 }
 
-async function playerApp(trace = tracePlayerData()) {
-  const app = await mountApp({ trace })
-  await waitFor(() => app.dataManager.playerMode, 'the served trace to load')
+async function playerApp(zip = traceZip()) {
+  const app = await mountApp({ served: { zips: [zip] } })
+  await waitFor(() => app.dataManager.hasConnection, 'the served trace to load')
   await settle(app)
   return app
 }
@@ -323,9 +322,11 @@ describe('wdio-devtools', () => {
     it('renders no test tree, even for a testrunner-captured trace', async () => {
       const app = await playerApp()
 
-      // The trace carries testrunner metadata and a suite registry; the player
-      // still drops the tree because it has no run/rerun affordances.
-      expect(app.dataManager.traceType).toBe(testrunnerMetadata.type)
+      // The trace was recorded by a test runner; the player still drops the
+      // tree because it has no run/rerun affordances.
+      expect(app.dataManager.metadataContextProvider.value?.runner).toBe(
+        'mocha'
+      )
       expect(shadowAll(app, SIDEBAR)).toHaveLength(0)
     })
 
@@ -333,6 +334,24 @@ describe('wdio-devtools', () => {
       const app = await playerApp()
 
       expect(overlay(app).playerMode).toBe(true)
+    })
+  })
+
+  describe('a run of traces', () => {
+    it('says so in the banner when a picked trace cannot be opened again, and keeps the row', async () => {
+      const app = await mountApp({
+        served: { zips: [traceZip(), traceZip()], fetchesBeforeFailing: 1 }
+      })
+      await waitFor(
+        () => shadowAll(app, '[role="alert"]').length > 0,
+        'the failed pick to be reported'
+      )
+      await settle(app)
+
+      expect(text(shadow(app, '[role="alert"]'))).toContain(
+        'Could not open run/t0/trace.zip'
+      )
+      expect(app.dataManager.hasConnection).toBe(false)
     })
   })
 

@@ -1,9 +1,15 @@
 import type { CommandLog, TracePlayerFrame } from '@wdio/devtools-shared'
 
-import { commandContext, framesContext } from '@/controller/context.js'
+import {
+  commandContext,
+  framesContext,
+  playerArchiveContext,
+  type PlayerArchive
+} from '@/controller/context.js'
 import { KBD } from '@/controller/keyboard.js'
 import {
   PLAYER_RESTART_EVENT,
+  PLAYER_SEEK_ACTION_EVENT,
   PLAYER_SPEED_EVENT,
   PLAYER_STATE_EVENT,
   type PlayerState
@@ -16,13 +22,13 @@ import {
 import '@components/browser/trace-timeline.js'
 
 import { mountWithContext, settle } from '../../support/mount.js'
+import { playerArchive } from '../../support/trace-archive.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
   filmstrip,
-  FRAME_SHOT,
+  FRAME_IMAGES,
   loginTrace,
-  PORTRAIT_CAPTURE,
-  PORTRAIT_SHOT
+  PORTRAIT_CAPTURE
 } from './fixtures.js'
 
 const TAG = 'wdio-devtools-trace-timeline'
@@ -45,12 +51,30 @@ const DURATION = last.timestamp - START
 
 function mountTimeline(
   timelineCommands: CommandLog[],
-  timelineFrames: TracePlayerFrame[]
+  timelineFrames: TracePlayerFrame[],
+  archive: PlayerArchive = playerArchive(FRAME_IMAGES)
 ): Promise<Timeline> {
   return mountWithContext<Timeline>(TAG, [
     { context: commandContext, value: timelineCommands },
-    { context: framesContext, value: timelineFrames }
+    { context: framesContext, value: timelineFrames },
+    { context: playerArchiveContext, value: archive }
   ])
+}
+
+/** The thumbnails' images once each has been read from the zip and decoded. */
+async function loadedThumbs(el: Timeline): Promise<HTMLImageElement[]> {
+  for (let tick = 0; tick < 100; tick++) {
+    await settle(el)
+    const images = shadowAll<HTMLImageElement>(el, `${THUMB} img`)
+    if (
+      images.length === shadowAll(el, THUMB).length &&
+      images.every((img) => img.complete && img.naturalWidth > 0)
+    ) {
+      return images
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error('the thumbnails never loaded')
 }
 
 /** The clock the strip mirrors to the controls bar on its next render. */
@@ -139,12 +163,89 @@ describe('wdio-devtools-trace-timeline', () => {
       ])
     })
 
-    it("renders each frame's screenshot as its thumbnail", async () => {
-      const el = await mountTimeline(commands, frames)
+    it("renders each frame's image, read from the zip, as its thumbnail", async () => {
+      const archive = playerArchive(FRAME_IMAGES)
+      const el = await mountTimeline(commands, frames, archive)
 
-      expect(shadow(el, `${THUMB} img`)?.getAttribute('src')).toBe(
-        `data:image/png;base64,${FRAME_SHOT}`
+      const images = await loadedThumbs(el)
+
+      expect(images.map((img) => img.getAttribute('src'))).toEqual(
+        frames.map((frame) => archive.entries.cachedUrl(frame.entry))
       )
+      expect(images[0]!.src).toMatch(/^blob:/)
+    })
+
+    it('holds a placeholder for a frame not read yet', async () => {
+      const el = await mountTimeline(commands, frames, playerArchive({}))
+
+      expect(shadowAll(el, `${THUMB} img`)).toHaveLength(0)
+      expect(shadowAll(el, THUMB)).toHaveLength(frames.length)
+    })
+
+    it('draws no more frames than the entry cache holds at once', async () => {
+      const archive = playerArchive(FRAME_IMAGES)
+      const big = playerArchive(
+        FRAME_IMAGES,
+        undefined,
+        archive.entries.maxBytes / 4
+      )
+      const el = await mountTimeline(commands, frames, big)
+
+      expect(shadowAll(el, THUMB)).toHaveLength(3)
+    })
+
+    it('reads no image when even one frame is larger than its share of the cache', async () => {
+      const archive = playerArchive(FRAME_IMAGES)
+      const huge = playerArchive(
+        FRAME_IMAGES,
+        undefined,
+        archive.entries.maxBytes * 2
+      )
+      const el = await mountTimeline(commands, frames, huge)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      await settle(el)
+
+      expect(shadowAll(el, THUMB).length).toBeGreaterThan(0)
+      expect(shadowAll(el, `${THUMB} img`)).toHaveLength(0)
+      expect(huge.entries.cachedUrl(frames[0]!.entry)).toBeUndefined()
+    })
+
+    it('releases its frames to the cache when it leaves the page', async () => {
+      const images = {
+        ...FRAME_IMAGES,
+        'resources/other.png': FRAME_IMAGES['resources/frame.png']!
+      }
+      const archive = playerArchive(images, undefined, undefined, 1)
+      const el = await mountTimeline(commands, frames, archive)
+      await loadedThumbs(el)
+
+      el.remove()
+      await archive.entries.url('resources/other.png')
+
+      expect(archive.entries.cachedUrl(frames[0]!.entry)).toBeUndefined()
+    })
+
+    it('draws no more frames than fit the strip', async () => {
+      const many = Array.from({ length: 400 }, (_, i) => ({
+        timestamp: START + i * 5,
+        entry: frames[i % frames.length]!.entry
+      }))
+      const el = await mountTimeline(commands, many)
+      el.style.width = '300px'
+      el.style.height = '100px'
+      // The strip is measured by a ResizeObserver, which reports after layout.
+      for (let frame = 0; frame < 30; frame++) {
+        await new Promise((resolve) => requestAnimationFrame(resolve))
+        await settle(el)
+        if (shadowAll(el, THUMB).length < many.length / 4) {
+          break
+        }
+      }
+
+      const drawn = shadowAll(el, THUMB)
+      expect(drawn.length).toBeLessThan(many.length / 4)
+      expect(drawn[0]!.style.left).toBe('0%')
+      expect(drawn[drawn.length - 1]!.style.left).toBe('100%')
     })
 
     it('marks the frame nearest the playhead as the active one', async () => {
@@ -201,27 +302,21 @@ describe('wdio-devtools-trace-timeline', () => {
       }
 
       async function laidOutStrip(
-        stripFrames: TracePlayerFrame[]
+        frameSize: PlayerArchive['frameSize']
       ): Promise<Timeline> {
-        const el = await mountTimeline(commands, stripFrames)
+        const el = await mountTimeline(
+          commands,
+          frames,
+          playerArchive(FRAME_IMAGES, frameSize)
+        )
         el.style.height = `${STRIP_HEIGHT}px`
         el.style.width = '600px'
         await settle(el)
         return el
       }
 
-      const reshot = (screenshot: string) =>
-        frames.map((frame) => ({ ...frame, screenshot }))
-
-      /** Base64 that decodes to bytes no size can be read from. It has to be
-       *  real base64: raw text makes the frame's `data:` url unparseable, and
-       *  Chrome logs that as a SEVERE resource error — which the runner polls
-       *  for every 500ms and fails the whole spec on, whichever test is running
-       *  by then. */
-      const SIZELESS_SHOT = btoa('not-an-image')
-
-      it("takes the capture's own shape", async () => {
-        const el = await laidOutStrip(reshot(PORTRAIT_SHOT))
+      it("takes the capture's own shape, as the reader measured it", async () => {
+        const el = await laidOutStrip(PORTRAIT_CAPTURE)
 
         const portrait = PORTRAIT_CAPTURE.width / PORTRAIT_CAPTURE.height
         for (const thumb of shadowAll(el, THUMB)) {
@@ -230,7 +325,8 @@ describe('wdio-devtools-trace-timeline', () => {
       })
 
       it('keeps nothing cropped away', async () => {
-        const el = await laidOutStrip(reshot(PORTRAIT_SHOT))
+        const el = await laidOutStrip(PORTRAIT_CAPTURE)
+        await loadedThumbs(el)
         const thumb = shadowAll(el, THUMB)[0]
         const img = shadow<HTMLImageElement>(thumb, 'img')!
 
@@ -244,7 +340,7 @@ describe('wdio-devtools-trace-timeline', () => {
       })
 
       it('falls back to 16:9 when the bytes name no size', async () => {
-        const el = await laidOutStrip(reshot(SIZELESS_SHOT))
+        const el = await laidOutStrip(undefined)
 
         expect(shapeOf(shadowAll(el, THUMB)[0])).toBeCloseTo(16 / 9, 2)
       })
@@ -377,7 +473,12 @@ describe('wdio-devtools-trace-timeline', () => {
 
       await mountTimeline(commands, frames)
 
-      expect(await shown).toEqual({ command: openLogin, elapsedTime: 0 })
+      // Placed by the strip itself as the trace opens, so the dock keeps its tab.
+      expect(await shown).toEqual({
+        command: openLogin,
+        elapsedTime: 0,
+        keepTab: true
+      })
     })
 
     it('times the announced action from the first command, as the actions list does', async () => {
@@ -483,6 +584,98 @@ describe('wdio-devtools-trace-timeline', () => {
       const stopped = nextPlayerState()
       window.dispatchEvent(new CustomEvent(KBD.togglePlay))
       expect((await stopped).playing).toBe(false)
+    })
+  })
+
+  describe('following a trace link', () => {
+    const withIds = (list: CommandLog[]) =>
+      list.map((command, i) => ({ ...command, callId: `call@${i + 1}` }))
+    const seek = (callId: string) =>
+      window.dispatchEvent(
+        new CustomEvent<string>(PLAYER_SEEK_ACTION_EVENT, { detail: callId })
+      )
+
+    it('moves to the linked action, keeping the dock tab', async () => {
+      const linked = withIds(commands)
+      const target = linked[commands.indexOf(typeUsername)]
+      const el = await mountTimeline(linked, frames)
+      const shown = nextShowCommand()
+
+      seek(target.callId)
+
+      const detail = await shown
+      expect(detail.command).toBe(target)
+      expect(detail.keepTab).toBe(true)
+      expect(el.currentMs).toBe(target.timestamp - START)
+    })
+
+    it('keeps the linked action when the first frame re-syncs at the same clock', async () => {
+      const linked = withIds(commands)
+      const target = linked[commands.indexOf(typeUsername)]
+      const seen: CommandLog[] = []
+      const record = (event: CustomEvent<CommandEventProps>) =>
+        seen.push(event.detail.command)
+
+      const el = await mountTimeline(linked, frames)
+      window.addEventListener('show-command', record)
+      seek(target.callId)
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+      await settle(el)
+      window.removeEventListener('show-command', record)
+
+      expect(seen).toEqual([target])
+    })
+
+    it('restarts from the first action after following a link', async () => {
+      const linked = withIds(commands)
+      await mountTimeline(linked, frames)
+      seek(linked[commands.indexOf(readFlash)].callId)
+      const shown = nextShownCommand()
+
+      window.dispatchEvent(new CustomEvent(PLAYER_RESTART_EVENT))
+
+      expect(await shown).toBe(linked[commands.indexOf(openLogin)])
+    })
+
+    it('announces the last action again when played through after a link to it', async () => {
+      // No frames, so the last action ends the recording and the link parks the clock at its end.
+      const linked = withIds(commands)
+      const sorted = [...linked].sort((a, b) => a.timestamp - b.timestamp)
+      const last = sorted[sorted.length - 1]
+      const el = await mountTimeline(linked, [])
+      seek(last.callId)
+      await settle(el)
+      window.dispatchEvent(
+        new CustomEvent(PLAYER_SPEED_EVENT, { detail: { value: 5 } })
+      )
+      const seen: CommandLog[] = []
+      const record = (event: CustomEvent<CommandEventProps>) =>
+        seen.push(event.detail.command)
+      window.addEventListener('show-command', record)
+
+      window.dispatchEvent(new CustomEvent(KBD.togglePlay))
+      const deadline = Date.now() + 5_000
+      while ((el.playing || !seen.length) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      window.removeEventListener('show-command', record)
+
+      expect(seen[seen.length - 1]).toBe(last)
+    })
+
+    it('ignores an id the trace does not hold', async () => {
+      const el = await mountTimeline(withIds(commands), frames)
+      const before = el.currentMs
+      let announced = 0
+      const count = () => announced++
+      window.addEventListener('show-command', count)
+
+      seek('call@99')
+      await settle(el)
+      window.removeEventListener('show-command', count)
+
+      expect(announced).toBe(0)
+      expect(el.currentMs).toBe(before)
     })
   })
 })

@@ -60,8 +60,20 @@
         "$ref": "#/$defs/NetworkRequest"
       }
     },
+    "pageResources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PageResource"
+      }
+    },
     "replaceCommand": {
       "$ref": "#/$defs/ReplaceCommandWsPayload"
+    },
+    "resourceReReads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ResourceReRead"
+      }
     },
     "screencast": {
       "$ref": "#/$defs/ScreencastInfo"
@@ -326,6 +338,9 @@
           "additionalProperties": false
         },
         "selector": {
+          "type": "string"
+        },
+        "callId": {
           "type": "string"
         }
       },
@@ -651,6 +666,9 @@
           "enum": [
             "resource-timing"
           ]
+        },
+        "wallTime": {
+          "type": "number"
         }
       },
       "required": [
@@ -691,6 +709,38 @@
       "required": [],
       "additionalProperties": false
     },
+    "PageResource": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "stylesheet",
+            "font"
+          ]
+        },
+        "data": {
+          "type": "string"
+        },
+        "size": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "url",
+        "mimeType",
+        "kind",
+        "data",
+        "size"
+      ],
+      "additionalProperties": false
+    },
     "PageScriptsResponse": {
       "type": "object",
       "properties": {
@@ -701,6 +751,9 @@
           "type": "string"
         },
         "collectorDrain": {
+          "type": "string"
+        },
+        "collectorDrainResources": {
           "type": "string"
         },
         "capturePerformance": {
@@ -967,6 +1020,26 @@
       "required": [
         "oldTimestamp",
         "command"
+      ],
+      "additionalProperties": false
+    },
+    "ResourceReRead": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "number"
+        },
+        "loadedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "url",
+        "startedAt",
+        "loadedAt"
       ],
       "additionalProperties": false
     },
@@ -1433,5 +1506,187 @@
       ],
       "additionalProperties": false
     }
+  },
+  "actionCommands": {
+    "mapped": [
+      "addValue",
+      "back",
+      "clear",
+      "clearElement",
+      "click",
+      "clickElement",
+      "doubleClick",
+      "dragAndDrop",
+      "execute",
+      "executeAsync",
+      "forward",
+      "get",
+      "getAttribute",
+      "getCSSProperty",
+      "getCssValue",
+      "getCurrentUrl",
+      "getElementAttribute",
+      "getElementProperty",
+      "getElementRect",
+      "getElementTagName",
+      "getElementText",
+      "getElementValueOfCssProperty",
+      "getLocation",
+      "getPageSource",
+      "getProperty",
+      "getRect",
+      "getSize",
+      "getTagName",
+      "getText",
+      "getTitle",
+      "getUrl",
+      "getValue",
+      "goBack",
+      "goForward",
+      "isClickable",
+      "isDisplayed",
+      "isElementEnabled",
+      "isElementSelected",
+      "isEnabled",
+      "isExisting",
+      "isFocused",
+      "isSelected",
+      "keys",
+      "moveTo",
+      "navigateTo",
+      "newWindow",
+      "refresh",
+      "scrollIntoView",
+      "selectByVisibleText",
+      "sendKeys",
+      "sendKeysToElement",
+      "setValue",
+      "submit",
+      "switchToFrame",
+      "switchToParentFrame",
+      "switchToWindow",
+      "to",
+      "touchAction",
+      "url",
+      "wait",
+      "waitForClickable",
+      "waitForDisplayed",
+      "waitForElementLocated",
+      "waitForElementNotPresent",
+      "waitForElementNotVisible",
+      "waitForElementPresent",
+      "waitForElementVisible",
+      "waitForEnabled",
+      "waitForExist",
+      "waitUntil"
+    ],
+    "readOnly": [
+      "$",
+      "$$",
+      "element",
+      "elementScreenshot",
+      "elements",
+      "findChildElement",
+      "findChildElements",
+      "findElement",
+      "findElementFromShadowRoot",
+      "findElements",
+      "findElementsFromShadowRoot",
+      "getAccessibleName",
+      "getActiveElement",
+      "getAlertText",
+      "getAllCookies",
+      "getAllWindowHandles",
+      "getAriaRole",
+      "getAttribute",
+      "getAvailableLogTypes",
+      "getCSSProperty",
+      "getCapabilities",
+      "getComputedLabel",
+      "getComputedRole",
+      "getContextHandles",
+      "getCookie",
+      "getCookies",
+      "getCredentials",
+      "getCssProperty",
+      "getCssValue",
+      "getCurrentContextHandle",
+      "getCurrentUrl",
+      "getDomAttribute",
+      "getDownloadableFiles",
+      "getElementAriaLabel",
+      "getElementAriaRole",
+      "getElementAttribute",
+      "getElementProperty",
+      "getElementRect",
+      "getElementShadowRoot",
+      "getElementSize",
+      "getElementTagName",
+      "getElementText",
+      "getElementValueOfCssProperty",
+      "getFirstElementChild",
+      "getHTML",
+      "getId",
+      "getLastElementChild",
+      "getLocation",
+      "getLog",
+      "getLogTypes",
+      "getNetworkConnection",
+      "getNextSibling",
+      "getPageSource",
+      "getPreviousSibling",
+      "getProperty",
+      "getRect",
+      "getScreenOrientation",
+      "getSession",
+      "getShadowRoot",
+      "getSize",
+      "getTagName",
+      "getText",
+      "getTimeouts",
+      "getTitle",
+      "getUrl",
+      "getValue",
+      "getWindowHandle",
+      "getWindowHandles",
+      "getWindowPosition",
+      "getWindowRect",
+      "getWindowSize",
+      "hasDescendants",
+      "isClickable",
+      "isDisplayed",
+      "isElementEnabled",
+      "isElementSelected",
+      "isEnabled",
+      "isExisting",
+      "isFocused",
+      "isLogAvailable",
+      "isPresent",
+      "isSelected",
+      "isVisible",
+      "printPage",
+      "screenshot",
+      "source",
+      "status",
+      "takeScreenshot",
+      "title",
+      "w3cGetActiveElement",
+      "w3cGetAlertText",
+      "w3cGetCurrentWindowHandle",
+      "w3cGetWindowHandles",
+      "wait",
+      "waitForClickable",
+      "waitForDisplayed",
+      "waitForElementLocated",
+      "waitForElementNotPresent",
+      "waitForElementNotVisible",
+      "waitForElementPresent",
+      "waitForElementVisible",
+      "waitForEnabled",
+      "waitForExist",
+      "waitUntil",
+      "windowHandle",
+      "windowHandles"
+    ]
   }
 }

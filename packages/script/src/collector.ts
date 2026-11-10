@@ -2,7 +2,10 @@ import { getLogs, clearLogs } from './logger.js'
 import { ConsoleLogCollector } from './collectors/consoleLogs.js'
 import { NetworkRequestCollector } from './collectors/networkRequests.js'
 import { ResourceTimingCollector } from './collectors/resourceTiming.js'
+import { PageResourceCollector } from './collectors/pageResources.js'
+import type { TraceDrainOptions } from '@wdio/devtools-shared'
 import { assignRef, hasRef, parseDocument } from './utils.js'
+import { pageMask } from './masking.js'
 
 /**
  * When THIS document came into existence, as epoch ms.
@@ -44,12 +47,18 @@ export class DataCollector {
    *  them made a re-injected collector unable to anchor at all. */
   #anchored = false
   #consoleLogs = new ConsoleLogCollector()
+  // Built before the network collector patches fetch, so its reads are not the page's requests.
+  #pageResources = new PageResourceCollector(
+    typeof window.fetch === 'function' ? window.fetch.bind(window) : undefined
+  )
   #networkRequests = new NetworkRequestCollector()
   /** The document's own record of every load, which is the only network
    *  source a browser without BiDi has. Given the patch's claims so a fetch
    *  both of them saw is reported once, with the patch's headers and body. */
-  #resourceTiming = new ResourceTimingCollector((url, startTime, entry) =>
-    this.#networkRequests.consumeClaim(url, startTime, entry)
+  #resourceTiming = new ResourceTimingCollector(
+    (url, startTime, entry) =>
+      this.#networkRequests.consumeClaim(url, startTime, entry),
+    this.#pageResources
   )
 
   captureError(err: Error) {
@@ -107,7 +116,14 @@ export class DataCollector {
     return this.#metadata
   }
 
-  getTraceData() {
+  /** The mask selector list, read by the element scripts so an action snapshot masks what the DOM stream masks. */
+  maskSelector(): string | null {
+    return pageMask.selector
+  }
+
+  /** `opts.resources` is set by a trace-mode drain alone; without it nothing is read back or returned. */
+  getTraceData(opts?: TraceDrainOptions) {
+    const resources = this.#pageResources.drain(opts)
     const data = {
       errors: this.#errors,
       mutations: this.#mutations,
@@ -117,7 +133,8 @@ export class DataCollector {
         ...this.#resourceTiming.getArtifacts()
       ].sort((a, b) => a.startTime - b.startTime),
       traceLogs: getLogs(),
-      metadata: this.getMetadata()
+      metadata: this.getMetadata(),
+      ...resources
     } as const
     this.reset()
     return data

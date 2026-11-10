@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from 'vitest'
+import { resourceUrlKey } from '@wdio/devtools-shared'
 import { loadInjectableScript } from '@wdio/devtools-core'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
@@ -304,6 +305,31 @@ describe('selenium SessionCapturer (with stashed executeScript)', () => {
     const cap = makeCapturer({ id: 'd' })
     await cap.captureTrace()
     expect(call).toBe(1)
+  })
+
+  it('captureTrace asks the page for its stylesheets and fonts only in a run that stores them, and keeps them', async () => {
+    const scripts: string[] = []
+    const css = {
+      url: 'https://x/site.css',
+      kind: 'stylesheet',
+      mimeType: 'text/css',
+      data: 'cHt9',
+      size: 3
+    }
+    stubExec(async (_driver, script) => {
+      scripts.push(String(script))
+      return { mutations: [], pageResources: [css], pendingResources: 0 }
+    })
+    const cap = makeCapturer({ id: 'd' })
+    await cap.captureTrace()
+    cap.pageResourceStore.mode = 'styles'
+    await cap.captureTrace()
+
+    expect(scripts[0]).toContain('getTraceData()')
+    expect(scripts[1]).toContain(
+      `getTraceData({"resources":"styles","stored":["${resourceUrlKey(css.url)}"]})`
+    )
+    expect(cap.pageResources).toEqual([css])
   })
 
   it('captureTrace swallows ECONNREFUSED / no-such-session errors silently', async () => {
