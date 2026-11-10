@@ -1,0 +1,99 @@
+{
+  "source": "examples-smoke CI artifact, run 42769524119 at ee505b9c (2026-11-10): nightwatch-bdd/1/trace-94ac8386dd5f2fedd4d44f8186ef1161.zip",
+  "runner": "nightwatch",
+  "browserName": "chrome",
+  "commands": {
+    "count": 21,
+    "failed": 1,
+    "titles": [
+      "Element.click(\"a.button\")",
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#username\")",
+      "Element.fill(\"#username\")",
+      "Element.waitForDisplayed(\"#flash\")",
+      "Element.waitForDisplayed(\"#flash\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"#username\")",
+      "Element.waitForDisplayed(\"a.button\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "assert.textContains(\"#flash\", \"You logged into a secure area\")",
+      "assert.textContains(\"#flash\", \"You logged into a secure area\")",
+      "assert.urlContains(\"/login\")",
+      "assert.urlContains(\"/secure\")"
+    ],
+    "withSnapshotText": 21,
+    "withCallSource": 21
+  },
+  "consoleLogs": 88,
+  "networkRequests": {
+    "count": 18,
+    "urls": [
+      "http://127.0.0.1:4567/css/fixture.css",
+      "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "http://127.0.0.1:4567/login",
+      "http://127.0.0.1:4567/secure"
+    ]
+  },
+  "mutations": {
+    "count": 48,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "6cdde8df7352d373f00f5f8332320a6a2aa09db8",
+    "29bbffee8a13574e51cfc12df9756247175f35ca",
+    "d65d842e20f73ec4afd9e69d672cbdaccdb5609c",
+    "fa50c2b29eaa43e1ad5026bbf35dfb06472f77a1",
+    "29bbffee8a13574e51cfc12df9756247175f35ca",
+    "25168d9b5bc1aab190640c0568775c7c36f337ac",
+    "29bbffee8a13574e51cfc12df9756247175f35ca"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/nightwatch/bdd/smoke-test.js"
+  ],
+  "transcript": true,
+  "inlineScreenshots": 0,
+  "snapshotScreenshots": [
+    "resources/page@94ac8386-1794292641922.png",
+    "resources/page@94ac8386-1794292641922.png",
+    "resources/page@94ac8386-1794292642234.png",
+    "resources/page@94ac8386-1794292642408.png",
+    "resources/page@94ac8386-1794292642591.png",
+    "resources/page@94ac8386-1794292642591.png",
+    "resources/page@94ac8386-1794292642591.png",
+    "resources/page@94ac8386-1794292642591.png",
+    "resources/page@94ac8386-1794292642591.png",
+    "resources/page@94ac8386-1794292642976.png",
+    "resources/page@94ac8386-1794292642976.png",
+    "resources/page@94ac8386-1794292642976.png",
+    "resources/page@94ac8386-1794292643300.png",
+    "resources/page@94ac8386-1794292643300.png",
+    "resources/page@94ac8386-1794292643648.png",
+    "resources/page@94ac8386-1794292643813.png",
+    "resources/page@94ac8386-1794292643999.png",
+    "resources/page@94ac8386-1794292643999.png",
+    "resources/page@94ac8386-1794292643999.png",
+    "resources/page@94ac8386-1794292649493.png",
+    "resources/page@94ac8386-1794292649493.png"
+  ],
+  "pageResources": [
+    {
+      "url": "http://127.0.0.1:4567/css/fixture.css",
+      "kind": "stylesheet",
+      "mimeType": "text/css",
+      "size": 229
+    },
+    {
+      "url": "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "kind": "font",
+      "mimeType": "font/woff2",
+      "size": 18
+    }
+  ]
+}

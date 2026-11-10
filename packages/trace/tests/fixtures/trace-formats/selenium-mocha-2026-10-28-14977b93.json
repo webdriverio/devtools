@@ -45,5 +45,8 @@
   "sourceFiles": [
     "/home/runner/work/devtools/devtools/examples/selenium-js/mocha/example.js"
   ],
-  "transcript": true
+  "transcript": true,
+  "inlineScreenshots": 15,
+  "snapshotScreenshots": [],
+  "pageResources": []
 }

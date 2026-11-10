@@ -1,6 +1,6 @@
 # Trace format fixtures
 
-The hosted player always runs the newest reader, while the zips people open were written by whatever adapter version recorded them. Each zip here is a real trace from an older writer, and `../../trace-format-fixtures.test.ts` checks that the current reader (`openTraceArchive` and `readTracePayload`, as the player runs it, and `parseTraceZip`) still opens it with its commands, console output, network requests, DOM mutations, screencast frames, sources and metadata intact. A reader change that breaks an older trace fails `pnpm test`.
+The hosted player always runs the newest reader, while the zips people open were written by whatever adapter version recorded them. Each zip here is a real trace from one version of the writer, and `../../trace-format-fixtures.test.ts` checks that the current reader (`openTraceArchive` and `readTracePayload`, as the player runs it, and `parseTraceZip`) still opens it with its commands, console output, network requests, DOM mutations, screencast frames, frame-snapshot screenshots, stored stylesheets and fonts, sources and metadata intact. A reader change that breaks an older trace fails `pnpm test`.
 
 ## What is here
 
@@ -10,8 +10,12 @@ The hosted player always runs the newest reader, while the zips people open were
 | `selenium-mocha-2026-10-28-14977b93` | Selenium adapter, mocha example | Same format; a failed wait row, a failed `node:assert` row, and JPEG screencast frames beside PNG ones |
 | `nightwatch-bdd-2026-10-28-14977b93` | Nightwatch adapter, BDD example | Same format; `waitForElementVisible` rows and a failed native assert row |
 | `python-pytest-2026-10-28-14977b93` | Python adapter, pytest example | Same format; three browser sessions in one zip |
+| `wdio-mocha-2026-11-10-ee505b9c` | WDIO service, mocha example | Written after #508 and #533: each frame-snapshot names its screenshot, stored once under `resources/`, with no inline base64, and `page-resources.ndjson` indexes the fixture site's stylesheet and font stored beside them; a failed `expect.toHaveText` row |
+| `selenium-mocha-2026-11-10-ee505b9c` | Selenium adapter, mocha example | Same format; a failed wait row, a failed `node:assert` row, and JPEG screencast frames |
+| `nightwatch-bdd-2026-11-10-ee505b9c` | Nightwatch adapter, BDD example | Same format; a failed native assert row |
+| `python-pytest-2026-11-10-ee505b9c` | Python adapter, pytest example | Same format; several frame-snapshots sharing one stored screenshot |
 
-All four come from one `examples-smoke` CI artifact (run 40774299701 at `14977b93`, 2026-10-28). The two earlier smoke artifacts (2026-10-27) were inspected and wrote the same format, so they add nothing a reader could break separately.
+The `14977b93` fixtures come from one `examples-smoke` CI artifact (run 40774299701 at `14977b93`, 2026-10-28); the two earlier smoke artifacts (2026-10-27) wrote the same format, so they add nothing a reader could break separately. The `ee505b9c` fixtures come from run 42769524119 at `ee505b9c` (2026-11-10), whose writer is main's after #508 and #533.
 
 Each `<name>.json` is the fixture's manifest: counts and key fields taken from the zip's raw entries when it was reduced, not through the reader, so a reader bug cannot write itself into the expectation.
 
@@ -19,11 +23,11 @@ Each `<name>.json` is the fixture's manifest: counts and key fields taken from t
 
 Real zips are mostly screenshots. `reduce-fixture.ts` keeps every entry, in the same order and under the same name, and changes only images:
 
-- Each image resource (detected by its bytes, not its name) becomes a 1x1 image of the same format carrying its own resource name as a comment (a JPEG `COM` segment or a PNG `tEXt` chunk). The test reads that name back from each frame the reader returns, so a frame paired with the wrong resource still fails.
-- In `.trace` streams, each `data:image/...;base64,` payload is replaced by a 1x1 image of the same format. The rest of each line, the data URI prefix included, keeps its bytes.
-- Every other entry keeps its bytes. The zip is rewritten with yazl, as the writer does, with a fixed entry time so reducing the same source twice gives the same file.
+- Each image resource (detected by its bytes, not its name) becomes a 1x1 image of the same format carrying its own resource name as a comment (a JPEG `COM` segment or a PNG `tEXt` chunk). The test reads that name back from each screencast frame and frame-snapshot screenshot, so a frame paired with the wrong resource still fails.
+- In `.trace` streams, each `data:image/...;base64,` payload (the format before #508) is replaced by a 1x1 image of the same format. The rest of each line, the data URI prefix included, keeps its bytes.
+- Every other entry keeps its bytes, stored stylesheets and fonts included, so the test can check each one's length against `page-resources.ndjson`. The zip is rewritten with yazl, as the writer does, with a fixed entry time so reducing the same source twice gives the same file.
 
-This does not weaken what is tested: the reader never decodes an image beyond the first frame's header. It names each frame's resource by entry for the player to read, and the test reads every one back, and it never reads a frame-snapshot's HTML, so what it can get wrong (which entries it finds, how it pairs frames with commands, how it parses every stream) is all exercised on the original structure.
+This does not weaken what is tested: the reader never decodes an image beyond the first frame's header. It names each frame's resource and each stored stylesheet and font by entry for the player to read, and the test reads every one back, and it never reads a frame-snapshot's HTML, so what it can get wrong (which entries it finds, how it pairs frames with commands, how it parses every stream) is all exercised on the original structure.
 
 ## Adding a fixture
 

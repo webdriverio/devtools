@@ -1,0 +1,120 @@
+{
+  "source": "examples-smoke CI artifact, run 42769524119 at ee505b9c (2026-11-10): python-pytest/1/trace-480abf170c24afcb663fe528de87697c.zip",
+  "runner": "selenium-webdriver",
+  "browserName": "chrome",
+  "commands": {
+    "count": 29,
+    "failed": 0,
+    "titles": [
+      "Element.click(\"{\"id\":\"f.4068A16D915F7D7467BB985907FB34E9.d.696665285EA3EC6FA92B16CD82B84865.e.4\"}\")",
+      "Element.click(\"{\"id\":\"f.4068A16D915F7D7467BB985907FB34E9.d.FA739AD98D90063144B5267E909990C2.e.13\"}\")",
+      "Element.click(\"{\"id\":\"f.69D74867DD71D4F6213E7B6B2CFC95EA.d.26E9CA630290AF105B2C71C0081A4284.e.4\"}\")",
+      "Element.fill(\"{\"text\":\"SuperSecretPassword!\",\"value\":[\"S\",\"u\",\"p\",\"e\",\"r\",\"S\",\"e\",\"c\",\"r\",\"e\",\"t\",\"P\",\"a\",\"s\",\"s\",\"w\",\"o\",\"r\",\"d\",\"!\"],\"id\":\"f.4068A16D915F7D7467BB985907FB34E9.d.696665285EA3EC6FA92B16CD82B84865.e.3\"}\")",
+      "Element.fill(\"{\"text\":\"tomsmith\",\"value\":[\"t\",\"o\",\"m\",\"s\",\"m\",\"i\",\"t\",\"h\"],\"id\":\"f.4068A16D915F7D7467BB985907FB34E9.d.696665285EA3EC6FA92B16CD82B84865.e.2\"}\")",
+      "Element.fill(\"{\"text\":\"tomsmith\",\"value\":[\"t\",\"o\",\"m\",\"s\",\"m\",\"i\",\"t\",\"h\"],\"id\":\"f.69D74867DD71D4F6213E7B6B2CFC95EA.d.26E9CA630290AF105B2C71C0081A4284.e.2\"}\")",
+      "Element.fill(\"{\"text\":\"wrong-password\",\"value\":[\"w\",\"r\",\"o\",\"n\",\"g\",\"-\",\"p\",\"a\",\"s\",\"s\",\"w\",\"o\",\"r\",\"d\"],\"id\":\"f.69D74867DD71D4F6213E7B6B2CFC95EA.d.26E9CA630290AF105B2C71C0081A4284.e.3\"}\")",
+      "Element.getText(\"{\"id\":\"f.4068A16D915F7D7467BB985907FB34E9.d.FA739AD98D90063144B5267E909990C2.e.11\"}\")",
+      "Element.getText(\"{\"id\":\"f.69D74867DD71D4F6213E7B6B2CFC95EA.d.8C65DD6123FF5178CA76036BBBD79FC0.e.16\"}\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('css selector', 'a.button'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'flash'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'flash'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'login'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'username'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'username'))\")",
+      "Element.waitForDisplayed(\"visibility_of_element_located(('id', 'username'))\")",
+      "Page.getTitle()",
+      "Page.getUrl()",
+      "Page.getUrl()",
+      "Page.getUrl()",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "Page.navigate(\"{\"url\":\"http://127.0.0.1:4567/login\"}\")",
+      "assert.equal(\"title == \\\"The Internet\\\"\")",
+      "assert.ok(\"\\\"/login\\\" in current_url\")",
+      "assert.ok(\"\\\"/login\\\" in current_url\")",
+      "assert.ok(\"\\\"/secure\\\" in current_url\")",
+      "assert.ok(\"\\\"You logged into a secure area\\\" in f…)",
+      "assert.ok(\"\\\"Your password is invalid\\\" in flash\")"
+    ],
+    "withSnapshotText": 29,
+    "withCallSource": 29
+  },
+  "consoleLogs": 37,
+  "networkRequests": {
+    "count": 18,
+    "urls": [
+      "http://127.0.0.1:4567/css/fixture.css",
+      "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "http://127.0.0.1:4567/login",
+      "http://127.0.0.1:4567/secure"
+    ]
+  },
+  "mutations": {
+    "count": 58,
+    "documentAnchors": 6
+  },
+  "frames": [
+    "6e6d3ff091ae18aa015e988a4df9c0eebdac9a8b",
+    "a05149c26629fa0c95ad4f6b159a6cd351312735",
+    "2923a0028f3bfe989ef286db45a9c9fdef999e9f",
+    "a436c6965666aeca0fdab49a2e2774c4e3bad29b",
+    "aaaf001f4ad2c59392edbe16022b0dcd73557565",
+    "6e6d3ff091ae18aa015e988a4df9c0eebdac9a8b",
+    "36ead5b4c0ae69982bb8377428f6614927119231",
+    "511061719464ad7c700b766ddd363b36847f5d9c",
+    "731a0e99b002a8f011365e33ec17c206de677389",
+    "3fededf43d8d68520299243950c12ffa8756adab",
+    "6e6d3ff091ae18aa015e988a4df9c0eebdac9a8b",
+    "36ead5b4c0ae69982bb8377428f6614927119231"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/selenium-py/pytest/test_login_pytest.py"
+  ],
+  "transcript": true,
+  "inlineScreenshots": 0,
+  "snapshotScreenshots": [
+    "resources/page@480abf17-1794292653120.png",
+    "resources/page@480abf17-1794292653120.png",
+    "resources/page@480abf17-1794292653376.png",
+    "resources/page@480abf17-1794292653510.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292653681.png",
+    "resources/page@480abf17-1794292654209.png",
+    "resources/page@480abf17-1794292654209.png",
+    "resources/page@480abf17-1794292654209.png",
+    "resources/page@480abf17-1794292654209.png",
+    "resources/page@480abf17-1794292655076.png",
+    "resources/page@480abf17-1794292655076.png",
+    "resources/page@480abf17-1794292655344.png",
+    "resources/page@480abf17-1794292655477.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292665599.png",
+    "resources/page@480abf17-1794292666559.png",
+    "resources/page@480abf17-1794292666559.png",
+    "resources/page@480abf17-1794292666559.png",
+    "resources/page@480abf17-1794292666559.png"
+  ],
+  "pageResources": [
+    {
+      "url": "http://127.0.0.1:4567/css/fixture.css",
+      "kind": "stylesheet",
+      "mimeType": "text/css",
+      "size": 229
+    },
+    {
+      "url": "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "kind": "font",
+      "mimeType": "font/woff2",
+      "size": 18
+    }
+  ]
+}
