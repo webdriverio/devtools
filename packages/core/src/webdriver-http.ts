@@ -120,8 +120,25 @@ function resolveFromResponse<T>(
     raw += chunk
   })
   res.on('end', () => {
+    if (
+      res.statusCode !== undefined &&
+      (res.statusCode < 200 || res.statusCode >= 300)
+    ) {
+      settle(null)
+      return
+    }
     try {
-      const value = JSON.parse(raw).value
+      const parsed: unknown = JSON.parse(raw)
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed) ||
+        !('value' in parsed)
+      ) {
+        settle(null)
+        return
+      }
+      const value = (parsed as { value: unknown }).value
       // A W3C error answers 200-shaped JSON whose `value` is
       // `{error, message, stacktrace}` — an OBJECT where the caller expects
       // its payload. Casting that through as `T` put an error object into a

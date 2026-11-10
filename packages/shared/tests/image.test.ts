@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { imageDimensions, imageExtension, imageMime } from '../src/image.js'
+import {
+  hasScreenshot,
+  imageDimensions,
+  imageExtension,
+  imageMime
+} from '../src/image.js'
 
 /** 12x26 and 32x20 RGB PNGs — asymmetric so a swapped axis fails the test. */
 const PORTRAIT_PNG =
@@ -34,6 +39,18 @@ function behindMetadata(jpeg: string, padding: number): string {
   }
   return btoa(binary)
 }
+
+describe('hasScreenshot', () => {
+  it('accepts non-empty base64 strings and rejects empty or non-string values', () => {
+    expect(hasScreenshot(PORTRAIT_PNG)).toBe(true)
+    expect(hasScreenshot('')).toBe(false)
+    expect(hasScreenshot(null)).toBe(false)
+    expect(hasScreenshot(undefined)).toBe(false)
+    expect(
+      hasScreenshot({ message: 'Session not started or terminated' })
+    ).toBe(false)
+  })
+})
 
 describe('imageMime', () => {
   it('names a PNG from its signature', () => {

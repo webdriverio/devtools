@@ -20,11 +20,12 @@ import {
   withTimeout
 } from './with-timeout.js'
 import { startCaptureTimer, type CaptureTimer } from './capture-timing.js'
-import type {
-  ActionSnapshot,
-  CaptureProbe,
-  CaptureTrigger,
-  TestRunnerId
+import {
+  hasScreenshot,
+  type ActionSnapshot,
+  type CaptureProbe,
+  type CaptureTrigger,
+  type TestRunnerId
 } from '@wdio/devtools-shared'
 
 export type ScriptRunner = (scriptSrc: string) => Promise<unknown>
@@ -224,7 +225,7 @@ export async function captureActionSnapshot(
       command: input.command,
       url,
       title,
-      screenshot: shot ?? undefined,
+      screenshot: hasScreenshot(shot) ? shot : undefined,
       elements: mobile?.elements ?? elements,
       snapshotText
     }

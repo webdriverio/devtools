@@ -2,7 +2,11 @@
 // from them. Split from trace-exporter.ts; the exporter composes these into
 // the trace event stream.
 
-import { imageExtension, type ActionSnapshot } from '@wdio/devtools-shared'
+import {
+  hasScreenshot,
+  imageExtension,
+  type ActionSnapshot
+} from '@wdio/devtools-shared'
 import type { TraceZipResource } from './trace-zip-writer.js'
 
 export interface ScreencastFrameEvent {
@@ -24,8 +28,14 @@ function mergeSnapshotInto(
   existing: ActionSnapshot,
   snap: ActionSnapshot
 ): void {
-  if ((snap.screenshot?.length ?? 0) > (existing.screenshot?.length ?? 0)) {
+  const snapLen = hasScreenshot(snap.screenshot) ? snap.screenshot.length : 0
+  const existingLen = hasScreenshot(existing.screenshot)
+    ? existing.screenshot.length
+    : 0
+  if (snapLen > existingLen) {
     existing.screenshot = snap.screenshot
+  } else if (!hasScreenshot(existing.screenshot)) {
+    existing.screenshot = undefined
   }
   if (!existing.elements?.length && snap.elements?.length) {
     existing.elements = snap.elements
@@ -45,7 +55,10 @@ function collapseByTimestamp(snapshots: ActionSnapshot[]): ActionSnapshot[] {
   for (const snap of snapshots) {
     const existing = byTs.get(snap.timestamp)
     if (!existing) {
-      byTs.set(snap.timestamp, { ...snap })
+      byTs.set(snap.timestamp, {
+        ...snap,
+        screenshot: hasScreenshot(snap.screenshot) ? snap.screenshot : undefined
+      })
       order.push(snap.timestamp)
       continue
     }
@@ -62,12 +75,16 @@ export function upsertRichestSnapshot(
   snapshots: ActionSnapshot[],
   snap: ActionSnapshot
 ): void {
-  const idx = snapshots.findIndex((s) => s.timestamp === snap.timestamp)
+  const normalized: ActionSnapshot = {
+    ...snap,
+    screenshot: hasScreenshot(snap.screenshot) ? snap.screenshot : undefined
+  }
+  const idx = snapshots.findIndex((s) => s.timestamp === normalized.timestamp)
   if (idx === -1) {
-    snapshots.push(snap)
+    snapshots.push(normalized)
     return
   }
-  mergeSnapshotInto(snapshots[idx]!, snap)
+  mergeSnapshotInto(snapshots[idx]!, normalized)
 }
 
 function definedFields(snap: ActionSnapshot): Partial<ActionSnapshot> {
@@ -81,7 +98,10 @@ export function supersedeSnapshotAt(
   snapshots: ActionSnapshot[],
   snap: ActionSnapshot
 ): void {
-  let merged = snap
+  let merged: ActionSnapshot = {
+    ...snap,
+    screenshot: hasScreenshot(snap.screenshot) ? snap.screenshot : undefined
+  }
   for (let i = snapshots.length - 1; i >= 0; i--) {
     if (snapshots[i]!.timestamp === snap.timestamp) {
       merged = { ...snapshots[i]!, ...definedFields(merged) }
@@ -108,7 +128,7 @@ export function buildSnapshotResources(
   const out: TraceZipResource[] = []
   for (const snap of snapshots) {
     const base = `${pageId}-${snap.timestamp}`
-    if (snap.screenshot) {
+    if (hasScreenshot(snap.screenshot)) {
       out.push({
         resourceName: screenshotResourceName(
           pageId,

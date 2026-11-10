@@ -22,6 +22,7 @@ import type {
 } from '@wdio/devtools-shared'
 import {
   deviceFromCapabilities,
+  hasScreenshot,
   mapCommandToAction
 } from '@wdio/devtools-shared'
 import {
@@ -494,7 +495,7 @@ function synthesizeSnapshotsFromCommands(
   commands: CommandLog[]
 ): ActionSnapshot[] {
   return commands
-    .filter((c) => c.screenshot && mapCommandToAction(c.command))
+    .filter((c) => hasScreenshot(c.screenshot) && mapCommandToAction(c.command))
     .map((c) => ({
       timestamp: c.timestamp,
       command: c.command,

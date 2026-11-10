@@ -2,6 +2,7 @@
 // whose <img> resolves, through `resourceOverrides`, to the screenshot already stored under `resources/`.
 
 import {
+  hasScreenshot,
   imageExtension,
   imageMime,
   type ActionSnapshot
@@ -81,14 +82,15 @@ export class FrameSnapshotIndex {
           this.#elementsByTimestamp.set(snap.timestamp, snap.elements)
         }
       }
-      if (!snap.screenshot) {
+      if (!hasScreenshot(snap.screenshot)) {
         continue
       }
       const current = this.#byTimestamp.get(snap.timestamp)
       // Same-timestamp duplicates keep the richest capture (dedupe parity).
       if (
         !current ||
-        snap.screenshot.length > (current.screenshot?.length ?? 0)
+        snap.screenshot.length >
+          (hasScreenshot(current.screenshot) ? current.screenshot.length : 0)
       ) {
         this.#byTimestamp.set(snap.timestamp, snap)
       }
@@ -157,6 +159,7 @@ export function screenshotUrl(screenshot: string): string {
 }
 
 function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
+  const screenshot = hasScreenshot(snap.screenshot) ? snap.screenshot : ''
   return [
     'HTML',
     {},
@@ -167,7 +170,7 @@ function imageDocument(snap: ActionSnapshot): FrameSnapshotNode {
       [
         'IMG',
         {
-          src: screenshotUrl(snap.screenshot ?? ''),
+          src: screenshotUrl(screenshot),
           style: IMAGE_STYLE
         }
       ]
@@ -183,33 +186,35 @@ export function buildImageFrameSnapshots(
   viewport: { width: number; height: number }
 ): FrameSnapshotEvent[] {
   const frameId = frameIdForPage(pageId)
-  return refs.map((ref) => ({
-    type: 'frame-snapshot' as const,
-    snapshot: {
-      callId: ref.callId,
-      snapshotName: ref.snapshotName,
-      pageId,
-      frameId,
-      frameUrl: ref.snapshot.url ?? FALLBACK_FRAME_URL,
-      doctype: SNAPSHOT_DOCTYPE,
-      html: imageDocument(ref.snapshot),
-      viewport: { width: viewport.width, height: viewport.height },
-      timestamp: Math.max(0, ref.snapshot.timestamp - wallTime),
-      wallTime: ref.snapshot.timestamp,
-      collectionTime: 0,
-      resourceOverrides: [
-        {
-          url: screenshotUrl(ref.snapshot.screenshot ?? ''),
-          sha1: screenshotResourceName(
-            pageId,
-            ref.snapshot.timestamp,
-            ref.snapshot.screenshot ?? ''
-          )
-        }
-      ],
-      isMainFrame: true
-    }
-  }))
+  return refs
+    .filter((ref) => hasScreenshot(ref.snapshot.screenshot))
+    .map((ref) => ({
+      type: 'frame-snapshot' as const,
+      snapshot: {
+        callId: ref.callId,
+        snapshotName: ref.snapshotName,
+        pageId,
+        frameId,
+        frameUrl: ref.snapshot.url ?? FALLBACK_FRAME_URL,
+        doctype: SNAPSHOT_DOCTYPE,
+        html: imageDocument(ref.snapshot),
+        viewport: { width: viewport.width, height: viewport.height },
+        timestamp: Math.max(0, ref.snapshot.timestamp - wallTime),
+        wallTime: ref.snapshot.timestamp,
+        collectionTime: 0,
+        resourceOverrides: [
+          {
+            url: screenshotUrl(ref.snapshot.screenshot ?? ''),
+            sha1: screenshotResourceName(
+              pageId,
+              ref.snapshot.timestamp,
+              ref.snapshot.screenshot ?? ''
+            )
+          }
+        ],
+        isMainFrame: true
+      }
+    }))
 }
 
 /** One resource-snapshot per screenshot URL the frame-snapshots reference. */
@@ -219,7 +224,10 @@ export function buildScreenshotResourceSnapshots(
 ): ScreenshotResourceEvent[] {
   const byUrl = new Map<string, ScreenshotResourceEvent>()
   for (const { snapshot } of refs) {
-    const screenshot = snapshot.screenshot ?? ''
+    if (!hasScreenshot(snapshot.screenshot)) {
+      continue
+    }
+    const { screenshot } = snapshot
     const url = screenshotUrl(screenshot)
     if (byUrl.has(url)) {
       continue
