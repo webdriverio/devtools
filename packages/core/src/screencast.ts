@@ -1,7 +1,11 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { hasScreenshot, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import { performance } from 'node:perf_hooks'
-import { isDriverBusy, isInputDispatchInFlight } from './driver-activity.js'
+import {
+  isCaptureInFlight,
+  isDriverBusy,
+  isInputDispatchInFlight
+} from './driver-activity.js'
 import {
   recordRecorderReuse,
   recordRecorderShot,
@@ -376,22 +380,15 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
   }
 
   #skipReason(): RecorderSkipReason | undefined {
-    // A poll landing mid-click makes the click report success while
-    // dispatching nothing, so input waits however stale the filmstrip is. The
-    // gate is bounded, so a command whose completion never arrives costs
-    // frames only until it expires.
-    if (isInputDispatchInFlight()) {
+    // Never past an input command (a poll mid-click activates nothing) or a capture (it brings its own frame).
+    if (isInputDispatchInFlight() || isCaptureInFlight()) {
       return 'busy'
     }
-    // setInterval does not wait for the tick. A screenshot slower than the
-    // interval stacks requests that a serialised driver then serves ahead of
-    // the test's own commands (a native session's screenshot runs ~1.2 s
-    // against a 200 ms default), so keep at most one outstanding.
+    // One outstanding shot: a slow native screenshot would stack requests in front of the test.
     if (this.#pollInFlight) {
       return 'inFlight'
     }
-    // Any other command or a capture holding the driver would only have a poll
-    // queue in front of it, until the newest frame is too old to wait longer.
+    // Any other command: a poll only queues behind it, until the filmstrip has waited the cap.
     if (
       isDriverBusy() &&
       this.#newestFrameAge() <

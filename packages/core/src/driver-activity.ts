@@ -3,23 +3,21 @@ import {
   occupiesDriver
 } from '@wdio/devtools-shared'
 
-// A driver serves one session's requests one at a time, so a filmstrip poll
-// issued while a command or a capture holds the driver only queues in front of
-// the test, and a poll landing inside chromedriver's click (after it computed
-// the element's coordinates, before it dispatches at them) makes the click
-// report success while activating nothing. One instance per adapter bundle, not
-// per session: both halves are module-scoped and must be imported from the same
-// bundle to see the same gate.
+// One gate per adapter bundle: a driver serves one request at a time, so a poll issued while it is held only queues.
 
 /** Bound on one window: a failing Nightwatch test discards its command queue,
  *  so the callback that closes a window may never fire. */
 export const DRIVER_ACTIVITY_MAX_HOLD_MS = 3000
 
+/** What holds the driver: an input command no poll may overlap, a capture that
+ *  delivers its own frame, or any other command. */
+export type DriverWindowKind = 'command' | 'input' | 'capture'
+
 const NOOP = (): void => {}
 
 interface OpenWindow {
   openedAt: number
-  input: boolean
+  kind: DriverWindowKind
 }
 
 export class InFlightGate {
@@ -28,44 +26,31 @@ export class InFlightGate {
 
   constructor(private readonly maxHoldMs = DRIVER_ACTIVITY_MAX_HOLD_MS) {}
 
-  /** Open a window and return its closer; closing twice is harmless. `input`
-   *  marks a command dispatching trusted input, which no poll may overlap. */
-  open(input = false): () => void {
+  /** Open a window and return its closer; closing twice is harmless. */
+  open(kind: DriverWindowKind = 'command'): () => void {
     const token = this.#nextToken++
-    this.#open.set(token, { openedAt: Date.now(), input })
+    this.#open.set(token, { openedAt: Date.now(), kind })
     return () => {
       this.#open.delete(token)
     }
   }
 
   /**
-   * Whether an unexpired window is open. Expired windows are dropped here, so a
-   * closer that never runs costs one bounded stall rather than a permanent one
-   * and cannot leak entries for the rest of the run.
+   * Whether an unexpired window (of `kind`, when given) is open. Expired
+   * windows are dropped here, so a closer that never runs costs one bounded
+   * stall rather than a permanent one and cannot leak entries for the run.
    */
-  isOpen(): boolean {
-    this.#prune()
-    return this.#open.size > 0
-  }
-
-  /** Whether an unexpired window of an input-dispatching command is open. */
-  isInputOpen(): boolean {
-    this.#prune()
-    for (const window of this.#open.values()) {
-      if (window.input) {
-        return true
-      }
-    }
-    return false
-  }
-
-  #prune(): void {
+  isOpen(kind?: DriverWindowKind): boolean {
     const cutoff = Date.now() - this.maxHoldMs
+    let found = false
     for (const [token, window] of this.#open) {
       if (window.openedAt <= cutoff) {
         this.#open.delete(token)
+      } else if (kind === undefined || window.kind === kind) {
+        found = true
       }
     }
+    return found
   }
 }
 
@@ -74,14 +59,15 @@ const sharedGate = new InFlightGate()
 /** Adapter side: open the window around a runner command. Returns its closer,
  *  a no-op for a command that does not hold the driver (`occupiesDriver`). */
 export function beginDriverCommand(command: string): () => void {
-  return occupiesDriver(command)
-    ? sharedGate.open(isInputDispatchingCommand(command))
-    : NOOP
+  if (isInputDispatchingCommand(command)) {
+    return sharedGate.open('input')
+  }
+  return occupiesDriver(command) ? sharedGate.open('command') : NOOP
 }
 
 /** Capture side: open the window around a per-action capture's probes. */
 export function beginDriverCapture(): () => void {
-  return sharedGate.open()
+  return sharedGate.open('capture')
 }
 
 /** Recorder side: is a command or a capture holding the driver right now? */
@@ -89,8 +75,12 @@ export function isDriverBusy(): boolean {
   return sharedGate.isOpen()
 }
 
-/** Recorder side: is a command dispatching input right now? A poll then must
- *  wait however stale the filmstrip is, or the click can activate nothing. */
+/** Recorder side: is a command dispatching input right now? A poll inside it makes the click activate nothing. */
 export function isInputDispatchInFlight(): boolean {
-  return sharedGate.isInputOpen()
+  return sharedGate.isOpen('input')
+}
+
+/** Recorder side: is a per-action capture running? Its own screenshot is the frame a poll would add. */
+export function isCaptureInFlight(): boolean {
+  return sharedGate.isOpen('capture')
 }

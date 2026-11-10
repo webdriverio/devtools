@@ -744,13 +744,35 @@ describe('ScreencastRecorderBase: gap cap while the driver stays busy', () => {
     vi.useRealTimers()
   })
 
-  it('caps the gap through a long run of captures too', async () => {
+  it('issues no poll while a capture window is open, however stale the filmstrip', async () => {
     vi.useFakeTimers()
     const r = new TestRecorder({ pollIntervalMs: INTERVAL })
     await r.start({ name: 'driver' })
+    const shots = r.shotsTaken
+    // A native capture runs 1.4 to 2.4 s; a capped poll would only queue behind its own screenshot.
     const close = beginDriverCapture()
-    await vi.advanceTimersByTimeAsync(CAP * 4)
-    close()
+    try {
+      await vi.advanceTimersByTimeAsync(CAP * 4)
+      expect(r.shotsTaken).toBe(shots)
+    } finally {
+      close()
+    }
+    await vi.advanceTimersByTimeAsync(INTERVAL)
+    expect(r.shotsTaken).toBe(shots + 1)
+    await r.stop()
+    vi.useRealTimers()
+  })
+
+  it('still applies the cap to a non-input command held as long', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: INTERVAL })
+    await r.start({ name: 'driver' })
+    const close = beginDriverCommand('execute')
+    try {
+      await vi.advanceTimersByTimeAsync(CAP * 4)
+    } finally {
+      close()
+    }
     await r.stop()
     expect(r.frames.length).toBeGreaterThanOrEqual(5)
     expect(largestGap(r)).toBeLessThanOrEqual(CAP)

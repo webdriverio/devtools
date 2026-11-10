@@ -5,6 +5,7 @@ import {
   configureInputMasking,
   DRIVER_ACTIVITY_MAX_HOLD_MS,
   isDriverBusy,
+  isInputDispatchInFlight,
   rememberReadValue,
   selectorForReadValue
 } from '@wdio/devtools-core'
@@ -389,6 +390,16 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       )
       await service.onReload('old-session', 'new-session')
       expect(busyDuringInjection).toBe(false)
+      expect(isDriverBusy()).toBe(false)
+    })
+
+    // WDIO re-runs the hooks for the protocol command inside `click`, which replaces the single window.
+    it('keeps an input window through the nested protocol command', async () => {
+      await service.beforeCommand('click' as any, ['.button'])
+      await service.beforeCommand('elementClick' as any, ['element-id'])
+      expect(isInputDispatchInFlight()).toBe(true)
+      await service.afterCommand('elementClick' as any, ['element-id'], null)
+      await service.afterCommand('click' as any, ['.button'], {})
       expect(isDriverBusy()).toBe(false)
     })
 

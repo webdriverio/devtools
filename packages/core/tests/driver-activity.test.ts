@@ -7,6 +7,7 @@ import {
   InFlightGate,
   beginDriverCapture,
   beginDriverCommand,
+  isCaptureInFlight,
   isDriverBusy,
   isInputDispatchInFlight
 } from '../src/driver-activity.js'
@@ -134,7 +135,16 @@ describe('input windows', () => {
       'moveToElement',
       'mouseButtonClick',
       'rightClick',
-      'submitForm'
+      'submitForm',
+      'updateValue',
+      'setPassword',
+      'clickAndHold',
+      'releaseMouseButton',
+      'elementClick',
+      'elementSendKeys',
+      'elementClear',
+      'performActions',
+      'releaseActions'
     ]) {
       expect(isInputDispatchingCommand(command)).toBe(true)
     }
@@ -157,9 +167,20 @@ describe('input windows', () => {
 
   it('lets an input window expire like any other', async () => {
     const gate = new InFlightGate(20)
-    gate.open(true)
-    expect(gate.isInputOpen()).toBe(true)
+    gate.open('input')
+    expect(gate.isOpen('input')).toBe(true)
     await sleep(40)
-    expect(gate.isInputOpen()).toBe(false)
+    expect(gate.isOpen('input')).toBe(false)
+  })
+
+  it('reports a capture apart from a command', () => {
+    const closeRead = beginDriverCommand('getText')
+    expect(isCaptureInFlight()).toBe(false)
+    const closeCapture = beginDriverCapture()
+    expect(isCaptureInFlight()).toBe(true)
+    expect(isInputDispatchInFlight()).toBe(false)
+    closeCapture()
+    closeRead()
+    expect(isDriverBusy()).toBe(false)
   })
 })
