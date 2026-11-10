@@ -29,7 +29,7 @@ This does not weaken what is tested: the reader never decodes an image beyond th
 
 When a release changes what the writer puts in a zip, add a trace from that release for each adapter whose output changed:
 
-1. Take a short run's zip, ideally from a green `examples-smoke` CI artifact (`gh run download <run-id> -n examples-smoke`), which drives the local fixture site and so holds only its public demo credentials.
+1. Take a short run's zip, ideally from a green `examples-smoke` CI artifact, which every CI run keeps for 7 days (`gh run download <run-id> -n examples-smoke`), which drives the local fixture site and so holds only its public demo credentials.
 2. Reduce it, naming it `<example>-<capture date>-<short commit>`, with the example name starting with the adapter (`wdio`, `selenium`, `nightwatch`, `python`):
 
    ```sh
