@@ -58,9 +58,9 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
 | Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
-| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
-| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
-| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁹ |
+| Force the test browser headless (`headless`) | ✕ ¹⁰ | ◐ ¹¹ | ✕ ¹⁰ | ✕ ¹⁰ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹² | ✓ ¹³ | ◐ ¹² | ◐ ¹² |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
@@ -80,13 +80,15 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 ⁸ No option: every command row takes a screenshot.
 
-⁹ No option: set headless in the browser capabilities, as for any run.
+⁹ No option: in live mode every command row takes a screenshot; in trace mode every row of a page-changing command does.
 
-¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+¹⁰ No option: set headless in the browser capabilities, as for any run.
 
-¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+¹¹ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
 
-¹² Brings Safari to the front before each element click, type, clear and submit.
+¹² Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+
+¹³ Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -220,7 +222,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ⁶ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
 
-⁷ Chromium streams over CDP; other browsers take one frame per command.
+⁷ Chromium streams over CDP; other browsers take a frame per page-changing command, plus wait polls and reads at most every 200 ms.
 
 ⁸ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
 

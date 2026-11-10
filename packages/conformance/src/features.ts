@@ -93,7 +93,7 @@ export const FEATURES = [
       ),
       'selenium-devtools-py': covered(
         `${PYTHON}test_cdp_screencast.py`,
-        'Chromium streams over CDP; other browsers take one frame per command.'
+        'Chromium streams over CDP; other browsers take a frame per page-changing command, plus wait polls and reads at most every 200 ms.'
       )
     }
   },
@@ -355,7 +355,7 @@ export const FEATURES = [
         'No unit test asserts that `captureScreenshots: false` skips the row screenshot; check on the Selenium example.'
       ),
       'nightwatch-devtools': unsupported(REASONS.NO_SCREENSHOT_SWITCH),
-      'selenium-devtools-py': unsupported(REASONS.NO_SCREENSHOT_SWITCH)
+      'selenium-devtools-py': unsupported(REASONS.PYTHON_NO_SCREENSHOT_SWITCH)
     }
   },
   {

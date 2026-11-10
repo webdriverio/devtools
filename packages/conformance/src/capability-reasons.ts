@@ -4,6 +4,8 @@ export const SAFARI_FOCUS_ONCE =
   'Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.'
 export const NO_SCREENSHOT_SWITCH =
   'No option: every command row takes a screenshot.'
+export const PYTHON_NO_SCREENSHOT_SWITCH =
+  'No option: in live mode every command row takes a screenshot; in trace mode every row of a page-changing command does.'
 export const NO_TRACE_FORMAT_TEST =
   "The writer is tested in `packages/trace/tests/trace-exporter.test.ts`; no test covers the adapter handing `traceFormat` on, so check by hand with `traceFormat: 'ndjson-directory'` on the example."
 export const NO_HEADLESS_OPTION =
