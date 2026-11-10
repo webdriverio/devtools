@@ -37,6 +37,13 @@ JSON
 
 cd "$PROJECT"
 
+# Installed explicitly on 10, as the README tells users to, so the snapshot
+# assertion does not depend on what @wdio/cli happens to pull in.
+SNAPSHOT_PEER=()
+if [ "$MAJOR" = "10" ]; then
+  SNAPSHOT_PEER=("@wdio/snapshot@^10.2.0")
+fi
+
 # No --legacy-peer-deps or --force: a peer range that excludes this major has
 # to fail the install, which is the first thing this job exists to catch.
 $NPM install --no-audit --no-fund --strict-peer-deps \
@@ -50,6 +57,7 @@ $NPM install --no-audit --no-fund --strict-peer-deps \
   "@wdio/allure-reporter@^$MAJOR" \
   "typescript@$(repo_dev_version typescript)" \
   "@types/node@$(repo_dev_version @types/node)" \
+  "${SNAPSHOT_PEER[@]}" \
   "$PACKS"/*.tgz
 
 node check-imports.mjs "$MAJOR"

@@ -4,7 +4,7 @@
 // @wdio/devtools-service/types. New code should import directly from
 // @wdio/devtools-shared.
 
-import type { SnapshotResult } from '@wdio/devtools-core/element-types'
+import type { GetSnapshotOptions, GetSnapshotResult } from '@wdio/elements'
 
 export {
   TraceType,
@@ -67,17 +67,18 @@ export interface ServiceOptions extends BaseDevToolsOptions {
   devtoolsCapabilities?: WebdriverIO.Capabilities
 }
 
-declare namespace WebdriverIO {
-  interface ServiceOption extends ServiceOptions {}
-  interface Capabilities {}
-  interface Browser {
-    // CDP escape hatch present at runtime in Chrome/Chromium sessions but
-    // omitted from WDIO's public Browser type. Returns Puppeteer's top-level
-    // browser object — see screencast.ts for the local shape we use.
-    getPuppeteer?: () => Promise<unknown>
-    // Runtime DOM snapshot for agent auto-healing. Added by
-    // @wdio/devtools-service in the before hook.
-    getSnapshot(options?: { inViewportOnly?: boolean }): Promise<SnapshotResult>
+declare global {
+  namespace WebdriverIO {
+    interface ServiceOption extends ServiceOptions {}
+    interface Browser {
+      // CDP escape hatch present at runtime in Chrome/Chromium sessions but
+      // omitted from WDIO's public Browser type. Returns Puppeteer's top-level
+      // browser object — see screencast.ts for the local shape we use.
+      getPuppeteer?: () => Promise<unknown>
+      // Runtime DOM snapshot for agent auto-healing. Added by
+      // @wdio/devtools-service in the before hook.
+      getSnapshot(options?: GetSnapshotOptions): Promise<GetSnapshotResult>
+    }
   }
 }
 

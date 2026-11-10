@@ -19,7 +19,9 @@ net first.
 
 ### 1.2 Snapshot-output golden tests
 
-`serializeMobileSnapshot` and `serializeWebSnapshot` need output-fidelity tests
+`serializeMobileSnapshot` (`packages/core/src/element-snapshot.ts`) and
+`serializeWebSnapshot` (`packages/trace/src/a11y-snapshot.ts`, re-exported by
+core) need output-fidelity tests
 before the interactive-element dedup or mobile pipeline unification. Without
 them, any change to the snapshot format is a blind regression risk for LLM
 consumers.

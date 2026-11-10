@@ -61,9 +61,7 @@ export const INTERACTIVE_ROLES = new Set([
   'option'
 ])
 
-/** The fields of a node this module's helpers read. Deliberately narrower than
- *  `AccessibilityNode` so core's mobile `SnapshotNode` satisfies it too — both
- *  snapshot pipelines share these helpers. */
+/** The fields `isStatictextEchoedByParent` reads; its callers (core's web adapter, trace's serializer) pass `AccessibilityNode`s. */
 export interface SnapshotFormatNode {
   role: string
   name: string
