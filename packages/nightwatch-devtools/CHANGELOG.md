@@ -1,5 +1,41 @@
 # @wdio/nightwatch-devtools
 
+## 2.2.0
+
+### Minor Changes
+
+- 09ddb75: Setting `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run times every per-action capture. When the trace is written, the run prints a table with each probe's count, total, median, p95 and max (url, title, page source, accessibility tree, element list, screenshot, and the in-process step that builds the snapshot), plus how much of the run's wall time went to capturing. The raw records are appended to `capture-timing-<pid>.ndjson` beside the trace. Each record names the command and whether the capture was a wait's or a matcher's poll. The variable only measures: nothing is captured differently, and with it unset nothing is timed or written.
+- 5ef8f48: Password fields are now masked in the replayed page by default, in live and trace mode alike. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: the DOM anchor, the per-keystroke field-state records and `value` attribute mutations all carry the placeholder, and a field a show-password toggle turned into a text input stays masked. Other fields are recorded as typed, and command rows (the Actions list, the trace's action titles, `transcript.md`) keep the real typed text, password included.
+
+  Two options control it: `maskSelectors: ['.account-number']` also masks the text, value and text-bearing attributes (`aria-label`, `title`, `alt`, `placeholder`) of every element a CSS selector matches in the replayed page (the A11y tab and the element list then name it `••••` and never locate it by its text), and `maskInputs: false` turns the password masking off. Masking only changes the replayed page: the typed password is still in its command row, and screenshots, console lines and request bodies are not masked; see the README's "Password masking" section.
+
+- 671aa04: Trace mode now stores the stylesheets and fonts the page used, and the player replays them from the archive instead of the site under test, so a replayed page renders the same after the site changes, for a site the viewer cannot reach, and in the hosted player for an `http` site. The new `traceResources` option is `'styles'` by default and `'none'` to store nothing; images still load from the site. Each resource is read back by the page collector from the browser's HTTP cache (cross-origin only where the site allows CORS), stored once per archive by content hash and only when that archive's pages reference it, and capped at 1 MiB per resource and 8 MiB per archive. Those reads do not appear as network rows. Live mode is unchanged and reads nothing back.
+
+### Patch Changes
+
+- 0860e10: Trace mode no longer takes a page capture (screenshot plus page source, and DOM on web) for reads, waits and lookups such as `getText`, `isDisplayed`, `waitForDisplayed` or `findElement`. Those rows still appear in the trace and show the page as of the last command that took a capture (any command except reads, waits, lookups and asserts). Each capture costs a full page-source round trip, which on iOS is slow enough that a suite making a dozen interactions spent most of its time capturing reads: one reported run went from 3:10 to 7:10 in trace mode. The first traced command of each test is still captured even when it is a read, so a test that starts by reading has a frame to show (on Nightwatch's `describe`/`it` interface, the first of each module).
+
+  Selenium and Nightwatch now capture every other command, including ones that can navigate but are not in the action map (`executeScript`, `actions`, Nightwatch `submitForm`), and take one more capture at a test's end when reads follow its last capture, so a click that returns before its navigation commits no longer leaves the reads showing the page it left. The WDIO service keeps its page-changing gate.
+
+- e50c3b0: A trace zip stores each action screenshot once. The `frame-snapshot` event for an action used to carry its screenshot again as base64 inside the page it describes, beside the same screenshot under `resources/`; it now references that file through `resourceOverrides`, which a trace viewer resolves to the stored image. On a WebdriverIO cucumber example trace this takes the zip from 1.63 MB to 1.10 MB and `trace.trace` from 538 KB to 5 KB. The DevTools trace player reads such a zip as before.
+- 771f3a9: Reject non-2xx WebDriver HTTP probe replies before they are treated as screenshot payloads, and ignore non-string screenshots across action snapshot capture, screencast polling, and trace export so a late screenshot after session teardown never aborts writing the trace zip.
+- 730a86d: A trace's screenshots are named by their actual image format. A PNG capture used to be stored as `resources/<page>-<timestamp>.jpeg`, so a viewer that takes the content type from the file name served it as `image/jpeg`; it is now `.png`, and so is a PNG frame of the dense filmstrip. Traces written before this change still open.
+- 7aa154b: The accessibility-tree and interactable-element scripts now share one copy of the accessible-name steps they had in common. Names, locators and every export are unchanged.
+- 9b17206: Ship the `show-trace` bin the package has always declared. The file was never committed, so `npx show-trace <trace.zip>` failed in a project that installed only this adapter.
+- Updated dependencies [e50c3b0]
+- Updated dependencies [d0f8f2a]
+- Updated dependencies [5ef8f48]
+- Updated dependencies [0ae4f43]
+- Updated dependencies [7781c2a]
+- Updated dependencies [771f3a9]
+- Updated dependencies [730a86d]
+- Updated dependencies [7aa154b]
+- Updated dependencies [671aa04]
+- Updated dependencies [5b5d921]
+- Updated dependencies [9b17206]
+  - @wdio/devtools-backend@2.2.0
+  - @wdio/devtools-script@1.9.0
+
 ## 2.1.0
 
 ### Minor Changes

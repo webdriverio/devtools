@@ -1,5 +1,19 @@
 # @wdio/elements
 
+## 1.3.0
+
+### Minor Changes
+
+- 9b17206: `getSnapshot` can now render with `@wdio/snapshot`, the renderer behind `wdio session snapshot --selectors`. It is used on WebdriverIO 10.2 (prereleases included) with `@wdio/snapshot` 10.x from 10.2 resolvable (`npm i -D @wdio/snapshot`, declared as an optional peer `^10.2.0`); otherwise, including on WebdriverIO 9 and 10.0–10.1, the current output is kept. The result gains `format: 'legacy' | 'snapshot'`, and on the snapshot path `refs`; `elements` is filled on both paths. `inViewportOnly` defaults to viewport-only on both renderers. `browser.getSnapshot()` in the service defaults to the viewport on both. Existing code keeps compiling. With npm, `@wdio/cli` 10.2 already brings `@wdio/snapshot` (through `@wdio/session`), so a WebdriverIO 10.2 project that installed the CLI renders with `@wdio/snapshot` unless it removes it; without the CLI, install it yourself. `browser.getSnapshot()` and the service's options are now typed for consumers of `@wdio/devtools-service`: the `WebdriverIO` augmentation was declared module-local and never applied.
+
+### Patch Changes
+
+- 5ef8f48: Password fields are now masked in the replayed page by default, in live and trace mode alike. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: the DOM anchor, the per-keystroke field-state records and `value` attribute mutations all carry the placeholder, and a field a show-password toggle turned into a text input stays masked. Other fields are recorded as typed, and command rows (the Actions list, the trace's action titles, `transcript.md`) keep the real typed text, password included.
+
+  Two options control it: `maskSelectors: ['.account-number']` also masks the text, value and text-bearing attributes (`aria-label`, `title`, `alt`, `placeholder`) of every element a CSS selector matches in the replayed page (the A11y tab and the element list then name it `••••` and never locate it by its text), and `maskInputs: false` turns the password masking off. Masking only changes the replayed page: the typed password is still in its command row, and screenshots, console lines and request bodies are not masked; see the README's "Password masking" section.
+
+- 7aa154b: The accessibility-tree and interactable-element scripts now share one copy of the accessible-name steps they had in common. Names, locators and every export are unchanged.
+
 ## 1.2.1
 
 ### Patch Changes

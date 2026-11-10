@@ -1,6 +1,0 @@
----
-'@wdio/devtools-app': minor
-'@wdio/devtools-backend': minor
----
-
-The trace player can open a trace from a URL and link into it. The hosted player reads `?trace=<url>` (a signed URL can be pasted as it is when `trace` is the last parameter, or percent-encoded anywhere), downloads the zip (https only, or the player's own origin; the host must send `Access-Control-Allow-Origin`; no credentials are sent; up to 512 MB; given up after 30 seconds without data) and opens it in the tab, reporting a refused URL, a failed or blocked request, an error status, a stalled or oversize download or a file that is not a zip. Its Content-Security-Policy admits `connect-src https:` for that download; every other directive is unchanged, and `show-trace` keeps its policy. In the hosted player and `show-trace` alike, the address hash `#action=<callId>&tab=<tab>` opens the trace on that action (its `callId` in the zip) with that bottom tab open, and the player keeps the hash up to date as you pick actions and tabs, so the address bar links to what you see. The link applies to the trace the page opened with; opening another trace by hand clears it, and a run of several traces links the tab only. Opening a trace no longer switches the bottom dock to the Log tab on its own; it opens on the tab last used.

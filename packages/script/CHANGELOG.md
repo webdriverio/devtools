@@ -1,5 +1,15 @@
 # @wdio/devtools-script
 
+## 1.9.0
+
+### Minor Changes
+
+- 5ef8f48: Password fields are now masked in the replayed page by default, in live and trace mode alike. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: the DOM anchor, the per-keystroke field-state records and `value` attribute mutations all carry the placeholder, and a field a show-password toggle turned into a text input stays masked. Other fields are recorded as typed, and command rows (the Actions list, the trace's action titles, `transcript.md`) keep the real typed text, password included.
+
+  Two options control it: `maskSelectors: ['.account-number']` also masks the text, value and text-bearing attributes (`aria-label`, `title`, `alt`, `placeholder`) of every element a CSS selector matches in the replayed page (the A11y tab and the element list then name it `••••` and never locate it by its text), and `maskInputs: false` turns the password masking off. Masking only changes the replayed page: the typed password is still in its command row, and screenshots, console lines and request bodies are not masked; see the README's "Password masking" section.
+
+- 671aa04: Trace mode now stores the stylesheets and fonts the page used, and the player replays them from the archive instead of the site under test, so a replayed page renders the same after the site changes, for a site the viewer cannot reach, and in the hosted player for an `http` site. The new `traceResources` option is `'styles'` by default and `'none'` to store nothing; images still load from the site. Each resource is read back by the page collector from the browser's HTTP cache (cross-origin only where the site allows CORS), stored once per archive by content hash and only when that archive's pages reference it, and capped at 1 MiB per resource and 8 MiB per archive. Those reads do not appear as network rows. Live mode is unchanged and reads nothing back.
+
 ## 1.8.0
 
 ### Minor Changes

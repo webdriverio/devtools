@@ -1,5 +1,40 @@
 # @wdio/devtools-backend
 
+## 2.2.0
+
+### Minor Changes
+
+- d0f8f2a: The trace player can open a trace from a URL and link into it. The hosted player reads `?trace=<url>` (a signed URL can be pasted as it is when `trace` is the last parameter, or percent-encoded anywhere), downloads the zip (https only, or the player's own origin; the host must send `Access-Control-Allow-Origin`; no credentials are sent; up to 512 MB; given up after 30 seconds without data) and opens it in the tab, reporting a refused URL, a failed or blocked request, an error status, a stalled or oversize download or a file that is not a zip. Its Content-Security-Policy admits `connect-src https:` for that download; every other directive is unchanged, and `show-trace` keeps its policy. In the hosted player and `show-trace` alike, the address hash `#action=<callId>&tab=<tab>` opens the trace on that action (its `callId` in the zip) with that bottom tab open, and the player keeps the hash up to date as you pick actions and tabs, so the address bar links to what you see. The link applies to the trace the page opened with; opening another trace by hand clears it, and a run of several traces links the tab only. Opening a trace no longer switches the bottom dock to the Log tab on its own; it opens on the tab last used.
+- 0ae4f43: The trace player opens several traces at once. `show-trace` accepts several zips or a folder (`npx show-trace test-results/`), and the hosted player takes several zips through its Open button, or zips and folders dropped on the page. The player then lists every trace beside the timeline, one row per test with its outcome, failures first and then in run order, and plays the one picked without reloading. With `traceGranularity: 'test'` a run is a folder of per-test zips, so the whole run opens in one go. A zip records no test state, so the outcome is read from the trace: failed when an action or step failed, passed when it holds actions and none failed, unknown when it holds none. Files in the folder that are not zips are skipped, and a zip that cannot be opened is listed with the reason without stopping the rest. Opening a single zip works exactly as before.
+- 671aa04: Trace mode now stores the stylesheets and fonts the page used, and the player replays them from the archive instead of the site under test, so a replayed page renders the same after the site changes, for a site the viewer cannot reach, and in the hosted player for an `http` site. The new `traceResources` option is `'styles'` by default and `'none'` to store nothing; images still load from the site. Each resource is read back by the page collector from the browser's HTTP cache (cross-origin only where the site allows CORS), stored once per archive by content hash and only when that archive's pages reference it, and capped at 1 MiB per resource and 8 MiB per archive. Those reads do not appear as network rows. Live mode is unchanged and reads nothing back.
+
+### Patch Changes
+
+- e50c3b0: A trace zip stores each action screenshot once. The `frame-snapshot` event for an action used to carry its screenshot again as base64 inside the page it describes, beside the same screenshot under `resources/`; it now references that file through `resourceOverrides`, which a trace viewer resolves to the stored image. On a WebdriverIO cucumber example trace this takes the zip from 1.63 MB to 1.10 MB and `trace.trace` from 538 KB to 5 KB. The DevTools trace player reads such a zip as before.
+- 5ef8f48: Password fields are now masked in the replayed page by default, in live and trace mode alike. The collector replaces the value of every `<input type="password">` with `••••`, a fixed placeholder that hides its length, before it leaves the browser: the DOM anchor, the per-keystroke field-state records and `value` attribute mutations all carry the placeholder, and a field a show-password toggle turned into a text input stays masked. Other fields are recorded as typed, and command rows (the Actions list, the trace's action titles, `transcript.md`) keep the real typed text, password included.
+
+  Two options control it: `maskSelectors: ['.account-number']` also masks the text, value and text-bearing attributes (`aria-label`, `title`, `alt`, `placeholder`) of every element a CSS selector matches in the replayed page (the A11y tab and the element list then name it `••••` and never locate it by its text), and `maskInputs: false` turns the password masking off. Masking only changes the replayed page: the typed password is still in its command row, and screenshots, console lines and request bodies are not masked; see the README's "Password masking" section.
+
+- 7781c2a: A replayed trace runs no script. The page a trace recorded is rendered in a sandboxed frame, scripts, inline event handlers, `srcdoc` and `javascript:` URLs are dropped from it on every update, not only the first render, and the dashboard and `show-trace` now send the same Content-Security-Policy as the hosted player. A trace someone else recorded can therefore be opened safely in any of them.
+- 771f3a9: Reject non-2xx WebDriver HTTP probe replies before they are treated as screenshot payloads, and ignore non-string screenshots across action snapshot capture, screencast polling, and trace export so a late screenshot after session teardown never aborts writing the trace zip.
+- 730a86d: A trace's screenshots are named by their actual image format. A PNG capture used to be stored as `resources/<page>-<timestamp>.jpeg`, so a viewer that takes the content type from the file name served it as `image/jpeg`; it is now `.png`, and so is a PNG frame of the dense filmstrip. Traces written before this change still open.
+- 7aa154b: The accessibility-tree and interactable-element scripts now share one copy of the accessible-name steps they had in common. Names, locators and every export are unchanged.
+- 5b5d921: Open large traces faster and in less memory: the player now reads a trace zip's directory and streams up front, and each frame image, stored response body, stylesheet and font only when it shows it, instead of unpacking and base64-encoding every entry before the first render. The filmstrip draws as many frames as fit its width. `show-trace` serves a single zip the way it serves several, for the player to read with the same reader; `start({ trace })` still serves a reconstructed payload whose frames carry their images inline as base64 (`LegacyTracePlayerData`, the shape older backends serve), and the player plays one served that way. A player trace is never written to browser storage.
+- 9b17206: The backend's `@wdio/logger` dependency was pinned to exactly 10.0.0 and is now `^10.0.0`, so it shares the `@wdio/logger` the rest of a WebdriverIO 10 install already has instead of adding a second copy.
+- Updated dependencies [19da812]
+- Updated dependencies [938e36a]
+- Updated dependencies [d0f8f2a]
+- Updated dependencies [0fd97cf]
+- Updated dependencies [5ef8f48]
+- Updated dependencies [0ae4f43]
+- Updated dependencies [dfb49fd]
+- Updated dependencies [7781c2a]
+- Updated dependencies [8211eee]
+- Updated dependencies [671aa04]
+- Updated dependencies [5b5d921]
+  - @wdio/devtools-app@1.13.0
+  - @wdio/devtools-script@1.9.0
+
 ## 2.1.0
 
 ### Minor Changes
