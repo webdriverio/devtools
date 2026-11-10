@@ -338,7 +338,18 @@ export const READ_ONLY_COMMANDS: ReadonlySet<string> = new Set([
   'getDomAttribute',
   'getId',
   'getCapabilities',
-  'getSession'
+  'getSession',
+  'isElementDisplayed',
+  'getContexts',
+  'getCurrentContext',
+  'getCurrentActivity',
+  'getCurrentPackage',
+  'isKeyboardShown',
+  'isLocked',
+  'queryAppState',
+  'isAppInstalled',
+  'getSettings',
+  'getStatus'
 ])
 
 /** Whether a command is known not to change the page, so its capture can be
