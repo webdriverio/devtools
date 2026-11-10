@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { occupiesDriver } from '@wdio/devtools-shared'
+import {
+  isInputDispatchingCommand,
+  occupiesDriver
+} from '@wdio/devtools-shared'
 import {
   InFlightGate,
   beginDriverCapture,
   beginDriverCommand,
-  isDriverBusy
+  isDriverBusy,
+  isInputDispatchInFlight
 } from '../src/driver-activity.js'
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -116,5 +120,46 @@ describe('process-wide gate', () => {
       close()
     }
     expect(isDriverBusy()).toBe(false)
+  })
+})
+
+describe('input windows', () => {
+  it('classifies pointer and keyboard commands across runners', () => {
+    for (const command of [
+      'click',
+      'doubleClick',
+      'setValue',
+      'sendKeys',
+      'keys',
+      'moveToElement',
+      'mouseButtonClick',
+      'rightClick',
+      'submitForm'
+    ]) {
+      expect(isInputDispatchingCommand(command)).toBe(true)
+    }
+    for (const command of ['getText', 'url', 'execute', 'waitUntil']) {
+      expect(isInputDispatchingCommand(command)).toBe(false)
+    }
+  })
+
+  it('reports an input command apart from any other busy window', () => {
+    const closeRead = beginDriverCommand('getText')
+    expect(isDriverBusy()).toBe(true)
+    expect(isInputDispatchInFlight()).toBe(false)
+    const closeClick = beginDriverCommand('click')
+    expect(isInputDispatchInFlight()).toBe(true)
+    closeClick()
+    expect(isInputDispatchInFlight()).toBe(false)
+    closeRead()
+    expect(isDriverBusy()).toBe(false)
+  })
+
+  it('lets an input window expire like any other', async () => {
+    const gate = new InFlightGate(20)
+    gate.open(true)
+    expect(gate.isInputOpen()).toBe(true)
+    await sleep(40)
+    expect(gate.isInputOpen()).toBe(false)
   })
 })

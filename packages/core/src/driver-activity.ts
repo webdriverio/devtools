@@ -1,4 +1,7 @@
-import { occupiesDriver } from '@wdio/devtools-shared'
+import {
+  isInputDispatchingCommand,
+  occupiesDriver
+} from '@wdio/devtools-shared'
 
 // A driver serves one session's requests one at a time, so a filmstrip poll
 // issued while a command or a capture holds the driver only queues in front of
@@ -14,18 +17,24 @@ export const DRIVER_ACTIVITY_MAX_HOLD_MS = 3000
 
 const NOOP = (): void => {}
 
+interface OpenWindow {
+  openedAt: number
+  input: boolean
+}
+
 export class InFlightGate {
-  readonly #openedAt = new Map<number, number>()
+  readonly #open = new Map<number, OpenWindow>()
   #nextToken = 0
 
   constructor(private readonly maxHoldMs = DRIVER_ACTIVITY_MAX_HOLD_MS) {}
 
-  /** Open a window and return its closer; closing twice is harmless. */
-  open(): () => void {
+  /** Open a window and return its closer; closing twice is harmless. `input`
+   *  marks a command dispatching trusted input, which no poll may overlap. */
+  open(input = false): () => void {
     const token = this.#nextToken++
-    this.#openedAt.set(token, Date.now())
+    this.#open.set(token, { openedAt: Date.now(), input })
     return () => {
-      this.#openedAt.delete(token)
+      this.#open.delete(token)
     }
   }
 
@@ -35,13 +44,28 @@ export class InFlightGate {
    * and cannot leak entries for the rest of the run.
    */
   isOpen(): boolean {
-    const cutoff = Date.now() - this.maxHoldMs
-    for (const [token, openedAt] of this.#openedAt) {
-      if (openedAt <= cutoff) {
-        this.#openedAt.delete(token)
+    this.#prune()
+    return this.#open.size > 0
+  }
+
+  /** Whether an unexpired window of an input-dispatching command is open. */
+  isInputOpen(): boolean {
+    this.#prune()
+    for (const window of this.#open.values()) {
+      if (window.input) {
+        return true
       }
     }
-    return this.#openedAt.size > 0
+    return false
+  }
+
+  #prune(): void {
+    const cutoff = Date.now() - this.maxHoldMs
+    for (const [token, window] of this.#open) {
+      if (window.openedAt <= cutoff) {
+        this.#open.delete(token)
+      }
+    }
   }
 }
 
@@ -50,7 +74,9 @@ const sharedGate = new InFlightGate()
 /** Adapter side: open the window around a runner command. Returns its closer,
  *  a no-op for a command that does not hold the driver (`occupiesDriver`). */
 export function beginDriverCommand(command: string): () => void {
-  return occupiesDriver(command) ? sharedGate.open() : NOOP
+  return occupiesDriver(command)
+    ? sharedGate.open(isInputDispatchingCommand(command))
+    : NOOP
 }
 
 /** Capture side: open the window around a per-action capture's probes. */
@@ -61,4 +87,10 @@ export function beginDriverCapture(): () => void {
 /** Recorder side: is a command or a capture holding the driver right now? */
 export function isDriverBusy(): boolean {
   return sharedGate.isOpen()
+}
+
+/** Recorder side: is a command dispatching input right now? A poll then must
+ *  wait however stale the filmstrip is, or the click can activate nothing. */
+export function isInputDispatchInFlight(): boolean {
+  return sharedGate.isInputOpen()
 }

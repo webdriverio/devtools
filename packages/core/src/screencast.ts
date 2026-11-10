@@ -1,7 +1,7 @@
 import type { ScreencastFrame, ScreencastOptions } from '@wdio/devtools-shared'
 import { hasScreenshot, SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
 import { performance } from 'node:perf_hooks'
-import { isDriverBusy } from './driver-activity.js'
+import { isDriverBusy, isInputDispatchInFlight } from './driver-activity.js'
 import {
   recordRecorderReuse,
   recordRecorderShot,
@@ -17,6 +17,10 @@ import { errorMessage } from './error.js'
 export const SCREENCAST_HANDSHAKE_TIMEOUT_MS = 5000
 
 const FIRST_SHOT_TIMEOUT = Symbol('first-shot-timeout')
+
+/** Longest gap, in poll intervals, a busy driver may leave in the filmstrip:
+ *  back-to-back commands that take no capture would otherwise starve it. */
+export const MAX_FILMSTRIP_GAP_INTERVALS = 3
 
 /** Where a recorder reports its lifecycle; each adapter passes its own logger. */
 export interface ScreencastLogger {
@@ -372,11 +376,11 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
   }
 
   #skipReason(): RecorderSkipReason | undefined {
-    // A command or a capture holds the driver: a poll would queue in front of
-    // the test, and one landing mid-click makes the click report success while
-    // dispatching nothing. The gate is bounded, so a command whose completion
-    // never arrives costs frames only until it expires.
-    if (isDriverBusy()) {
+    // A poll landing mid-click makes the click report success while
+    // dispatching nothing, so input waits however stale the filmstrip is. The
+    // gate is bounded, so a command whose completion never arrives costs
+    // frames only until it expires.
+    if (isInputDispatchInFlight()) {
       return 'busy'
     }
     // setInterval does not wait for the tick. A screenshot slower than the
@@ -386,10 +390,24 @@ export abstract class ScreencastRecorderBase<TDriver = unknown> {
     if (this.#pollInFlight) {
       return 'inFlight'
     }
+    // Any other command or a capture holding the driver would only have a poll
+    // queue in front of it, until the newest frame is too old to wait longer.
+    if (
+      isDriverBusy() &&
+      this.#newestFrameAge() <
+        this.options.pollIntervalMs * MAX_FILMSTRIP_GAP_INTERVALS
+    ) {
+      return 'busy'
+    }
     if (Date.now() - this.#lastReusedAt < this.options.pollIntervalMs) {
       return 'fresh'
     }
     return undefined
+  }
+
+  #newestFrameAge(): number {
+    const newest = this.buffer[this.buffer.length - 1]
+    return newest ? Date.now() - newest.timestamp : Number.POSITIVE_INFINITY
   }
 
   async #pollTick(generation: number): Promise<void> {

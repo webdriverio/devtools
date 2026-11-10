@@ -3,6 +3,7 @@ import {
   ScreencastRecorderBase,
   type ScreencastLogger
 } from '../src/screencast.js'
+import { MAX_FILMSTRIP_GAP_INTERVALS } from '../src/screencast.js'
 import {
   DRIVER_ACTIVITY_MAX_HOLD_MS,
   beginDriverCapture,
@@ -160,7 +161,7 @@ describe('ScreencastRecorderBase: driver-activity gate', () => {
     const suppressed = r.bufferLength
     const close = beginDriverCommand('getText')
     try {
-      await vi.advanceTimersByTimeAsync(150) // 3 ticks, all skipped
+      await vi.advanceTimersByTimeAsync(100) // 2 ticks inside the gap cap, skipped
       expect(r.bufferLength).toBe(suppressed)
     } finally {
       close()
@@ -178,7 +179,7 @@ describe('ScreencastRecorderBase: driver-activity gate', () => {
     const shots = r.shotsTaken
     const close = beginDriverCapture()
     try {
-      await vi.advanceTimersByTimeAsync(150)
+      await vi.advanceTimersByTimeAsync(100)
       expect(r.shotsTaken).toBe(shots)
     } finally {
       close()
@@ -711,5 +712,64 @@ describe('ScreencastRecorderBase: reused capture screenshots', () => {
     expect(r.bufferLength).toBeLessThanOrEqual(4)
     expect(r.frames[0].data).toBe('frame-1')
     expect(r.frames[r.frames.length - 1].data).toBe('capture-10')
+  })
+})
+
+describe('ScreencastRecorderBase: gap cap while the driver stays busy', () => {
+  const INTERVAL = 50
+  const CAP = INTERVAL * MAX_FILMSTRIP_GAP_INTERVALS
+
+  function largestGap(r: TestRecorder): number {
+    const stamps = r.frames.map((f) => f.timestamp)
+    return Math.max(...stamps.slice(1).map((t, i) => t - stamps[i]))
+  }
+
+  it('polls through back-to-back commands once the newest frame reaches the cap', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: INTERVAL })
+    await r.start({ name: 'driver' })
+    // Live mode on Safari or Appium: reads only, no capture to reuse, and each
+    // command opens before the previous one closes.
+    let close = beginDriverCommand('getText')
+    for (let i = 0; i < 40; i++) {
+      await vi.advanceTimersByTimeAsync(25)
+      const next = beginDriverCommand(i % 2 ? 'findElements' : 'isDisplayed')
+      close()
+      close = next
+    }
+    close()
+    await r.stop()
+    expect(r.frames.length).toBeGreaterThan(1000 / CAP - 1)
+    expect(largestGap(r)).toBeLessThanOrEqual(CAP)
+    vi.useRealTimers()
+  })
+
+  it('caps the gap through a long run of captures too', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: INTERVAL })
+    await r.start({ name: 'driver' })
+    const close = beginDriverCapture()
+    await vi.advanceTimersByTimeAsync(CAP * 4)
+    close()
+    await r.stop()
+    expect(r.frames.length).toBeGreaterThanOrEqual(5)
+    expect(largestGap(r)).toBeLessThanOrEqual(CAP)
+    vi.useRealTimers()
+  })
+
+  it('never overrides an input command, however stale the filmstrip', async () => {
+    vi.useFakeTimers()
+    const r = new TestRecorder({ pollIntervalMs: INTERVAL })
+    await r.start({ name: 'driver' })
+    const shots = r.shotsTaken
+    const close = beginDriverCommand('click')
+    try {
+      await vi.advanceTimersByTimeAsync(CAP * 4)
+      expect(r.shotsTaken).toBe(shots)
+    } finally {
+      close()
+    }
+    await r.stop()
+    vi.useRealTimers()
   })
 })
