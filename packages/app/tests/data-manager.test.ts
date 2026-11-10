@@ -7,6 +7,9 @@
 // the trace-probe fetch are the only two things stubbed; the rest of the path
 // (parse → scope dispatch → merge helpers → provider) is the real code.
 
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactiveController, ReactiveControllerHost } from 'lit'
 import {
@@ -21,10 +24,13 @@ import {
   type TracePlayerData,
   type WsMessageScope
 } from '@wdio/devtools-shared'
+// eslint-disable-next-line no-restricted-imports -- builds a zip as an adapter does; app source never writes one
+import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 
 import { RUN_ALL_UID } from '../src/components/sidebar/constants.js'
 import { CACHE_ID } from '../src/controller/constants.js'
 import { DataManagerController } from '../src/controller/DataManager.js'
+import type { TraceArchiveClient } from '../src/controller/trace-archive.js'
 import { rerunState } from '../src/controller/rerunState.js'
 import type {
   SuiteStatsFragment,
@@ -121,23 +127,65 @@ let traceProbe: () => Promise<unknown>
 let fetchedUrls: string[]
 let warnings: string[]
 
-/** The trace-probe response shape the controller reads: `ok`, `status`, `json()`
- *  only — typed as the parts used rather than a full `Response` fake. */
-function probeResponse(status: number, body?: TracePlayerData) {
+/** The trace-probe response shape the controller reads: `ok`, `status`,
+ *  `json()` and `blob()` only, typed as the parts used rather than a full
+ *  `Response` fake. */
+function probeResponse(status: number, body?: unknown, blob?: Blob) {
   return {
     ok: status >= 200 && status < 300,
     status,
-    json: () => Promise.resolve(body)
+    json: () => Promise.resolve(body),
+    blob: () => Promise.resolve(blob)
   }
 }
 
+/** `show-trace` serving `zip` as a run of one: the listing, then the zip's bytes. */
+function serveOne(zip: Blob): () => Promise<unknown> {
+  return () =>
+    Promise.resolve(
+      fetchedUrls[fetchedUrls.length - 1] === TRACE_API.run
+        ? probeResponse(200, {
+            traces: [{ path: 'trace.zip', url: '/api/trace/zip/0' }]
+          })
+        : probeResponse(200, undefined, zip)
+    )
+}
+
+const dirs: string[] = []
+
+async function recordedZip(): Promise<Blob> {
+  const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'served-trace-'))
+  dirs.push(outputDir)
+  const zip = await writeTraceZip(
+    {
+      mutations: [],
+      traceLogs: [],
+      consoleLogs: [],
+      networkRequests: [],
+      commandsLog: [
+        {
+          command: 'url',
+          args: [LOGIN_URL],
+          timestamp: RUN_START + 1000,
+          screenshot: btoa('frame')
+        }
+      ],
+      sources: new Map(),
+      metadata: { type: TraceType.Testrunner, sessionId: SESSION },
+      startWallTime: RUN_START
+    },
+    { outputDir, sessionId: SESSION }
+  )
+  return new Blob([new Uint8Array(await fs.readFile(zip))])
+}
+
 async function boot(
-  options: { trace?: TracePlayerData; probeFails?: boolean } = {}
+  options: { served?: Blob; probeFails?: boolean } = {}
 ): Promise<Harness> {
   if (options.probeFails) {
     traceProbe = () => Promise.reject(new Error('no trace server'))
-  } else if (options.trace) {
-    traceProbe = () => Promise.resolve(probeResponse(200, options.trace))
+  } else if (options.served) {
+    traceProbe = serveOne(options.served)
   } else {
     traceProbe = () => Promise.resolve(probeResponse(204))
   }
@@ -247,7 +295,7 @@ const playerData = (
   overrides: Partial<TracePlayerData> = {}
 ): TracePlayerData => ({
   trace: traceLog(),
-  frames: [{ timestamp: RUN_START, screenshot: 'iVBORw0KGg' }],
+  frames: [{ timestamp: RUN_START, entry: 'resources/frame.png' }],
   startTime: RUN_START,
   duration: 4000,
   ...overrides
@@ -285,17 +333,140 @@ beforeEach(() => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  await Promise.all(
+    dirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true }))
+  )
 })
 
 describe('DataManagerController', () => {
+  describe('loadPlayerData', () => {
+    function fakeArchive(
+      onRead: (name: string) => Promise<Blob> = () =>
+        Promise.resolve(new Blob(['body']))
+    ) {
+      const state = { closed: false }
+      const archive: TraceArchiveClient = {
+        open: () => Promise.reject(new Error('unused')),
+        read: onRead,
+        close: () => {
+          state.closed = true
+        }
+      }
+      return { archive, state }
+    }
+
+    it('never caches a player trace in browser storage', async () => {
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+
+      await manager.loadPlayerData(playerData(), fakeArchive().archive)
+
+      expect(localStorage.getItem(CACHE_ID)).toBeNull()
+      expect(manager.framesContextProvider.value).toEqual(playerData().frames)
+    })
+
+    it('reads from the shown trace’s archive and closes it when the next trace loads', async () => {
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      const first = fakeArchive()
+
+      await manager.loadPlayerData(
+        playerData({ responseBodies: { 'req-1': 'resources/body' } }),
+        first.archive
+      )
+      const shown = manager.playerArchiveContextProvider.value!
+      expect(shown.responseBodies).toEqual({ 'req-1': 'resources/body' })
+      expect(await shown.entries.text('resources/body')).toBe('body')
+
+      await manager.loadPlayerData(playerData(), fakeArchive().archive)
+
+      expect(first.state.closed).toBe(true)
+    })
+
+    it('keeps the shown trace reading its own archive while the next one loads', async () => {
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      const shownReads: string[] = []
+      const nextReads: string[] = []
+      await manager.loadPlayerData(
+        playerData(),
+        fakeArchive((name) => {
+          shownReads.push(name)
+          return Promise.resolve(new Blob(['shown']))
+        }).archive
+      )
+      const shown = manager.playerArchiveContextProvider.value!
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      const next = fakeArchive((name) => {
+        nextReads.push(name)
+        return gate.then(() => new Blob(['p{}']))
+      })
+      const loading = manager.loadPlayerData(
+        playerData({
+          pageResources: [
+            {
+              url: 'https://site.test/a.css',
+              kind: 'stylesheet',
+              mimeType: 'text/css',
+              entry: 'resources/css',
+              size: 3
+            }
+          ]
+        }),
+        next.archive
+      )
+
+      expect(await shown.entries.text('resources/frame.png')).toBe('shown')
+      release()
+      await loading
+
+      expect(shownReads).toEqual(['resources/frame.png'])
+      expect(nextReads).toEqual(['resources/css'])
+    })
+
+    it('drops a trace whose page resources finish reading after a newer one loaded', async () => {
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => (release = resolve))
+      const slow = fakeArchive(() => gate.then(() => new Blob(['p{}'])))
+      const stale = manager.loadPlayerData(
+        playerData({
+          trace: traceLog({ logs: ['stale'] }),
+          pageResources: [
+            {
+              url: 'https://site.test/a.css',
+              kind: 'stylesheet',
+              mimeType: 'text/css',
+              entry: 'resources/css',
+              size: 3
+            }
+          ]
+        }),
+        slow.archive
+      )
+
+      await manager.loadPlayerData(
+        playerData({ trace: traceLog({ logs: ['newer'] }) }),
+        fakeArchive().archive
+      )
+      release()
+      await stale
+
+      expect(manager.logsContextProvider.value).toEqual(['newer'])
+      expect(slow.state.closed).toBe(true)
+    })
+  })
+
   describe('bootstrap', () => {
     it('probes the trace endpoint before opening a live socket', async () => {
       await boot()
 
-      expect(fetchedUrls).toEqual([TRACE_API.get])
+      expect(fetchedUrls).toEqual([TRACE_API.run, TRACE_API.get])
       expect(FakeSocket.opened).toHaveLength(1)
       expect(FakeSocket.opened[0].url).toContain('/client')
     })
@@ -321,21 +492,48 @@ describe('DataManagerController', () => {
       manager.hostConnected()
       await vi.waitFor(() => expect(opened).toHaveLength(1))
 
-      expect(fetchedUrls).toEqual([TRACE_API.get, TRACE_API.run])
+      expect(fetchedUrls).toEqual([TRACE_API.run])
       expect(opened[0]).toEqual(['run/a/trace.zip', 'run/b/trace.zip'])
       expect(manager.playerMode).toBe(true)
       expect(FakeSocket.opened).toHaveLength(0)
     })
 
-    it('connects to the socket when nothing serves a run either', async () => {
+    it('connects to the socket when nothing serves a run', async () => {
       const host = document.createElement('data-manager-stub-host') as StubHost
       const manager = new DataManagerController(host)
       manager.onServedRun = () => {}
       manager.hostConnected()
       await vi.waitFor(() => expect(FakeSocket.opened).toHaveLength(1))
 
-      expect(fetchedUrls).toEqual([TRACE_API.get, TRACE_API.run])
+      expect(fetchedUrls).toEqual([TRACE_API.run, TRACE_API.get])
       expect(manager.playerMode).toBe(false)
+    })
+
+    it('plays the whole payload an older backend serves when it lists no zips', async () => {
+      const image = btoa('old frame')
+      const legacy = {
+        ...playerData(),
+        trace: traceLog({ commands: [command({ screenshot: image })] }),
+        frames: [{ timestamp: RUN_START, screenshot: image }]
+      }
+      traceProbe = () =>
+        Promise.resolve(
+          fetchedUrls[fetchedUrls.length - 1] === TRACE_API.get
+            ? probeResponse(200, legacy)
+            : probeResponse(204)
+        )
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      const manager = new DataManagerController(host)
+      manager.hostConnected()
+      await vi.waitFor(() => expect(manager.hasConnection).toBe(true))
+
+      expect(fetchedUrls).toEqual([TRACE_API.run, TRACE_API.get])
+      expect(manager.playerMode).toBe(true)
+      expect(FakeSocket.opened).toHaveLength(0)
+      expect(manager.commandsContextProvider.value[0]?.screenshot).toBe(image)
+      const [frame] = manager.framesContextProvider.value
+      const archive = manager.playerArchiveContextProvider.value!
+      expect(await archive.entries.text(frame!.entry)).toBe('old frame')
     })
 
     it('reports a connection once the socket opens', async () => {
@@ -362,20 +560,25 @@ describe('DataManagerController', () => {
       expect(manager.commandsContextProvider.value).toEqual([])
     })
 
-    it('plays a served trace instead of connecting to a socket', async () => {
-      const data = playerData()
-      const { manager } = await boot({ trace: data })
+    it('opens a single served zip in the player instead of listing it or connecting to a socket', async () => {
+      const listed: unknown[] = []
+      const host = document.createElement('data-manager-stub-host') as StubHost
+      traceProbe = serveOne(await recordedZip())
+      const manager = new DataManagerController(host)
+      manager.onServedRun = (sources) => listed.push(sources)
+      manager.hostConnected()
+      await vi.waitFor(() => expect(manager.hasConnection).toBe(true))
 
+      expect(fetchedUrls).toEqual([TRACE_API.run, '/api/trace/zip/0'])
+      expect(listed).toEqual([])
       expect(manager.playerMode).toBe(true)
-      expect(manager.hasConnection).toBe(true)
       expect(FakeSocket.opened).toHaveLength(0)
-      expect(manager.framesContextProvider.value).toEqual(data.frames)
-      expect(manager.commandsContextProvider.value).toEqual(data.trace.commands)
-    })
-
-    it('keeps a served trace out of the live cache', async () => {
-      await boot({ trace: playerData() })
-
+      expect(
+        manager.commandsContextProvider.value.map((c) => c.command)
+      ).toEqual(['url'])
+      const [frame] = manager.framesContextProvider.value
+      const archive = manager.playerArchiveContextProvider.value!
+      expect(await archive.entries.text(frame!.entry)).toBe('frame')
       expect(localStorage.getItem(CACHE_ID)).toBeNull()
     })
 
@@ -479,7 +682,10 @@ describe('DataManagerController', () => {
 
       deliver(WS_SCOPE.replaceCommand, {
         oldTimestamp: RUN_START,
-        command: command({ command: 'expect.toHaveText', timestamp: RUN_START })
+        command: command({
+          command: 'expect.toHaveText',
+          timestamp: RUN_START
+        })
       })
 
       expect(

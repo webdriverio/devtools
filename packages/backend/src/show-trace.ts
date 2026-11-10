@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // CLI entry for `show-trace` (also exposed as the root `pnpm show-trace`
-// script): reconstructs a trace.zip, or lists several zips and folders of them,
-// boots the backend in trace-serve mode, and opens the player in the browser.
+// script): lists the zips it was given, and those in the folders it was given,
+// boots the backend in trace-serve mode to serve their bytes, and opens the
+// player in the browser, which reads each zip itself.
 
 import { spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
-import { readTraceZip } from '@wdio/devtools-trace/read-trace-zip'
 import { start } from './index.js'
 import { collectTraceZips, traceRunFiles } from './trace-files.js'
 
@@ -30,18 +30,14 @@ function openBrowser(url: string): void {
   }
 }
 
-/** One zip is reconstructed here as it always was; several are served for the player to read. */
+/** Serves the zips for the player to read: one opens directly, several are listed. */
 async function serveTraces(args: readonly string[]): Promise<number> {
   const cwd = process.cwd()
   const zips = await collectTraceZips(args, cwd)
   if (zips.length === 0) {
     throw new Error(`No trace .zip found in ${args.join(', ')}`)
   }
-  const options =
-    zips.length === 1
-      ? { trace: await readTraceZip(zips[0]) }
-      : { traceRun: traceRunFiles(zips, cwd) }
-  return (await start(options)).port
+  return (await start({ traceRun: traceRunFiles(zips, cwd) })).port
 }
 
 export async function showTrace(

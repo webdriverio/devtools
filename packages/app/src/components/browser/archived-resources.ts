@@ -1,6 +1,8 @@
 // A loaded trace's stored stylesheets and fonts, served to the replayed page as blob URLs.
 
-import { rewriteCssUrls, type PageResource } from '@wdio/devtools-shared'
+import { rewriteCssUrls } from '@wdio/devtools-shared'
+
+import { BROWSER_BLOB_URLS, type BlobUrls } from '../../utils/blob-urls.js'
 
 /** Rewrites the URLs of one replayed document, resolved against its own URL. */
 export interface ResourceRewriter {
@@ -10,15 +12,10 @@ export interface ResourceRewriter {
   css(text: string): string
 }
 
-interface BlobApi {
-  create(blob: Blob): string
-  revoke(url: string): void
-}
-
-const BROWSER_BLOBS: BlobApi = {
-  create: (blob) => URL.createObjectURL(blob),
-  revoke: (url) => URL.revokeObjectURL(url)
-}
+/** A stored resource read out of the trace: a stylesheet as text, since it is rewritten before use, a font as it is. */
+export type StoredPageResource = { url: string; mimeType: string } & (
+  { kind: 'stylesheet'; text: string } | { kind: 'font'; blob: Blob }
+)
 
 /** The absolute URL a reference names, or undefined for one that loads nothing (inline data, an in-document `#id`). */
 function absolute(url: string, base: string): string | undefined {
@@ -43,37 +40,23 @@ function absolute(url: string, base: string): string | undefined {
 const FONT_TYPE = /^(font\/|application\/(font-|x-font-|vnd\.ms-fontobject))/i
 
 /** The blob's type from its kind, never from the trace alone: a crafted trace must not make a blob a document. */
-function blobType(resource: PageResource): string {
-  if (resource.kind === 'stylesheet') {
-    return 'text/css'
-  }
-  return FONT_TYPE.test(resource.mimeType)
-    ? resource.mimeType
-    : 'application/octet-stream'
-}
-
-function decodeBase64(data: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(data)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i)
-  }
-  return bytes
+function fontType(mimeType: string): string {
+  return FONT_TYPE.test(mimeType) ? mimeType : 'application/octet-stream'
 }
 
 export class ArchivedResources {
-  readonly #blobs: BlobApi
-  #byUrl = new Map<string, PageResource>()
+  readonly #blobs: BlobUrls
+  #byUrl = new Map<string, StoredPageResource>()
   #blobUrls = new Map<string, string>()
   /** Stylesheets mid-rewrite, so an `@import` cycle ends at the live URL. */
   #resolving = new Set<string>()
 
-  constructor(blobs: BlobApi = BROWSER_BLOBS) {
+  constructor(blobs: BlobUrls = BROWSER_BLOB_URLS) {
     this.#blobs = blobs
   }
 
   /** Replaces the loaded trace's resources, revoking the previous trace's blobs. */
-  load(resources: readonly PageResource[]): void {
+  load(resources: readonly StoredPageResource[]): void {
     this.clear()
     for (const resource of resources) {
       this.#byUrl.set(resource.url, resource)
@@ -100,14 +83,11 @@ export class ArchivedResources {
     }
     this.#resolving.add(url)
     try {
-      const bytes = decodeBase64(resource.data)
-      const body =
+      const blob =
         resource.kind === 'stylesheet'
-          ? this.#rewrite(new TextDecoder().decode(bytes), url)
-          : bytes
-      const blobUrl = this.#blobs.create(
-        new Blob([body], { type: blobType(resource) })
-      )
+          ? new Blob([this.#rewrite(resource.text, url)], { type: 'text/css' })
+          : new Blob([resource.blob], { type: fontType(resource.mimeType) })
+      const blobUrl = this.#blobs.create(blob)
       this.#blobUrls.set(url, blobUrl)
       return blobUrl
     } catch (err) {

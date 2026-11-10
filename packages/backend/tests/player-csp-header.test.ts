@@ -4,7 +4,7 @@ import path from 'node:path'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyInstance } from 'fastify'
-import { playerCsp } from '@wdio/devtools-shared'
+import { playerCsp, TRACE_API } from '@wdio/devtools-shared'
 
 import { start } from '../src/index.js'
 import * as utils from '../src/utils.js'
@@ -69,7 +69,7 @@ describe('the dashboard page the backend serves', () => {
   it('leaves API responses without it', async () => {
     const app = await serve()
 
-    const response = await app.inject({ method: 'GET', url: '/api/trace' })
+    const response = await app.inject({ method: 'GET', url: TRACE_API.run })
 
     expect(response.headers['content-security-policy']).toBeUndefined()
   })

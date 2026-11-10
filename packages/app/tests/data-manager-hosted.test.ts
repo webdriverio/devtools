@@ -16,6 +16,7 @@ import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 // eslint-disable-next-line no-restricted-imports -- as above
 import { buildTraceZip } from '@wdio/devtools-trace/trace-zip-writer'
 
+import { archivedResources } from '../src/components/browser/archived-resources.js'
 import { CACHE_ID } from '../src/controller/constants.js'
 import { DataManagerController } from '../src/controller/DataManager.js'
 
@@ -54,6 +55,9 @@ function boot(): DataManagerController {
   manager.hostConnected()
   return manager
 }
+
+const STYLESHEET = 'https://example.com/site.css'
+const FONT = 'https://example.com/icons.woff2'
 
 async function recordedTrace(): Promise<Blob> {
   const outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'hosted-trace-'))
@@ -124,6 +128,49 @@ describe('the hosted trace player', () => {
       manager.commandsContextProvider.value.map(({ command }) => command)
     ).toEqual(['url', 'click'])
     expect(manager.metadataContextProvider.value?.sessionId).toBe('abc12345')
+  })
+
+  it('reads the stored stylesheets and fonts out of the zip for replay', async () => {
+    const manager = boot()
+    const index = [
+      {
+        url: STYLESHEET,
+        sha1: 'css1',
+        mimeType: 'text/css',
+        kind: 'stylesheet',
+        size: 2
+      },
+      {
+        url: FONT,
+        sha1: 'font1',
+        mimeType: 'font/woff2',
+        kind: 'font',
+        size: 4
+      }
+    ]
+    const zip = await buildTraceZip({
+      traceNdjson: JSON.stringify({
+        type: 'before',
+        callId: 'call@1',
+        startTime: 1,
+        class: 'Page',
+        method: 'navigate',
+        params: { url: 'https://example.com' }
+      }),
+      networkNdjson: Buffer.alloc(0),
+      pageResourcesNdjson: Buffer.from(
+        index.map((line) => JSON.stringify(line)).join('\n')
+      ),
+      resources: [
+        { resourceName: 'css1', data: Buffer.from('p{}') },
+        { resourceName: 'font1', data: Buffer.from('wOF2') }
+      ]
+    })
+
+    await manager.openTraceArchive(new Blob([new Uint8Array(zip)]))
+
+    expect(archivedResources.urlFor(STYLESHEET)).toMatch(/^blob:/)
+    expect(archivedResources.urlFor(FONT)).toMatch(/^blob:/)
   })
 
   it('keeps the opened trace out of browser storage', async () => {

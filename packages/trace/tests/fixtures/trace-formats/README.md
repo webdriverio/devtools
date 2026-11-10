@@ -1,6 +1,6 @@
 # Trace format fixtures
 
-The hosted player always runs the newest reader, while the zips people open were written by whatever adapter version recorded them. Each zip here is a real trace from an older writer, and `../../trace-format-fixtures.test.ts` checks that the current `parseTraceZip` still opens it with its commands, console output, network requests, DOM mutations, screencast frames, sources and metadata intact. A reader change that breaks an older trace fails `pnpm test`.
+The hosted player always runs the newest reader, while the zips people open were written by whatever adapter version recorded them. Each zip here is a real trace from an older writer, and `../../trace-format-fixtures.test.ts` checks that the current reader (`openTraceArchive` and `readTracePayload`, as the player runs it, and `parseTraceZip`) still opens it with its commands, console output, network requests, DOM mutations, screencast frames, sources and metadata intact. A reader change that breaks an older trace fails `pnpm test`.
 
 ## What is here
 
@@ -23,7 +23,7 @@ Real zips are mostly screenshots. `reduce-fixture.ts` keeps every entry, in the 
 - In `.trace` streams, each `data:image/...;base64,` payload is replaced by a 1x1 image of the same format. The rest of each line, the data URI prefix included, keeps its bytes.
 - Every other entry keeps its bytes. The zip is rewritten with yazl, as the writer does, with a fixed entry time so reducing the same source twice gives the same file.
 
-This does not weaken what is tested: the reader never decodes an image. It base64-encodes resource bytes into frames and never reads a frame-snapshot's HTML, so what it can get wrong (which entries it finds, how it pairs frames with commands, how it parses every stream) is all exercised on the original structure.
+This does not weaken what is tested: the reader never decodes an image beyond the first frame's header. It names each frame's resource by entry for the player to read, and the test reads every one back, and it never reads a frame-snapshot's HTML, so what it can get wrong (which entries it finds, how it pairs frames with commands, how it parses every stream) is all exercised on the original structure.
 
 ## Adding a fixture
 

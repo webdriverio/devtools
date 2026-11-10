@@ -16,7 +16,6 @@ import {
   type NetworkRequest,
   type NetworkTimings,
   type RequestType,
-  type TracePlayerFrame,
   type Viewport
 } from '@wdio/devtools-shared'
 
@@ -125,25 +124,31 @@ function mimeToType(mimeType: string): RequestType {
 
 const TEXTUAL_MIME_RE = /json|xml|javascript|ecmascript|^text\//
 
-// Restore the body from inline `text`, else the content-addressed
-// `resources/<_sha1>` entry (the `_sha1` value is the resource filename,
-// extension included when the writer added one). Textual mimes only —
-// binary bodies stay out of the string field.
-function restoreResponseBody(
-  content: HarContent | undefined,
-  files: Record<string, Uint8Array> | undefined
+const isTextualBody = (content: HarContent | undefined): boolean =>
+  Boolean(content && TEXTUAL_MIME_RE.test(content.mimeType))
+
+// Textual mimes only: binary bodies stay out of the string field.
+function inlineResponseBody(
+  content: HarContent | undefined
 ): string | undefined {
-  if (!content || !TEXTUAL_MIME_RE.test(content.mimeType)) {
+  return isTextualBody(content) &&
+    typeof content?.text === 'string' &&
+    content.encoding !== 'base64'
+    ? content.text
+    : undefined
+}
+
+/** The content-addressed `resources/<_sha1>` entry holding a textual body the HAR does not inline (`_sha1` is the resource filename, extension included when the writer added one). */
+export function responseBodyEntry(
+  snapshot: HarSnapshot,
+  names: ReadonlySet<string>
+): string | undefined {
+  const content = snapshot.response?.content
+  if (!content?._sha1 || !isTextualBody(content)) {
     return undefined
   }
-  if (typeof content.text === 'string' && content.encoding !== 'base64') {
-    return content.text
-  }
-  if (!content._sha1 || !files) {
-    return undefined
-  }
-  const data = files[`resources/${content._sha1}`]
-  return data ? strFromU8(data) : undefined
+  const entry = `resources/${content._sha1}`
+  return names.has(entry) ? entry : undefined
 }
 
 /** HAR marks a phase that does not apply as `-1`; the wire type omits it. */
@@ -172,8 +177,7 @@ function restoreTimings(
 
 export function harToNetworkRequest(
   snapshot: HarSnapshot,
-  index: number,
-  files?: Record<string, Uint8Array>
+  index: number
 ): NetworkRequest {
   const started = Date.parse(snapshot.startedDateTime)
   const startTime = Number.isFinite(started) ? started : 0
@@ -207,7 +211,7 @@ export function harToNetworkRequest(
     }
   }
   const responseHeaders = headerArrayToRecord(response?.headers)
-  const responseBody = restoreResponseBody(content, files)
+  const responseBody = inlineResponseBody(content)
   return {
     ...base,
     status,
@@ -334,29 +338,6 @@ export function buildSources(
     }
   }
   return sources
-}
-
-/** The frame that shows a command's state: the latest capture at or before it,
- *  since a capture is stamped when the document was read. Falling back to the
- *  next later frame only when nothing precedes keeps a row without a capture of
- *  its own from replaying the state its SUCCESSOR produced, which is what an
- *  absolute-nearest rule does when the successor's frame is the closer one. */
-export function nearestFrame(
-  frames: TracePlayerFrame[],
-  timestamp: number
-): TracePlayerFrame | undefined {
-  let preceding: TracePlayerFrame | undefined
-  let following: TracePlayerFrame | undefined
-  for (const frame of frames) {
-    if (frame.timestamp <= timestamp) {
-      if (!preceding || frame.timestamp > preceding.timestamp) {
-        preceding = frame
-      }
-    } else if (!following || frame.timestamp < following.timestamp) {
-      following = frame
-    }
-  }
-  return preceding ?? following
 }
 
 export function buildMetadata(ctx: ContextOptionsEvent | undefined): Metadata {

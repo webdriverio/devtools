@@ -45,7 +45,7 @@ export const READ_PLAYER_STATE = `${COLLECT_NODES}
     rows: byTag('wdio-devtools-command-item').map((el) => text(inShadow(el, 'code.label'))),
     groups: byTag('wdio-devtools-group-item').length,
     frames: byTag('wdio-devtools-trace-timeline').reduce(
-      (count, el) => count + (el.shadowRoot ? el.shadowRoot.querySelectorAll('img[src^="data:image/"]').length : 0),
+      (count, el) => count + (el.shadowRoot ? el.shadowRoot.querySelectorAll('img[src^="data:image/"], img[src^="blob:"]').length : 0),
       0
     ),
     resources: performance.getEntriesByType('resource').map((entry) => entry.name)

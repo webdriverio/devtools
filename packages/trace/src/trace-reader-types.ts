@@ -137,3 +137,9 @@ export interface MergedEvents extends Omit<CategorizedEvents, 'ctx'> {
 
 /** A trace.zip's unpacked entries, keyed by their path inside the zip. */
 export type TraceZipEntries = Record<string, Uint8Array>
+
+/** Every entry a trace.zip names, with the bytes of only those the payload is built from. */
+export interface TraceEntries {
+  names: ReadonlySet<string>
+  entries: TraceZipEntries
+}
