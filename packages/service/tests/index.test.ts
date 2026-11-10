@@ -376,6 +376,22 @@ describe('DevtoolsService - Internal Command Filtering', () => {
       flushInputWindows()
     })
 
+    // #afterCommand skips an injection call before it would close the window,
+    // so opening one would hold the gate to its bound and drop the user's.
+    it('opens no window for the injection calls of a re-arm', async () => {
+      let busyDuringInjection: boolean | undefined
+      mockSessionCapturerInstance.injectScript.mockImplementationOnce(
+        async () => {
+          await service.beforeCommand('execute' as any, ['script'])
+          busyDuringInjection = isDriverBusy()
+          await service.afterCommand('execute' as any, ['script'], undefined)
+        }
+      )
+      await service.onReload('old-session', 'new-session')
+      expect(busyDuringInjection).toBe(false)
+      expect(isDriverBusy()).toBe(false)
+    })
+
     it('holds the window open for the duration of a command', async () => {
       await service.beforeCommand('click' as any, ['.button'])
       expect(isDriverBusy()).toBe(true)

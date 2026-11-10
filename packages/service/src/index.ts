@@ -792,8 +792,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     }
     // Holds the filmstrip poll off the driver for the whole command (see
     // driver-activity.ts); opened before the pre-action probes so it spans them.
-    this.#closeCommandWindow?.()
-    this.#closeCommandWindow = beginDriverCommand(command)
+    // Not for an injection call: #afterCommand skips those before closing, so
+    // the window would hold the gate to its bound and drop the user command's.
+    if (!this.#injecting) {
+      this.#closeCommandWindow?.()
+      this.#closeCommandWindow = beginDriverCommand(command)
+    }
     // `url` is the one start-of-recording signal every runner reaches (Mocha,
     // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
     if (command === 'url') {
