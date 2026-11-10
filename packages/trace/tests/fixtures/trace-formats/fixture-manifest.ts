@@ -17,4 +17,10 @@ export interface TraceFormatManifest {
   frames: string[]
   sourceFiles: string[]
   transcript: boolean
+  /** `data:image` URIs inlined in the `.trace` streams, which the format before #508 wrote into every frame-snapshot. */
+  inlineScreenshots: number
+  /** The entries holding frame-snapshot screenshots stored as resources (#508), in stream order. */
+  snapshotScreenshots: string[]
+  /** Stored stylesheets and fonts listed in `page-resources.ndjson` (#533) whose bytes the zip holds. */
+  pageResources: { url: string; kind: string; mimeType: string; size: number }[]
 }

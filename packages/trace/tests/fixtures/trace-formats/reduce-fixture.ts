@@ -185,6 +185,48 @@ function describeSourceFiles(events: TraceEvent[], entries: Entries): string[] {
     .sort()
 }
 
+function countInlineScreenshots(entries: Entries): number {
+  return Object.entries(entries)
+    .filter(([name]) => name.endsWith('.trace'))
+    .reduce(
+      (count, [, bytes]) =>
+        count + (strFromU8(bytes).match(DATA_IMAGE_URI)?.length ?? 0),
+      0
+    )
+}
+
+function describeSnapshotScreenshots(
+  events: TraceEvent[],
+  entries: Entries
+): string[] {
+  return events
+    .filter((event) => event.type === 'frame-snapshot')
+    .flatMap(
+      (event) =>
+        (event.snapshot as { resourceOverrides?: { sha1?: string }[] })
+          .resourceOverrides ?? []
+    )
+    .map((override) => override.sha1)
+    .filter(
+      (sha1): sha1 is string =>
+        typeof sha1 === 'string' && `resources/${sha1}` in entries
+    )
+    .map((sha1) => `resources/${sha1}`)
+}
+
+function describePageResources(
+  entries: Entries
+): TraceFormatManifest['pageResources'] {
+  return ndjson(entries, 'page-resources.ndjson')
+    .filter((line) => `resources/${String(line.sha1)}` in entries)
+    .map((line) => ({
+      url: String(line.url),
+      kind: String(line.kind),
+      mimeType: String(line.mimeType),
+      size: Number(line.size)
+    }))
+}
+
 function describe(entries: Entries, source: string): TraceFormatManifest {
   const events = ndjson(entries, '.trace')
   const context = events.find((event) => event.type === 'context-options')
@@ -223,7 +265,10 @@ function describe(entries: Entries, source: string): TraceFormatManifest {
     },
     frames: describeFrames(events, entries),
     sourceFiles: describeSourceFiles(events, entries),
-    transcript: 'transcript.md' in entries
+    transcript: 'transcript.md' in entries,
+    inlineScreenshots: countInlineScreenshots(entries),
+    snapshotScreenshots: describeSnapshotScreenshots(events, entries),
+    pageResources: describePageResources(entries)
   }
 }
 

@@ -1,0 +1,64 @@
+{
+  "source": "examples-smoke CI artifact, run 42769524119 at ee505b9c (2026-11-10): wdio-mocha/2/trace-80bb5cbe16340ba3bc7f01998243b70b.zip",
+  "runner": "mocha",
+  "browserName": "chrome",
+  "commands": {
+    "count": 5,
+    "failed": 1,
+    "titles": [
+      "Element.click(\"button[type=\"submit\"]\")",
+      "Element.fill(\"#password\")",
+      "Element.fill(\"#username\")",
+      "Page.navigate(\"http://127.0.0.1:4567/login\")",
+      "expect.toHaveText(\"You logged into a secure area!\")"
+    ],
+    "withSnapshotText": 5,
+    "withCallSource": 5
+  },
+  "consoleLogs": 1,
+  "networkRequests": {
+    "count": 6,
+    "urls": [
+      "http://127.0.0.1:4567/css/fixture.css",
+      "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "http://127.0.0.1:4567/login"
+    ]
+  },
+  "mutations": {
+    "count": 15,
+    "documentAnchors": 2
+  },
+  "frames": [
+    "6cdde8df7352d373f00f5f8332320a6a2aa09db8",
+    "29bbffee8a13574e51cfc12df9756247175f35ca",
+    "46a5603f2a7b0f03b6564869b1b37eb5d995a746",
+    "334f6c4a40a21d38ff4793dbd90588a54db6488d",
+    "25168d9b5bc1aab190640c0568775c7c36f337ac"
+  ],
+  "sourceFiles": [
+    "/home/runner/work/devtools/devtools/examples/wdio/mocha/specs/login-fail.e2e.ts"
+  ],
+  "transcript": true,
+  "inlineScreenshots": 0,
+  "snapshotScreenshots": [
+    "resources/page@80bb5cbe-1794292595236.png",
+    "resources/page@80bb5cbe-1794292596319.png",
+    "resources/page@80bb5cbe-1794292596627.png",
+    "resources/page@80bb5cbe-1794292597005.png",
+    "resources/page@80bb5cbe-1794292597005.png"
+  ],
+  "pageResources": [
+    {
+      "url": "http://127.0.0.1:4567/css/fixture.css",
+      "kind": "stylesheet",
+      "mimeType": "text/css",
+      "size": 229
+    },
+    {
+      "url": "http://127.0.0.1:4567/fonts/fixture-icons.woff2",
+      "kind": "font",
+      "mimeType": "font/woff2",
+      "size": 18
+    }
+  ]
+}

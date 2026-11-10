@@ -55,5 +55,8 @@
   "sourceFiles": [
     "/home/runner/work/devtools/devtools/examples/nightwatch/bdd/smoke-test.js"
   ],
-  "transcript": true
+  "transcript": true,
+  "inlineScreenshots": 21,
+  "snapshotScreenshots": [],
+  "pageResources": []
 }

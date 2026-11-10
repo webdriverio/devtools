@@ -42,5 +42,8 @@
   "sourceFiles": [
     "/home/runner/work/devtools/devtools/examples/wdio/mocha/specs/login.e2e.ts"
   ],
-  "transcript": true
+  "transcript": true,
+  "inlineScreenshots": 11,
+  "snapshotScreenshots": [],
+  "pageResources": []
 }

@@ -61,5 +61,8 @@
   "sourceFiles": [
     "/home/runner/work/devtools/devtools/examples/selenium-py/pytest/test_login_pytest.py"
   ],
-  "transcript": true
+  "transcript": true,
+  "inlineScreenshots": 22,
+  "snapshotScreenshots": [],
+  "pageResources": []
 }
