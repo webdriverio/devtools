@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { captureActionSnapshot } from '../src/action-snapshot.js'
 import { SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS } from '../src/with-timeout.js'
+import { isDriverBusy } from '../src/driver-activity.js'
+import { ScreencastRecorderBase } from '../src/screencast.js'
 
 const okScript = () => Promise.resolve([])
 
@@ -38,6 +40,25 @@ describe('captureActionSnapshot timestamp', () => {
       platform: 'android'
     })
     expect(snap?.timestamp).toBe(777)
+  })
+
+  it('keeps a webview HTML source out of the native element tree', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const snap = await captureActionSnapshot({
+      command: 'click',
+      timestamp: 5,
+      getPageSource: () =>
+        Promise.resolve(
+          '  <!DOCTYPE html><html><script>if (a < b && c) {}</script><img src=x></html>'
+        ),
+      takeScreenshot: () => Promise.resolve('AA'),
+      platform: 'ios'
+    })
+    expect(snap?.snapshotText).not.toContain('[ios]')
+    expect(snap?.elements).toEqual([])
+    expect(snap?.screenshot).toBe('AA')
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
   })
 
   it('stamps a zero timestamp rather than treating it as absent', async () => {
@@ -156,7 +177,10 @@ describe('captureActionSnapshot locator dialect', () => {
   }
 
   it("threads the runner into both scripts' text branch", async () => {
-    const scripts = await injectedScripts({ command: 'click', runner: 'mocha' })
+    const scripts = await injectedScripts({
+      command: 'click',
+      runner: 'mocha'
+    })
 
     expect(scripts).toHaveLength(2)
     for (const src of scripts) {
@@ -182,5 +206,42 @@ describe('captureActionSnapshot locator dialect', () => {
     for (const src of scripts) {
       expect(src).not.toContain("tag + '*=' + text")
     }
+  })
+})
+
+describe('captureActionSnapshot and the filmstrip', () => {
+  it('holds the driver-activity gate until its probes settle', async () => {
+    let release: ((shot: string) => void) | undefined
+    const capture = captureActionSnapshot({
+      command: 'click',
+      runScript: okScript,
+      takeScreenshot: () =>
+        new Promise<string>((resolve) => {
+          release = resolve
+        })
+    })
+    await vi.waitFor(() => expect(release).toBeDefined())
+    expect(isDriverBusy()).toBe(true)
+    release?.('AA')
+    await capture
+    expect(isDriverBusy()).toBe(false)
+  })
+
+  it('offers its screenshot to a polling recorder as a frame', async () => {
+    class Recorder extends ScreencastRecorderBase<object> {
+      protected override async takeScreenshot(): Promise<string | null> {
+        return 'polled'
+      }
+    }
+    const recorder = new Recorder({ pollIntervalMs: 60_000 })
+    await recorder.start({})
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    await captureActionSnapshot({
+      command: 'click',
+      runScript: okScript,
+      takeScreenshot: () => Promise.resolve('captured')
+    })
+    await recorder.stop()
+    expect(recorder.frames.map((f) => f.data)).toEqual(['polled', 'captured'])
   })
 })

@@ -274,7 +274,7 @@ DevTools.configure({
 
 Detailed sub-options: `quality` (0–100 JPEG quality, default 70), `maxWidth`/`maxHeight` (frame size, default 1280×720), `captureFormat` (`'jpeg'` or `'png'`), `pollIntervalMs` (used for non-Chrome browsers; default 200ms).
 
-Uses Chrome DevTools Protocol push mode where available; falls back to screenshot polling for Firefox / Safari with no config change.
+Uses Chrome DevTools Protocol push mode when the session's capabilities advertise a CDP endpoint (`se:cdp`, or a `debuggerAddress` under `goog:chromeOptions` / `ms:edgeOptions`), which local and Grid Chromium sessions do, or when `SELENIUM_REMOTE_URL` points at a Grid; every other session (Firefox, Safari, Appium) goes straight to screenshot polling with no config change. A CDP connection that fails anyway also falls back to polling.
 
 #### `headless` — hide the test browser window
 **Default:** `false` (the test browser is visible). Set to `true` to run the **test** browser without a window — useful for CI servers or when the popping window is annoying. The dashboard window is unaffected and still opens.
@@ -334,7 +334,7 @@ DevTools.configure({ mode: 'trace', traceGranularity: 'test' })
 **Default:** `'zip'` (a single `trace-<sessionId>.zip`). `'ndjson-directory'` writes the same `trace.trace` + `trace.network` + `resources/` layout unpacked into `trace-<id>/`, skipping the unzip step for scripted / agentic consumers. Trace mode only.
 
 #### `filmstrip` — dense scrubbable screencast in the trace
-**Default:** `true`. Records a continuous screencast (CDP push on Chrome, screenshot polling elsewhere) into the trace so the player timeline scrubs frame-by-frame. On by default in trace mode; set `false` to record just one frame per action. Trace mode only.
+**Default:** `true`. Records a continuous screencast (CDP push on Chrome, screenshot polling elsewhere) into the trace so the player timeline scrubs frame-by-frame. On by default in trace mode; set `false` to record just one frame per action. Trace mode only. The polling recorder skips a tick while a command or a per-action capture holds the driver (once the newest frame is three intervals old it polls anyway, so the longest gap is about three intervals plus one screenshot; never during a click, typing or a capture), and keeps each per-action capture's screenshot as a frame, so its polls do not queue in front of the test.
 
 ```javascript
 DevTools.configure({ mode: 'trace', filmstrip: true })
@@ -405,7 +405,7 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 | `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace artifact layout — a single `.zip` or an unpacked directory. Trace mode only. |
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | One trace per session / spec file / test. `'test'` writes each to `test-results/<spec>-<title>-<browser>[-retryN]/trace.zip`. Trace mode only. |
 | `tracePolicy` | `'on' \| 'retain-on-failure' \| 'retain-on-first-failure' \| 'on-first-retry' \| 'on-all-retries' \| 'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. Pairs with `traceGranularity: 'test'`. Trace mode only. |
-| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast into the trace for frame-by-frame scrubbing in the player. Trace mode only. |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast into the trace for frame-by-frame scrubbing in the player. Trace mode only. The polling recorder skips a tick while a command or a per-action capture holds the driver (once the newest frame is three intervals old it polls anyway, so the longest gap is about three intervals plus one screenshot; never during a click, typing or a capture), and keeps each per-action capture's screenshot as a frame, so its polls do not queue in front of the test. |
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Trace mode only. `'styles'` stores the stylesheets and fonts each archive's pages used, once each by content hash, so the player replays them from the archive rather than the site; `'none'` stores nothing. Images always replay from the site. See the [root README](../../README.md#options) for caps and how the reads are kept out of the network rows. |
 | `screenshot` | `'off' \| 'on' \| 'only-on-failure'` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screenshot, attached inline to Allure (`image/png`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
@@ -462,7 +462,7 @@ pnpm example:mocha
 
 ## Mobile (Appium)
 
-Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM: in trace mode each action's element list and accessibility tree are built from the app's page source, read beside its screenshot, which on iOS is most of the capture's cost. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
 
 From the root of a built checkout of this repo (`pnpm install && pnpm build`), try it with `pnpm demo:selenium:mobile`, which drives the Android Clock app; `DEVTOOLS_MOBILE_PLATFORM=ios` runs the iOS spec against Settings, and `DEVTOOLS_MOBILE=web` drives the device's own browser. Prerequisites and the `DEVTOOLS_MOBILE` / `APPIUM_APP` switches are in [`examples/MOBILE.md`](../../examples/MOBILE.md); the full reference is the [Mobile Testing page](https://webdriver.io/docs/devtools/mobile).
 

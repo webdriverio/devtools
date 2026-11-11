@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
-  INPUT_DISPATCH_MAX_HOLD_MS,
+  DRIVER_ACTIVITY_MAX_HOLD_MS,
   RetryTracker,
-  isInputDispatchInFlight
+  isDriverBusy
 } from '@wdio/devtools-core'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
@@ -499,6 +499,7 @@ describe('driverPatcher', () => {
     expect(typeof originals.takeScreenshot).toBe('function')
     expect(typeof originals.executeScript).toBe('function')
     expect(typeof originals.manage).toBe('function')
+    expect(typeof originals.getPageSource).toBe('function')
     const elOriginals = getElementOriginals()
     expect(typeof elOriginals.getText).toBe('function')
     expect(typeof elOriginals.getTagName).toBe('function')
@@ -512,16 +513,34 @@ describe('driverPatcher', () => {
     }
   })
 
-  // A screenshot poll landing inside chromedriver's click, between computing the
-  // element's coordinates and dispatching at them, makes the click report success
-  // while activating nothing. `settle` runs on every path, so the window it closes
-  // must survive a resolve, a reject and a sync throw.
-  it('holds a screencast-poll suppression window until an input command settles', async () => {
+  // The native per-action capture reads the page source on every action; the
+  // patched method would record each read as a row of the user's own.
+  it('reads the page source through an original that records no command', async () => {
+    const onCommand = vi.fn()
+    patchSelenium({ onDriverCreated: vi.fn(), onCommand })
+    const fakeDriver = Object.create(driverProto)
+    ;(fakeDriver as any).execute = vi.fn(async () => '<hierarchy/>')
+
+    await expect(getDriverOriginals().getPageSource!(fakeDriver)).resolves.toBe(
+      '<hierarchy/>'
+    )
+    await new Promise((r) => setImmediate(r))
+    expect(onCommand).not.toHaveBeenCalled()
+
+    await (fakeDriver as any).getPageSource()
+    await new Promise((r) => setImmediate(r))
+    expect(onCommand).toHaveBeenCalled()
+  })
+
+  // A filmstrip poll issued while a command holds the driver queues in front of
+  // it, or lands inside a click's dispatch. `settle` runs on every path, so the
+  // window it closes must survive a resolve, a reject and a sync throw.
+  it('holds the driver-activity window until a command settles', async () => {
     // The gate is module-scoped in core, so drop anything an earlier case left
     // open: jump past the hold bound and read once, which is what prunes it.
     vi.useFakeTimers()
-    vi.setSystemTime(Date.now() + INPUT_DISPATCH_MAX_HOLD_MS + 1)
-    isInputDispatchInFlight()
+    vi.setSystemTime(Date.now() + DRIVER_ACTIVITY_MAX_HOLD_MS + 1)
+    isDriverBusy()
     vi.useRealTimers()
     ;(driverProto as any).click = function () {
       return Promise.resolve('ok')
@@ -536,14 +555,14 @@ describe('driverPatcher', () => {
     const fakeDriver = Object.create(driverProto)
 
     const pending = (fakeDriver as any).click()
-    expect(isInputDispatchInFlight()).toBe(true)
+    expect(isDriverBusy()).toBe(true)
     await pending
     await new Promise((r) => setImmediate(r))
-    expect(isInputDispatchInFlight()).toBe(false)
+    expect(isDriverBusy()).toBe(false)
 
     // A command that throws synchronously settles too, so its window closes.
     expect(() => (fakeDriver as any).clickBoom()).toThrow('boom')
-    expect(isInputDispatchInFlight()).toBe(false)
+    expect(isDriverBusy()).toBe(false)
 
     for (const m of ['click', 'clickBoom']) {
       delete (driverProto as any)[m]

@@ -1,5 +1,5 @@
 import logger from '@wdio/logger'
-import { errorMessage } from '@wdio/devtools-core'
+import { beginDriverCommand, errorMessage } from '@wdio/devtools-core'
 import { PATCHED_SYMBOL } from '../constants.js'
 import type {
   DriverPatcherHooks,
@@ -25,9 +25,12 @@ function patchActionsPerform(
     this: unknown
   ) => Promise<void>
   actionsProto.perform = async function patchedPerform(this: unknown) {
+    // perform() goes through execute(), which no wrapped method opens a window for.
+    const closeInputWindow = beginDriverCommand('performActions')
     try {
       await originalPerform.call(this)
     } finally {
+      closeInputWindow()
       const driver = actionsOwners.get(this as object)
       if (driver && hooks.afterActions) {
         try {

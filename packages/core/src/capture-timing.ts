@@ -286,12 +286,111 @@ export function formatCaptureTimingSummary(
   ].join('\n')
 }
 
-/** Appends the captures since the last report to the process's NDJSON file and prints their summary. Never throws. */
+/** Why the filmstrip poller let a tick pass without a screenshot. */
+export type RecorderSkipReason = 'busy' | 'fresh' | 'inFlight'
+
+const RECORDER_SKIP_LABELS: Record<RecorderSkipReason, string> = {
+  busy: 'driver busy',
+  fresh: 'fresh frame',
+  inFlight: 'shot in flight'
+}
+
+/** Shot durations kept for the median; a live run is never reported, so the
+ *  sample is a ring over the newest shots rather than every one. */
+export const RECORDER_SHOT_SAMPLE_MAX = 2000
+
+const recorderShots: number[] = []
+let recorderShotCount = 0
+let recorderShotTotal = 0
+const recorderSkips: Record<RecorderSkipReason, number> = {
+  busy: 0,
+  fresh: 0,
+  inFlight: 0
+}
+let recorderReused = 0
+
+/** The filmstrip poller's own screenshot, `ms` from issue to settle. */
+export function recordRecorderShot(ms: number): void {
+  if (captureTimingEnabled()) {
+    recorderShots[recorderShotCount % RECORDER_SHOT_SAMPLE_MAX] = ms
+    recorderShotCount++
+    recorderShotTotal += ms
+  }
+}
+
+export function recordRecorderSkip(reason: RecorderSkipReason): void {
+  if (captureTimingEnabled()) {
+    recorderSkips[reason]++
+  }
+}
+
+/** A per-action capture's screenshot kept as a filmstrip frame. */
+export function recordRecorderReuse(): void {
+  if (captureTimingEnabled()) {
+    recorderReused++
+  }
+}
+
+export interface RecorderTimingSummary {
+  shots: number
+  total: number
+  median: number
+  skipped: Record<RecorderSkipReason, number>
+  reused: number
+}
+
+function hasRecorderActivity(): boolean {
+  return (
+    recorderShotCount > 0 ||
+    recorderReused > 0 ||
+    Object.values(recorderSkips).some((n) => n > 0)
+  )
+}
+
+/** Drains the recorder counters gathered since the last report. */
+function takeRecorderTiming(): RecorderTimingSummary {
+  const sorted = recorderShots.splice(0).sort((a, b) => a - b)
+  const shots = recorderShotCount
+  const total = recorderShotTotal
+  recorderShotCount = 0
+  recorderShotTotal = 0
+  const skipped = { ...recorderSkips }
+  for (const reason of Object.keys(recorderSkips) as RecorderSkipReason[]) {
+    recorderSkips[reason] = 0
+  }
+  const reused = recorderReused
+  recorderReused = 0
+  return {
+    shots,
+    total: round(total),
+    median: sorted.length ? round(median(sorted)) : 0,
+    skipped,
+    reused
+  }
+}
+
+export function formatRecorderTiming(summary: RecorderTimingSummary): string {
+  const reasons = (Object.keys(summary.skipped) as RecorderSkipReason[])
+    .filter((r) => summary.skipped[r] > 0)
+    .map((r) => `${summary.skipped[r]} ${RECORDER_SKIP_LABELS[r]}`)
+  const skippedTotal = sum(Object.values(summary.skipped))
+  return (
+    `[devtools] filmstrip recorder: ${summary.shots} screenshots, total ${seconds(summary.total)}, median ${Math.round(summary.median)} ms; ` +
+    `${skippedTotal} ticks skipped${reasons.length ? ` (${reasons.join(', ')})` : ''}; ` +
+    `${summary.reused} capture screenshots reused as frames`
+  )
+}
+
+/** Appends the captures since the last report to the process's NDJSON file and prints their summary and the filmstrip recorder's line. Never throws. */
 export async function reportCaptureTiming(
   outputDir: string,
   write: (text: string) => void = (text) => process.stderr.write(text)
 ): Promise<string | undefined> {
+  const recorder = hasRecorderActivity() ? takeRecorderTiming() : undefined
   if (!pendingRecords.length) {
+    if (recorder) {
+      write(formatRecorderTiming(recorder) + '\n')
+    }
     return undefined
   }
   const records = pendingRecords.splice(0)
@@ -314,5 +413,8 @@ export async function reportCaptureTiming(
     formatCaptureTimingSummary(summarizeCaptureTiming(records, wall), written) +
       '\n'
   )
+  if (recorder) {
+    write(formatRecorderTiming(recorder) + '\n')
+  }
   return written
 }

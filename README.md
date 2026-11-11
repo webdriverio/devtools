@@ -116,7 +116,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 - **Automatic Video Recording**: Captures a continuous `.webm` video of the browser session alongside the existing snapshot and DOM mutation views
 - **Per-framework modes**:
   - **WebdriverIO**: CDP push mode for Chrome/Chromium (efficient, no per-command overhead); polling fallback for other browsers
-  - **Selenium WebDriver**: CDP push mode via `selenium-webdriver/bidi`; polling fallback otherwise
+  - **Selenium WebDriver**: CDP push mode when the session advertises a CDP endpoint (Chromium); polling otherwise, Safari and Appium included
   - **Nightwatch.js**: Polling mode (Nightwatch doesn't expose a stable CDP escape hatch); works on every browser Nightwatch supports
 - **Per-Session Videos**: Each browser session (including sessions created by `browser.reloadSession()`) produces its own recording, selectable from a dropdown in the UI
 - **Smart Trimming**: Leading blank frames before the first URL navigation are automatically removed so videos start at the first meaningful page action
@@ -350,7 +350,7 @@ The hash names a position in the trace, for a `?trace=` URL, a picked file and `
 | `traceGranularity` | `'session'` \| `'spec'` \| `'test'` | `'session'` | `'session'` writes one trace per worker; `'spec'` one per spec file; `'test'` one per test into its own `<spec>-<title>-<browser>[-retryN]/trace.zip` folder — the smallest, most navigable artifacts, and the best pairing for a retention policy. |
 | `tracePolicy` | `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'` | `'on'` | Which traces to keep. `'on'` keeps every trace; the rest keep only failing/retried tests — pairs well with `traceGranularity: 'test'`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as action rows: `node:assert` (all adapters), WebdriverIO `expect(...)` matchers, and Nightwatch `browser.assert`/`verify`. Set `false` to opt out. |
-| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). |
+| `filmstrip` | `boolean` | `true` | Record a dense, continuous screencast *into* the trace for smooth scrubbing in the player (not just one frame per action). Dense frames sit alongside the per-action frames; thinned + content-addressed at export. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). The polling recorder skips a tick while a command or a per-action capture holds the driver (once the newest frame is three intervals old it polls anyway, so the longest gap is about three intervals plus one screenshot; never during a click, typing or a capture), and keeps each per-action capture's screenshot as a frame, so its polls do not queue in front of the test. |
 | `maskInputs` | `boolean` | `true` | Mask password fields in the replayed page, live and trace mode alike; `false` records them as typed. Command rows always keep the typed text. See [Password masking](#-password-masking). |
 | `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match in the replayed page. |
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Which page resources the trace stores so its replay does not load them from the site. `'styles'` stores the stylesheets and fonts each archive's pages used, each once by content hash, capped at 1 MiB per resource and 8 MiB per archive (past the cap a resource replays live); `'none'` stores nothing. Images always replay from the site. The page collector reads each one back from the browser's HTTP cache, cross-origin ones only where the site allows CORS (a same-origin stylesheet it cannot read again falls back to its parsed rules), and the trace leaves those reads out of its network rows. Live mode reads nothing back. |
@@ -382,7 +382,7 @@ services: [[DevToolsHookService, {
 
 #### Measuring capture cost
 
-A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot, plus the page source on a native app. Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
+A trace-mode run is slower than a live one because, for every action, the adapter reads the page through the driver: url, title, accessibility tree, element list and a screenshot. A native app has none of the page reads: its capture is a screenshot plus the page source, from which the element list and accessibility tree are built, and the page source is the costly half (about half of an Android capture, and 87% of an iOS one, measured on WebdriverIO). Set `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run to see where that time goes. It only measures; nothing is captured differently, and with it unset nothing is timed or written.
 
 When the trace is written, the run prints a table to stderr and appends the raw records, one line per capture, to `capture-timing-<pid>.ndjson` beside the trace (one file per worker process):
 
@@ -395,14 +395,16 @@ screenshot  4   1616     254  1004  1004       1600         250
 process     4     24       6     6     6         24           6
 capture     4   1640     260  1010  1010       1640         260
 raw records: /out/capture-timing-1.ndjson
+[devtools] filmstrip recorder: 95 screenshots, total 57.0 s, median 600 ms; 40 ticks skipped (31 driver busy, 6 fresh frame, 3 shot in flight); 12 capture screenshots reused as frames
 ```
 
-(Illustrative numbers from a unit-test fixture, not a real run.)
+(Illustrative numbers, not a real run.)
 
 - **Columns.** The JS adapters issue every read of a capture at once and the driver serves them in order, so a read's time from issue to settle includes waiting behind the reads before it. `svc` subtracts that wait: it is the read's own cost. `process` is the in-process step that turns the reads into a snapshot (page-source parsing and locator generation on native). `capture` is the whole capture.
 - **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
 - **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
-- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no capture and no record; a filmstrip-only frame it may still take without a pushed screencast is not timed.
+- **Filmstrip recorder.** With no CDP screencast (Safari, Appium), the `filmstrip` recorder polls a screenshot every 200 ms, and those screenshots share the driver with the captures. The last line counts them: the screenshots it took and their time from issue to settle, the ticks it let pass and why (`driver busy`: a command or a capture held the driver, so a poll would only have queued in front of it; once the newest frame is three intervals old it polls anyway, still waiting behind the command, but never during a click, typing or a capture; `fresh frame`: a capture's screenshot taken less than one interval earlier is already the frame; `shot in flight`: its previous screenshot had not answered yet), and how many per-action capture screenshots it kept as frames. Captures stay counted in the table only. CDP push mode takes no screenshots and prints no line. Python has no polling recorder; it records one frame per command.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot alone. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no capture and no record; a filmstrip-only frame it may still take without a pushed screencast is not timed.
 
 To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
 
@@ -455,18 +457,21 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 | Mobile browser sessions (Chrome on Android, Safari on iOS) | ✓ | ✓ | ✓ | ✓ |
 | iOS (XCUITest): native apps and Safari | ✓ | ✓ | ✓ | ✓ |
 | Native session detected, page-side capture skipped | ✓ | ✓ | ✓ | ✓ |
-| Follows a hybrid app into its webview | ◐ ² | ◐ ³ | ◐ ³ | ◐ ³ |
-| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ |
+| Native app element list and accessibility tree per action (trace mode) | ✓ | ✓ | ✓ | ✕ ² |
+| Follows a hybrid app into its webview | ◐ ³ | ◐ ⁴ | ◐ ⁴ | ◐ ⁴ |
+| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
-² Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
+² On a native app the Python adapter takes only a screenshot per action; it reads no page source, so the trace has no element list or accessibility tree.
 
-³ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
+³ Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
 
-⁴ Android only; appium-interceptor is an Android plugin.
+⁴ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
+
+⁵ Android only; appium-interceptor is an Android plugin.
 
 <!-- capability-matrix:readme-mobile:end -->
 
@@ -474,7 +479,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 **What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console and the archive itself are always captured; a mobile browser's network comes from the page's Resource Timing and fetch/XHR patch rather than from BiDi, and a native session has no network capture, because the driver exposes none. These absences are by design; they are not a capture failure.
 
-On a native session, element data and the A11y panel come from the platform's XML tree rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
+On a native session, element data and the A11y panel come from the platform's XML tree (its page source, read once per action in trace mode by the WebdriverIO, Selenium and Nightwatch adapters; the Python adapter captures a screenshot alone) rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 
 A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image, keying a duration on the timer keypad without ever starting a timer, so none needs an `.apk` (iOS drives Settings via `DEVTOOLS_MOBILE_PLATFORM=ios`); `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
 

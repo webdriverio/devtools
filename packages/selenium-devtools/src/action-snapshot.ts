@@ -1,11 +1,15 @@
 // Selenium adapter: wires SeleniumDriverLike into core's captureActionSnapshot.
-// URL/title/screenshot/script are read through the UNPATCHED driver originals
-// (getDriverOriginals) so the snapshot's own reads don't record as commands.
+// URL/title/screenshot/script/page source are read through the UNPATCHED driver
+// originals (getDriverOriginals) so the snapshot's own reads don't record as
+// commands.
 // getCurrentUrl/getTitle map to page.* actions, so capturing them would make
 // every snapshot trigger another snapshot — a feedback loop that bloats the
 // trace (observed: thousands of getUrl/getTitle actions in one run).
 
-import { captureActionSnapshot as coreCapture } from '@wdio/devtools-core'
+import {
+  captureActionSnapshot as coreCapture,
+  type NativeApp
+} from '@wdio/devtools-core'
 import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
 import { SELENIUM_RUNNER_ID } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
@@ -15,14 +19,12 @@ export function captureActionSnapshot(
   driver: SeleniumDriverLike,
   command: string,
   timestamp?: number,
-  native = false,
+  native?: NativeApp,
   trigger?: CaptureTrigger
 ): Promise<ActionSnapshot | null> {
   const orig = getDriverOriginals()
-  // The screenshot is the only one of these a native app can serve. The other
-  // three are page reads — two injected scripts plus url and title — and they
-  // fire on EVERY action, so they are the densest source of round trips that
-  // can only fail on a session with no document.
+  // A native app serves no page script, url or title; its page source is what
+  // core builds the element list and accessibility tree from.
   return coreCapture({
     command,
     timestamp,
@@ -33,7 +35,13 @@ export function captureActionSnapshot(
         ? orig.takeScreenshot(driver).catch(() => undefined)
         : Promise.resolve(undefined),
     ...(native
-      ? {}
+      ? {
+          getPageSource: () =>
+            orig.getPageSource
+              ? orig.getPageSource(driver).catch(() => undefined)
+              : Promise.resolve(undefined),
+          platform: native.platform
+        }
       : {
           runScript: (src: string) =>
             orig.executeScript

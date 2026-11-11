@@ -20,11 +20,16 @@ import {
   withTimeout
 } from './with-timeout.js'
 import { startCaptureTimer, type CaptureTimer } from './capture-timing.js'
+import { beginDriverCapture } from './driver-activity.js'
+import { ScreencastRecorderBase } from './screencast.js'
 import {
+  deviceFromCapabilities,
   hasScreenshot,
+  isNativeAppSession,
   type ActionSnapshot,
   type CaptureProbe,
   type CaptureTrigger,
+  type NativePlatform,
   type TestRunnerId
 } from '@wdio/devtools-shared'
 
@@ -42,14 +47,26 @@ export interface CaptureActionSnapshotInput {
   getUrl?: () => Promise<string | null | undefined>
   getTitle?: () => Promise<string | null | undefined>
   /** Page-source XML fetcher for native mobile — used instead of runScript. */
-  getPageSource?: () => Promise<string | undefined>
+  getPageSource?: () => Promise<string | null | undefined>
   /** Platform identifier for mobile snapshot formatting ('android' | 'ios'). */
-  platform?: 'android' | 'ios'
+  platform?: NativePlatform
   /** Runner this capture belongs to — decides which text-locator dialect the
    *  injected scripts emit. Omitted → the portable XPath form. */
   runner?: TestRunnerId
   /** Why this capture ran, for the opt-in capture timing report. Omitted → `action`. */
   trigger?: CaptureTrigger
+}
+
+/** A session with no document, whose captures read the app's page source. */
+export interface NativeApp {
+  platform?: NativePlatform
+}
+
+/** The native app a session drove, or undefined for a browser session. */
+export function nativeAppOf(capabilities: unknown): NativeApp | undefined {
+  return isNativeAppSession(capabilities)
+    ? { platform: deviceFromCapabilities(capabilities)?.platform }
+    : undefined
 }
 
 /** `pending` unchanged; with a timer and a probe that will really be issued, also timed. */
@@ -110,6 +127,11 @@ function probe<T>(
     SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
     undefined
   ).catch(() => undefined)
+}
+
+// A hybrid app in a webview answers /source with the page's HTML, which an XML parse turns into noise.
+function isHtmlSource(pageSource: string): boolean {
+  return /^\s*<(!doctype\s+html|html[\s>])/i.test(pageSource)
 }
 
 /** Native-mobile snapshot text + locators, derived from the page-source XML. */
@@ -205,15 +227,23 @@ export async function captureActionSnapshot(
       input.trigger ?? 'action',
       isNativeMobile
     )
-    const [url, title, pageSource, tree, elements, shot] = await readProbes(
-      input,
-      isNativeMobile,
-      timer
-    )
+    const closeDriverWindow = beginDriverCapture()
+    let probes: Awaited<ReturnType<typeof readProbes>>
+    try {
+      probes = await readProbes(input, isNativeMobile, timer)
+    } finally {
+      closeDriverWindow()
+    }
+    const [url, title, pageSource, tree, elements, shot] = probes
+    // The screenshot is issued last, so it is the last read to settle: stamped
+    // now, the moment a poll taking it would have stamped it.
+    if (hasScreenshot(shot)) {
+      ScreencastRecorderBase.offerCapturedFrame(shot, Date.now())
+    }
 
     const processedFrom = timer ? performance.now() : 0
     const mobile =
-      isNativeMobile && pageSource
+      isNativeMobile && pageSource && !isHtmlSource(pageSource)
         ? fromPageSource(pageSource, input.platform ?? 'android')
         : undefined
     const snapshotText =
