@@ -35,8 +35,8 @@ allowBuilds:
   geckodriver: false
   unrs-resolver: false
 
-# Set although it is the default: only an explicit value makes pnpm stop on a version under a day old, not add it below.
-minimumReleaseAge: 1440
+# Without it, pnpm installs an exact version under a day old and adds it to minimumReleaseAgeExclude
+minimumReleaseAgeStrict: true
 
 # WebdriverIO v10 has new releases often: accept them before `minimumReleaseAge`
 minimumReleaseAgeExclude:
