@@ -395,6 +395,26 @@ describe('finalizeTraceExport', () => {
       ])
     })
 
+    it('records cwd and browser identity', async () => {
+      await finalizeTraceExport(
+        baseCtx({
+          emitManifest: true,
+          capabilities: {
+            browserName: 'chrome',
+            browserVersion: '150.0.1',
+            platformName: 'linux'
+          }
+        })
+      )
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest).toMatchObject({
+        cwd: process.cwd(),
+        browserName: 'chrome',
+        browserVersion: '150.0.1',
+        platformName: 'linux'
+      })
+    })
+
     it('writes nothing in live mode, even when emitManifest is set', async () => {
       await finalizeTraceExport(baseCtx({ mode: 'live', emitManifest: true }))
       expect(await fs.readdir(outputDir)).toEqual([])

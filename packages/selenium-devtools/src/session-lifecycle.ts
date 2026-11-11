@@ -530,20 +530,21 @@ function recordSpecBoundary(ctx: SessionLifecycleCtx, specFile: string): void {
 /**
  * Record a per-test boundary keyed by the currently-active marked test's uid.
  * The first test's startTest fires before the driver exists (no capturer yet),
- * so flushPendingTestActions re-invokes this once capture is live; the
- * same-uid guard keeps that replay from minting a spurious retry slice.
+ * so flushPendingTestActions re-invokes this once capture is live; a replay
+ * finds its attempt already recorded and is skipped, while a retry is a new slice.
  */
 function recordTestBoundary(
   ctx: SessionLifecycleCtx,
   specFile: string | undefined
 ): void {
-  const testUid = ctx.testManager?.getCurrentTest()?.uid
+  const test = ctx.testManager?.getCurrentTest()
+  const testUid = test?.uid
   const file = specFile ?? ctx.testFilePath
   if (!ctx.sessionCapturer || !testUid || !file) {
     return
   }
-  const lastRange = ctx.specRanges[ctx.specRanges.length - 1]
-  if (lastRange?.testUid === testUid) {
+  const recorded = ctx.specRanges.filter((r) => r.testUid === testUid).length
+  if (recorded > (test?.retries ?? 0)) {
     return
   }
   coreRecordSliceBoundary(

@@ -29,7 +29,7 @@ export type PendingTestAction =
       suiteName?: string
       suiteCallSource?: string
     }
-  | { kind: 'end'; state: TestStats['state'] }
+  | { kind: 'end'; state: TestStats['state']; error?: string }
 
 export interface PendingScenario {
   name: string
@@ -158,13 +158,14 @@ export function startTest(
 
 export function endTest(
   ctx: TestManagementCtx,
-  state: TestStats['state'] = 'passed'
+  state: TestStats['state'] = 'passed',
+  error?: string
 ): void {
   if (!ctx.testManager) {
-    ctx.pendingTestActions.push({ kind: 'end', state })
+    ctx.pendingTestActions.push({ kind: 'end', state, error })
     return
   }
-  ctx.testManager.endCurrent(state)
+  ctx.testManager.endCurrent(state, error)
 }
 
 /** Cucumber scenario boundary — opens a sub-suite under the feature root. */
@@ -211,12 +212,13 @@ export function startScenario(
 
 export function endScenario(
   ctx: TestManagementCtx,
-  state: TestStats['state'] = 'passed'
+  state: TestStats['state'] = 'passed',
+  error?: string
 ): void {
   if (!ctx.suiteManager) {
     return
   }
-  ctx.testManager?.endCurrent(state)
+  ctx.testManager?.endCurrent(state, error)
   ctx.suiteManager.endScenarioSuite(state)
   ctx.retryTracker.reset()
 }
@@ -297,7 +299,7 @@ export function flushPendingTestActions(ctx: TestManagementCtx): void {
         ctx.sessionCapturer?.captureSource(action.meta.file).catch(() => {})
       }
     } else {
-      ctx.testManager?.endCurrent(action.state)
+      ctx.testManager?.endCurrent(action.state, action.error)
     }
   }
   ctx.pendingTestActions = []

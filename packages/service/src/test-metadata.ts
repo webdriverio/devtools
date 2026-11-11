@@ -5,13 +5,29 @@ import { deterministicUid, errorMessage } from '@wdio/devtools-core'
 import type { TestMetadataMap, TestStatus } from '@wdio/devtools-shared'
 
 /** The subset of a WDIO afterTest/afterScenario hook result this adapter reads:
- *  pass/skip state, the error, and WDIO's authoritative 0-based retry count. */
+ *  pass/skip state, the error and the framework duration. */
 export interface TestOutcomeResult {
   error?: unknown
   passed?: boolean
   skipped?: boolean
   duration?: number
-  retries?: { attempts?: number }
+}
+
+/** The fields of @wdio/reporter's RunnerStats that carry a spec file's attempt. */
+export interface SpecFileAttemptSource {
+  specFileAttempt?: number
+  retry?: number
+  config?: { specFileRetries?: number }
+}
+
+/** 0-based attempt of a spec file run under `specFileRetries`: each rerun is a fresh worker. */
+export function specFileAttemptOf(runner: SpecFileAttemptSource): number {
+  if (typeof runner.specFileAttempt === 'number') {
+    return runner.specFileAttempt
+  }
+  const specFileRetries = runner.config?.specFileRetries ?? 0
+  const retry = runner.retry ?? 0
+  return specFileRetries && retry <= specFileRetries ? retry : 0
 }
 
 /** Stable per-test key. beforeTest and afterTest derive it identically so keys
@@ -63,10 +79,7 @@ function inLocatedRun(lines: readonly string[]): boolean[] {
   return result
 }
 
-// A stack is a contiguous tail of "at" lines (up to a "Caused by:") holding at least one located frame, so an "at"
-// line inside the message, or a run with no location at all, is never mistaken for one. A blank line is skipped at the
-// very end, as a serialized stack's trailing newline leaves one, or when the run of "at" lines above it holds a located
-// frame; otherwise it ends the stack.
+// The stack is the trailing run of "at" lines holding a located frame; a blank line ends it unless the run above holds one.
 function stackStart(lines: readonly string[]): number {
   const locatedRun = inLocatedRun(lines)
   let start = lines.length
@@ -151,16 +164,4 @@ export function stampTestState(
       entry.attempt = attempt
     }
   }
-}
-
-/** Resolve the 0-based attempt for a test. WDIO's mocha framework reports
- *  `retries.attempts` as 0 even on a retry, so it can't override the in-process
- *  tracker — take the max so a present-but-zero runner field never clobbers a
- *  real retry count, while a genuine runner value still wins when it's higher. */
-export function resolveTestAttempt(
-  result: Pick<TestOutcomeResult, 'retries'> | undefined,
-  fallback: number
-): number {
-  const attempts = result?.retries?.attempts
-  return Math.max(typeof attempts === 'number' ? attempts : 0, fallback)
 }

@@ -26,7 +26,6 @@ import { AssertionTracker } from './assertion-tracker.js'
 import {
   cucumberScenarioUid,
   isFailedResult,
-  resolveTestAttempt,
   stampTestState,
   testMetadataUid,
   type TestOutcomeResult
@@ -138,6 +137,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       options: this.#options,
       getBrowser: () => this.#browser,
       getCapturer: () => this.#sessionCapturer,
+      getAttemptBase: () => this.#attemptTracker.base,
       buildExportContext: (browser) => this.#traceContext(browser)
     })
   }
@@ -173,9 +173,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
 
-  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
-   *  fresh instance) per retry, so this only reflects same-process retries
-   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  /** Per-test attempt ledger. A specFileRetries rerun is a fresh worker, so its
+   *  numbering starts at the attempt its runner reports (see TestReporter). */
   #attemptTracker = new TestAttemptTracker()
 
   /** Every trace/video artifact seen this run (retained or not), for the
@@ -380,7 +379,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
                 self.#sessionCapturer.sendUpstream('suites', upstreamData),
               (location: string) => {
                 self.#sessionCapturer.ensureSourceLoaded(location)
-              }
+              },
+              (attempt: number) =>
+                self.#attemptTracker.startNumberingAt(attempt)
             )
             self.#testReporters.push(this)
           }
@@ -486,23 +487,19 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#assertionTracker.handleOutcome(result?.error)
   }
 
-  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
-   *  entry, taking the max of the tracker count and WDIO's retry field. */
+  /** Stamp final state + the tracker's 0-based attempt onto the test's metadata
+   *  entry, so the entry and the manifest's attempt record name the same attempt. */
   #stampOutcome(
     uid: string,
     result: TestOutcomeResult | undefined,
     endTime: number
   ): void {
-    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
-    const attempt = resolveTestAttempt(result, fallback)
+    const attempt = this.#attemptTracker.attemptFor(uid)
     stampTestState(this.#testMetadata, uid, result, attempt, endTime)
     // Feed the per-attempt ledger so session/spec retention sees this attempt's
     // real outcome, not just the final state that overwrites #testMetadata.
-    this.#attemptTracker.recordOutcome(
-      uid,
-      this.#testMetadata.get(uid)?.state,
-      attempt
-    )
+    const metadata = this.#testMetadata.get(uid)
+    this.#attemptTracker.recordOutcome(uid, metadata?.state, metadata?.error)
   }
 
   async afterScenario(

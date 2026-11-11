@@ -71,19 +71,34 @@ describe('TestAttemptTracker', () => {
       ])
     })
 
-    it('recordOutcome renumbers the slot to a runner attempt past the ledger count', () => {
+    it('never repeats or reorders attempt numbers', () => {
       const t = new TestAttemptTracker()
       t.recordStart('a')
-      t.recordOutcome('a', 'passed', 3)
-      expect(t.attemptsFor('a').map((r) => r.attempt)).toEqual([3])
+      t.recordOutcome('a', 'failed')
+      expect(t.recordStart('a')).toBe(1)
+      t.recordOutcome('a', 'passed')
+      expect(t.attemptsFor('a').map((r) => r.attempt)).toEqual([0, 1])
     })
 
-    it('recordOutcome keeps the ledger number when the runner attempt is not ahead', () => {
+    it('numbers from the base', () => {
+      const t = new TestAttemptTracker()
+      t.startNumberingAt(2)
+      expect(t.base).toBe(2)
+      expect(t.recordStart('a')).toBe(2)
+      expect(t.recordStart('a')).toBe(3)
+      expect(t.attemptFor('a')).toBe(3)
+      expect(t.attemptsFor('a').map((r) => r.attempt)).toEqual([2, 3])
+    })
+
+    it('keeps the error of each attempt', () => {
       const t = new TestAttemptTracker()
       t.recordStart('a')
+      t.recordOutcome('a', 'failed', 'boom')
       t.recordStart('a')
-      t.recordOutcome('a', 'passed', 0)
-      expect(t.attemptsFor('a').map((r) => r.attempt)).toEqual([0, 1])
+      t.recordOutcome('a', 'passed')
+      const [first, second] = t.attemptsFor('a')
+      expect(first).toMatchObject({ attempt: 0, error: 'boom' })
+      expect(second).not.toHaveProperty('error')
     })
 
     it('a retry stamps the prior attempt failed (swallowed-failure runners)', () => {

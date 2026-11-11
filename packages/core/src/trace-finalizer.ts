@@ -6,8 +6,10 @@
  * finalizeTraceExport — all sequencing lives here.
  */
 
+import { deepCapString } from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
+  ArtifactsManifest,
   DevToolsMode,
   ScreencastFrame,
   TestMetadataMap,
@@ -476,6 +478,21 @@ async function fanOutTraceWrites(
   return artifact ? [artifact] : []
 }
 
+/** Browser identity from the session's matched capabilities; unread keys stay undefined. */
+function browserIdentity(
+  capabilities: unknown
+): Pick<ArtifactsManifest, 'browserName' | 'browserVersion' | 'platformName'> {
+  if (typeof capabilities !== 'object' || capabilities === null) {
+    return {}
+  }
+  const caps = capabilities as Record<string, unknown>
+  return {
+    browserName: deepCapString(caps, 'browserName'),
+    browserVersion: deepCapString(caps, 'browserVersion'),
+    platformName: deepCapString(caps, 'platformName')
+  }
+}
+
 /** Write the artifacts manifest when enabled, preferring the adapter's full
  *  collected list (includes eager slices) over this pass's fan-out results.
  *  Never throws — a manifest failure must not abort the run. */
@@ -487,6 +504,9 @@ async function maybeWriteManifest(
     return
   }
   const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts
+  const browser = browserIdentity(
+    ctx.capabilities ?? ctx.capturer.metadata?.capabilities
+  )
   try {
     const path = await writeArtifactsManifest(
       ctx.resolveOutputDir(),
@@ -497,7 +517,9 @@ async function maybeWriteManifest(
         testMetadata: ctx.testMetadata,
         runId: resolveRunId(),
         parent: resolveParentTraceContext(),
-        attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes)
+        attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes),
+        cwd: process.cwd(),
+        ...browser
       })
     )
     ctx.log?.('info', `Artifacts manifest written to ${path}`)

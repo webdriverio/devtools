@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid } from '@wdio/devtools-core'
 import { HooksInFlight } from '../src/command-stack.js'
+import type { TestReporter } from '../src/reporter.js'
+import type { RunnerStats } from '@wdio/reporter'
 import type { TestMetadataEntry, TestMetadataMap } from '@wdio/devtools-shared'
 import {
   cucumberScenarioUid,
   resultToState,
+  specFileAttemptOf,
   stampTestState,
   testMetadataUid
 } from '../src/test-metadata.js'
@@ -93,6 +96,23 @@ describe('test-metadata helpers', () => {
     expect(cucumberScenarioUid(uri, 'log in')).toBe(
       deterministicUid(uri, 'log in')
     )
+  })
+})
+
+describe('specFileAttemptOf', () => {
+  it('reads the attempt of a first run as 0', () => {
+    expect(specFileAttemptOf({ specFileAttempt: 0 })).toBe(0)
+  })
+
+  it('reads the attempt of a first rerun as 1', () => {
+    expect(specFileAttemptOf({ specFileAttempt: 1 })).toBe(1)
+  })
+
+  it('derives the attempt from retry when specFileAttempt is absent', () => {
+    expect(
+      specFileAttemptOf({ retry: 1, config: { specFileRetries: 2 } })
+    ).toBe(1)
+    expect(specFileAttemptOf({})).toBe(0)
   })
 })
 
@@ -246,7 +266,7 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(1)
   })
 
-  it('uses the runner attempts count when it exceeds the tracker', async () => {
+  it('keeps the metadata attempt on the attempt the manifest records, even when the runner reports more', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
       tracePolicy: 'retain-on-failure-and-retries'
@@ -265,8 +285,37 @@ describe('DevtoolsService - afterTest state stamping', () => {
       outcomes: { attemptsFor(uid: string): Array<{ attempt: number }> }
     }
     const uid = deterministicUid(file, title)
-    expect(ctx.testMetadata.get(uid)?.attempt).toBe(3)
-    expect(ctx.outcomes.attemptsFor(uid).map((r) => r.attempt)).toEqual([3])
+    expect(ctx.testMetadata.get(uid)?.attempt).toBe(0)
+    expect(ctx.outcomes.attemptsFor(uid).map((r) => r.attempt)).toEqual([0])
+  })
+
+  it('numbers a specFileRetries rerun worker from the attempt its runner reports', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    const config = { reporters: [] as unknown[] }
+    service.beforeSession(config as never, { browserName: 'chrome' } as never)
+    const DevToolsReporter = config.reporters[0] as new (options: {
+      logFile: string
+    }) => TestReporter
+    new DevToolsReporter({ logFile: '/tmp/rerun.log' }).onRunnerStart({
+      specFileAttempt: 1
+    } as RunnerStats)
+    await service.before({} as never, [], mockBrowser)
+    const title = 'rerun worker'
+    service.beforeTest({ file, fullTitle: title })
+    await service.afterTest({ file, fullTitle: title }, {}, { passed: true })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: Map<string, { attempt?: number }>
+      outcomes: {
+        attemptsFor(uid: string): Array<{ attempt: number; final?: boolean }>
+      }
+    }
+    const uid = deterministicUid(file, title)
+    expect(ctx.testMetadata.get(uid)?.attempt).toBe(1)
+    expect(ctx.outcomes.attemptsFor(uid).map((r) => r.attempt)).toEqual([1])
   })
 
   it('takes a Cucumber scenario duration from its own start and end', async () => {

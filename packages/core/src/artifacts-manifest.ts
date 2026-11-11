@@ -54,6 +54,13 @@ function markFinalAttempt(
   )
 }
 
+/** Drops undefined values so an unset key is absent from the manifest, not present as undefined. */
+function presentKeys<T extends Record<string, unknown>>(values: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined)
+  ) as Partial<T>
+}
+
 /** Assemble the manifest from the artifacts collected across the run and the
  *  test-metadata map. Pure — the write is separate so it stays unit-testable. */
 export function buildArtifactsManifest(input: {
@@ -64,6 +71,10 @@ export function buildArtifactsManifest(input: {
   runId?: string
   parent?: ArtifactsManifest['parent']
   attemptsFor?: (uid: string) => TestAttemptRecord[]
+  cwd?: string
+  browserName?: string
+  browserVersion?: string
+  platformName?: string
 }): ArtifactsManifest {
   const tests: ArtifactManifestTest[] = []
   for (const [uid, meta] of input.testMetadata) {
@@ -93,8 +104,31 @@ export function buildArtifactsManifest(input: {
     artifacts: [...input.artifacts],
     tests,
     runId: input.runId,
-    parent: input.parent
+    parent: input.parent,
+    ...presentKeys({
+      cwd: input.cwd,
+      browserName: input.browserName,
+      browserVersion: input.browserVersion,
+      platformName: input.platformName
+    })
   }
+}
+
+/** Artifact paths are stored relative to the manifest so the directory can move; a path on another Windows drive stays absolute. */
+function relativizeArtifacts(
+  outputDir: string,
+  artifacts: readonly TraceArtifact[]
+): TraceArtifact[] {
+  return artifacts.map((artifact) => {
+    if (artifact.path === '') {
+      return artifact
+    }
+    const relative = path.relative(outputDir, artifact.path)
+    if (path.isAbsolute(relative)) {
+      return artifact
+    }
+    return { ...artifact, path: relative.split(path.sep).join('/') }
+  })
 }
 
 /** Write the manifest to `outputDir`, returning its absolute path. */
@@ -107,6 +141,10 @@ export async function writeArtifactsManifest(
     outputDir,
     artifactsManifestFilename(manifest.sessionId)
   )
-  await fs.writeFile(filePath, JSON.stringify(manifest, null, 2), 'utf8')
+  const portable = {
+    ...manifest,
+    artifacts: relativizeArtifacts(outputDir, manifest.artifacts)
+  }
+  await fs.writeFile(filePath, JSON.stringify(portable, null, 2), 'utf8')
   return filePath
 }

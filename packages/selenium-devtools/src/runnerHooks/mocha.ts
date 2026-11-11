@@ -100,6 +100,14 @@ function resolveMochaState(
   if (test?.state === 'pending') {
     return 'pending'
   }
+  // Mocha leaves state unset on an attempt it is about to retry.
+  if (
+    test &&
+    test.state === undefined &&
+    (test._retries ?? -1) > (test._currentRetry ?? 0)
+  ) {
+    return 'failed'
+  }
   return 'passed'
 }
 
@@ -123,7 +131,7 @@ function makeMochaAfterEach(
     } else {
       counters.pending++
     }
-    await callbacks.onTestEnd(state)
+    await callbacks.onTestEnd(state, test?.err?.message)
   }
 }
 

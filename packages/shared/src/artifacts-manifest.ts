@@ -10,6 +10,7 @@ export function retryKeyOf(uid: string, attempt: number): string {
  *  trace-mode run — a trace slice, a screencast video, or a per-test screenshot. */
 export interface TraceArtifact {
   kind: 'trace' | 'video' | 'screenshot'
+  /** Relative to the manifest's directory, `/`-separated. */
   path: string
   scope: 'session' | 'spec' | 'test'
   /** specFile for spec scope; testUid for test scope, `${testUid}-retry${n}` for retry n. */
@@ -29,6 +30,7 @@ export interface TestAttemptRecord {
   spanId: string
   /** Set on the attempt that decided the test's outcome; absent in manifests that predate it. */
   final?: boolean
+  error?: string
 }
 
 /** One test's outcome as recorded at export time. Field types track
@@ -56,4 +58,8 @@ export interface ArtifactsManifest {
   runId?: string
   /** Trace context inherited from a `TRACEPARENT` set by the CI job that launched the run. */
   parent?: ParentTraceContext
+  cwd?: string
+  browserName?: string
+  browserVersion?: string
+  platformName?: string
 }

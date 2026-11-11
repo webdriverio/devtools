@@ -10,6 +10,7 @@ interface AttemptSlot {
   outcome: TestOutcome
   startTime: number
   endTime?: number
+  error?: string
   trace: AttemptIds
 }
 
@@ -36,8 +37,18 @@ export interface RetryOutcomeView {
 export class TestAttemptTracker implements RetryOutcomeView {
   #ledger = new Map<string, { specFile?: string; attempts: AttemptSlot[] }>()
   #sawRetry = false
+  #base = 0
 
-  /** Record a starting test; returns its attempt number (0 first, +1 per rerun).
+  /** Number the attempts of tests started from here on from `base`. */
+  startNumberingAt(base: number): void {
+    this.#base = base
+  }
+
+  get base(): number {
+    return this.#base
+  }
+
+  /** Record a starting test; returns its attempt number (base first, +1 per rerun).
    *  `specFile` (optional) enables spec-scoped retention lookups. */
   recordStart(uid: string, specFile?: string): number {
     const entry = this.#ledger.get(uid)
@@ -51,7 +62,7 @@ export class TestAttemptTracker implements RetryOutcomeView {
       prior.outcome.state = 'failed'
       prior.endTime ??= Date.now()
     }
-    const attempt = entry ? entry.attempts.length : 0
+    const attempt = this.#base + (entry ? entry.attempts.length : 0)
     const slot: AttemptSlot = {
       outcome: { uid, attempt },
       startTime: Date.now(),
@@ -68,29 +79,27 @@ export class TestAttemptTracker implements RetryOutcomeView {
     return attempt
   }
 
-  /** Stamp the resolved state onto uid's most recent attempt slot once the outcome is known. A runner attempt
-   *  past the ledger's count (in-worker repeat) renumbers the slot to it, so the record matches the test's attempt. */
+  /** Stamp the resolved state, and the failure message when there is one, onto uid's most recent attempt slot once the outcome is known. */
   recordOutcome(
     uid: string,
     state: TestStatus | undefined,
-    attempt?: number
+    error?: string
   ): void {
-    const attempts = this.#ledger.get(uid)?.attempts ?? []
-    const slot = attempts[attempts.length - 1]
+    const slot = this.#ledger.get(uid)?.attempts.at(-1)
     if (!slot) {
       return
     }
     slot.outcome.state = state
     slot.endTime = Date.now()
-    if (attempt !== undefined && attempt >= attempts.length) {
-      slot.outcome.attempt = attempt
+    if (error !== undefined) {
+      slot.error = error
     }
   }
 
-  /** Latest attempt recorded for `uid`, or undefined if it never started. */
+  /** Latest attempt number recorded for `uid`, or undefined if it never started. */
   attemptFor(uid: string): number | undefined {
     const entry = this.#ledger.get(uid)
-    return entry ? entry.attempts.length - 1 : undefined
+    return entry ? this.#base + entry.attempts.length - 1 : undefined
   }
 
   /** True once any test has started more than once (a retry occurred). */
@@ -132,11 +141,12 @@ export class TestAttemptTracker implements RetryOutcomeView {
       startTime: slot.startTime,
       endTime: slot.endTime,
       traceId: slot.trace.traceId,
-      spanId: slot.trace.spanId
+      spanId: slot.trace.spanId,
+      ...(slot.error === undefined ? {} : { error: slot.error })
     }))
   }
 
-  /** Clear all state — used at session boundaries and reuse-mode reconnects. */
+  /** Clear all state — used at session boundaries and reuse-mode reconnects. The attempt base survives. */
   reset(): void {
     this.#ledger.clear()
     this.#sawRetry = false

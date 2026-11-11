@@ -245,6 +245,29 @@ describe('collectSuiteTestMetadata', () => {
     expect(map.size).toBe(2)
   })
 
+  it('carries timing from the suite tree', () => {
+    const root = createSuiteStats({ uid: 'root', title: 'Root', file: '/a.ts' })
+    root.tests = [
+      namedTest('t1', 'root', {
+        start: new Date(1000),
+        end: new Date(1500),
+        _duration: 480,
+        error: new Error('boom')
+      }),
+      namedTest('t2', 'root', { start: new Date(2000), end: null })
+    ]
+    const map = collectSuiteTestMetadata([root])
+    expect(map.get('t1')).toMatchObject({
+      startTime: 1000,
+      endTime: 1500,
+      durationMs: 480,
+      error: 'boom'
+    })
+    expect(map.get('t2')?.startTime).toBe(2000)
+    expect(map.get('t2')).not.toHaveProperty('endTime')
+    expect(map.get('t2')).not.toHaveProperty('error')
+  })
+
   it('carries state and attempt (from retries), defaulting attempt to 0', () => {
     const root = createSuiteStats({ uid: 'r', title: 'R', file: '/a.ts' })
     root.tests = [

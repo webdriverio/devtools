@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { rm, readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import {
   buildArtifactsManifest,
   writeArtifactsManifest,
@@ -338,6 +338,57 @@ describe('artifacts manifest', () => {
     const parsed = JSON.parse(
       await readFile(filePath, 'utf8')
     ) as ArtifactsManifest
-    expect(parsed).toEqual(manifest)
+    expect(parsed).toEqual({
+      ...manifest,
+      artifacts: artifacts.map((a) => ({ ...a, path: relative(dir, a.path) }))
+    })
+  })
+
+  it('writes artifact paths relative to the manifest directory', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'manifest-'))
+    dirs.push(dir)
+    const inside = join(dir, 'traces', 'u1.zip')
+    const manifest = buildArtifactsManifest({
+      sessionId: 'sess-rel',
+      format: 'zip',
+      artifacts: [
+        { ...artifacts[0]!, path: inside },
+        { ...artifacts[1]!, path: '' }
+      ],
+      testMetadata: metadata()
+    })
+    const filePath = await writeArtifactsManifest(dir, manifest)
+    const parsed = JSON.parse(
+      await readFile(filePath, 'utf8')
+    ) as ArtifactsManifest
+    expect(parsed.artifacts.map((a) => a.path)).toEqual(['traces/u1.zip', ''])
+    expect(manifest.artifacts[0]!.path).toBe(inside)
+  })
+
+  it('passes cwd and browser identity through, leaving unset keys out', () => {
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-id',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata(),
+      cwd: '/work',
+      browserName: 'chrome',
+      browserVersion: '150.0',
+      platformName: 'linux'
+    })
+    expect(m).toMatchObject({
+      cwd: '/work',
+      browserName: 'chrome',
+      browserVersion: '150.0',
+      platformName: 'linux'
+    })
+    const bare = buildArtifactsManifest({
+      sessionId: 'sess-bare',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata()
+    })
+    expect(bare).not.toHaveProperty('cwd')
+    expect(bare).not.toHaveProperty('browserName')
   })
 })

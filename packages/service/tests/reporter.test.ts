@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { TestReporter } from '../src/reporter.js'
-import type { TestStats, SuiteStats } from '@wdio/reporter'
+import type { TestStats, SuiteStats, RunnerStats } from '@wdio/reporter'
 
 describe('TestReporter - Rerun & Stable UID', () => {
   let reporter: TestReporter
@@ -401,5 +401,19 @@ describe('TestReporter - Rerun & Stable UID', () => {
       const row2 = runStep(reporter, scenario('greet <name>', 14), step(15))
       expect(row1).not.toBe(row2)
     })
+  })
+})
+
+describe('TestReporter - spec file attempt', () => {
+  it('reports the spec file attempt from runner start', () => {
+    const onSpecFileAttempt = vi.fn()
+    const r = new TestReporter(
+      { logFile: '/tmp/test.log' },
+      vi.fn(),
+      () => {},
+      onSpecFileAttempt
+    )
+    r.onRunnerStart({ specFileAttempt: 1 } as RunnerStats)
+    expect(onSpecFileAttempt).toHaveBeenCalledWith(1)
   })
 })

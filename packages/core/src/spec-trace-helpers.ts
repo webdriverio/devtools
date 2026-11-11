@@ -277,6 +277,8 @@ export interface SpecBoundaryContext {
   /** The adapter's live in-flight capture list, stamped onto each range as
    *  `captureStartIdx`. Live by reference: it grows as the run does. */
   pendingCaptures?: ArrayLike<unknown>
+  /** Attempt number the first recorded attempt of a test is keyed by; see `TestAttemptTracker.startNumberingAt`. */
+  attemptBase?: number
 }
 
 /** Push a new slice range and return the previous (unflushed) range to flush.
@@ -337,7 +339,7 @@ export function recordSliceBoundary(
     return pushSliceRange(
       ctx,
       specFile,
-      retryKeyOf(testUid, priorAttempts),
+      retryKeyOf(testUid, (ctx.attemptBase ?? 0) + priorAttempts),
       testUid,
       false
     )

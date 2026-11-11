@@ -1,6 +1,8 @@
 import type {
+  ReporterError,
   SuiteStats,
   TestAncestor,
+  TestMetadataEntry,
   TestMetadataMap,
   TestStats,
   TestStatus
@@ -195,6 +197,20 @@ function scenarioAttempt(suite: SuiteStats): number {
   return attempt
 }
 
+function timingOf(stats: {
+  start: Date
+  end?: Date | null
+  _duration: number
+  error?: ReporterError
+}): Pick<TestMetadataEntry, 'startTime' | 'endTime' | 'durationMs' | 'error'> {
+  const endTime = stats.end ? new Date(stats.end).getTime() : undefined
+  return {
+    startTime: new Date(stats.start).getTime(),
+    ...(endTime === undefined ? {} : { endTime, durationMs: stats._duration }),
+    ...(stats.error === undefined ? {} : { error: stats.error.message })
+  }
+}
+
 /**
  * Recursive walk over suite trees collecting every test's metadata entry —
  * uid → title/specFile/state/attempt plus the ancestor chain (outermost
@@ -226,7 +242,8 @@ export function collectSuiteTestMetadata(
         specFile: suite.file,
         state: suite.state,
         attempt: scenarioAttempt(suite),
-        ancestry: ancestors
+        ancestry: ancestors,
+        ...timingOf(suite)
       })
     }
     for (const entry of suite.tests ?? []) {
@@ -239,7 +256,8 @@ export function collectSuiteTestMetadata(
         specFile: entry.file ?? suite.file,
         state: entry.state,
         attempt: entry.retries ?? 0,
-        ancestry: chain
+        ancestry: chain,
+        ...timingOf(entry)
       })
     }
     for (const child of suite.suites ?? []) {
