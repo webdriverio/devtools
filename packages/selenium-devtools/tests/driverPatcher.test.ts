@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { isInputDispatchInFlight } from '@wdio/devtools-core'
 import {
   isWebElementLike,
   safeSerialize,
@@ -195,5 +196,19 @@ describe('patchActions', () => {
     await new FakeDriver().actions().perform()
 
     expect(afterActions).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds an input window while a sequence performs, and closes it after a failure too', async () => {
+    const FakeDriver = fakeDriverClass()
+    patchActions(FakeDriver, hooksWith())
+    const driver = new FakeDriver()
+
+    const pending = driver.actions().perform()
+    expect(isInputDispatchInFlight()).toBe(true)
+    await pending
+    expect(isInputDispatchInFlight()).toBe(false)
+
+    await expect(driver.actions({ fails: true }).perform()).rejects.toThrow()
+    expect(isInputDispatchInFlight()).toBe(false)
   })
 })

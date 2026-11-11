@@ -239,18 +239,26 @@ export function isKeyboardCommand(command: string): boolean {
   return KEYBOARD_COMMANDS.has(command)
 }
 
-/** Runner-native pointer commands the trace vocabulary deliberately doesn't
- *  name — Nightwatch's low-level mouse API has no meaningful trace method, so
- *  adding it to ACTION_MAP would put noise in the timeline. Listed here because
- *  they still dispatch, and a command that dispatches unrecognized keeps the
- *  screenshot poll running straight through it. */
-const UNMAPPED_POINTER_COMMANDS: ReadonlySet<string> = new Set([
+/** Input commands the trace vocabulary deliberately doesn't name: Nightwatch's
+ *  low-level mouse and value API, and the WebDriver protocol commands WDIO runs
+ *  its own hooks for inside `click`/`setValue`, so a nested one must stay input.
+ *  Listed because a command that dispatches unrecognized lets a poll race it. */
+const UNMAPPED_INPUT_COMMANDS: ReadonlySet<string> = new Set([
   'moveToElement',
   'mouseButtonClick',
   'mouseButtonDown',
   'mouseButtonUp',
   'rightClick',
-  'submitForm'
+  'submitForm',
+  'updateValue',
+  'setPassword',
+  'clickAndHold',
+  'releaseMouseButton',
+  'elementClick',
+  'elementSendKeys',
+  'elementClear',
+  'performActions',
+  'releaseActions'
 ])
 
 /**
@@ -258,11 +266,11 @@ const UNMAPPED_POINTER_COMMANDS: ReadonlySet<string> = new Set([
  * page. Derived from the vocabulary above rather than declared as a second list:
  * a command qualifies when it types (`isKeyboardCommand`) or when its trace
  * method acts at a point (`POINTABLE_METHODS`). A command wrongly classified as
- * non-dispatching is the costly direction — it leaves the screencast poll racing
- * the dispatch — so the unmapped pointer commands above are named explicitly.
+ * non-dispatching is the costly direction: it leaves the screencast poll racing
+ * the dispatch, so the unmapped input commands above are named explicitly.
  */
 export function isInputDispatchingCommand(command: string): boolean {
-  if (isKeyboardCommand(command) || UNMAPPED_POINTER_COMMANDS.has(command)) {
+  if (isKeyboardCommand(command) || UNMAPPED_INPUT_COMMANDS.has(command)) {
     return true
   }
   const action = ACTION_MAP[command]
