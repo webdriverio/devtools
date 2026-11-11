@@ -2,6 +2,7 @@
 // imported: incubating names move between releases, and a consumer of this
 // package should not inherit that churn. tests/attributes.test.ts pins each
 // value to the installed export.
+export const ATTR_SESSION_ID = 'session.id'
 export const ATTR_TEST_CASE_NAME = 'test.case.name'
 export const ATTR_TEST_SUITE_NAME = 'test.suite.name'
 export const ATTR_TEST_CASE_RESULT_STATUS = 'test.case.result.status'
@@ -14,6 +15,10 @@ export const ATTR_TEST_FINAL_ATTEMPT = 'devtools.test.final_attempt'
 export const ATTR_DURATION_MS = 'devtools.duration_ms'
 export const ATTR_FAILED_ACTION = 'devtools.failed_action'
 export const ATTR_RUN_ID = 'devtools.run.id'
+export const ATTR_DEVTOOLS_TEST_UID = 'devtools.test.uid'
+export const ATTR_DEVTOOLS_BROWSER_NAME = 'devtools.browser.name'
+export const ATTR_DEVTOOLS_BROWSER_VERSION = 'devtools.browser.version'
+export const ATTR_DEVTOOLS_PLATFORM_NAME = 'devtools.platform.name'
 export const ATTR_ARTIFACT_URL = 'devtools.artifact.url'
 export const ATTR_ACTION_KEY = 'devtools.action.key'
 export const ATTR_ACTION_INDEX = 'devtools.action.index'

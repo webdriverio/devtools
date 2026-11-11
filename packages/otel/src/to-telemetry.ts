@@ -9,7 +9,6 @@ import {
   effectiveFailure,
   retriedRows,
   type CommandLog,
-  type TraceActionChild,
   type TracePlayerData
 } from '@wdio/devtools-shared'
 import * as attr from './attributes.js'
@@ -20,7 +19,8 @@ import {
   zipReader
 } from './artifact-sources.js'
 import { emitPrepared, type TelemetrySink } from './emit-spans.js'
-import type { Manifest, ManifestTest } from './manifest.js'
+import { browserScopeOf, type Manifest, type ManifestTest } from './manifest.js'
+import { bounds, rootBounds, testBounds } from './bounds.js'
 import {
   actionStart,
   normalizeSelector,
@@ -33,6 +33,7 @@ import {
   type PreparedTest,
   type TraceEvidence
 } from './prepared.js'
+import { suiteNameOf } from './suite-name.js'
 
 type ManifestParent = NonNullable<Manifest['parent']>
 
@@ -61,6 +62,11 @@ interface RunContext {
   runId: string
   mtimeMs: number
   parent: ManifestParent | undefined
+  sessionId: string
+  cwd: string | undefined
+  browserName: string | undefined
+  browserVersion: string | undefined
+  platformName: string | undefined
   warn: (message: string) => void
 }
 
@@ -75,7 +81,7 @@ interface PreparedFacts {
   span: Bounds | undefined
   evidence: TraceEvidence | undefined
   finalExtra: Record<string, string | number>
-  errorMessage: string | undefined
+  failureMessage: string | undefined
 }
 
 function actionKey(command: CommandLog): string {
@@ -128,91 +134,39 @@ function status(state: string): string {
   return state
 }
 
+function browserAttributes(run: RunContext): Record<string, string> {
+  const fields: Record<string, string | undefined> = {
+    [attr.ATTR_DEVTOOLS_BROWSER_NAME]: run.browserName,
+    [attr.ATTR_DEVTOOLS_BROWSER_VERSION]: run.browserVersion,
+    [attr.ATTR_DEVTOOLS_PLATFORM_NAME]: run.platformName
+  }
+  return Object.fromEntries(
+    Object.entries(fields).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined
+    )
+  )
+}
+
 function testAttributes(
   test: ManifestTest,
-  runId: string,
+  run: RunContext,
   state: string | undefined,
   attempt: number,
   extra: Record<string, string | number>
 ): Record<string, string | number> {
   return {
     [attr.ATTR_TEST_CASE_NAME]: test.title,
-    [attr.ATTR_TEST_SUITE_NAME]: test.specFile,
+    [attr.ATTR_TEST_SUITE_NAME]: suiteNameOf(test.specFile, run.cwd),
+    [attr.ATTR_SESSION_ID]: run.sessionId,
+    [attr.ATTR_DEVTOOLS_TEST_UID]: test.uid,
+    ...browserAttributes(run),
     ...(state !== undefined
       ? { [attr.ATTR_TEST_CASE_RESULT_STATUS]: status(state) }
       : {}),
     [attr.ATTR_TEST_ATTEMPT]: attempt,
-    [attr.ATTR_RUN_ID]: runId,
+    [attr.ATTR_RUN_ID]: run.runId,
     ...extra
   }
-}
-
-function actionBounds(action: ActionInfo): Bounds {
-  return {
-    startMs: actionStart(action.command),
-    endMs: Math.max(action.command.timestamp, actionStart(action.command))
-  }
-}
-
-function groupBounds(children: TraceActionChild[]): Bounds[] {
-  return children.flatMap((child) =>
-    'group' in child
-      ? [
-          { startMs: child.group.startTime, endMs: child.group.endTime },
-          ...groupBounds(child.group.children)
-        ]
-      : []
-  )
-}
-
-function bounds(
-  actions: ActionInfo[],
-  groups: TraceActionChild[],
-  fallbackMs: number
-): Bounds {
-  const spans = [...actions.map(actionBounds), ...groupBounds(groups)]
-  if (!spans.length) {
-    return { startMs: fallbackMs, endMs: fallbackMs }
-  }
-  return {
-    startMs: Math.min(...spans.map((span) => span.startMs)),
-    endMs: Math.max(...spans.map((span) => span.endMs))
-  }
-}
-
-function union(a: Bounds, b: Bounds): Bounds {
-  return {
-    startMs: Math.min(a.startMs, b.startMs),
-    endMs: Math.max(a.endMs, b.endMs)
-  }
-}
-
-/** The test's own timing, for a manifest that predates `attempts`. */
-function testBounds(test: ManifestTest): Bounds | undefined {
-  const endMs =
-    test.endTime ??
-    (test.startTime !== undefined && test.durationMs !== undefined
-      ? test.startTime + test.durationMs
-      : undefined)
-  if (endMs === undefined) {
-    return undefined
-  }
-  return {
-    startMs:
-      test.startTime ??
-      (test.durationMs !== undefined ? endMs - test.durationMs : endMs),
-    endMs
-  }
-}
-
-/** A root covers its own timing and every action under it, so children never fall outside. */
-function rootBounds(
-  timing: Bounds | undefined,
-  span: Bounds | undefined,
-  fallbackMs: number
-): Bounds {
-  const base = timing ?? span ?? { startMs: fallbackMs, endMs: fallbackMs }
-  return timing && span ? union(timing, span) : base
 }
 
 // The test's own timing describes its final attempt only, so an earlier attempt reads its record alone.
@@ -256,7 +210,8 @@ function attemptViews(test: ManifestTest): AttemptView[] {
         ids: undefined,
         timing: testBounds(test),
         durationMs: undefined,
-        final: true
+        final: true,
+        error: undefined
       }
     ]
   }
@@ -275,7 +230,8 @@ function attemptViews(test: ManifestTest): AttemptView[] {
         record.endTime === undefined
           ? undefined
           : record.endTime - record.startTime,
-      final
+      final,
+      error: record.error
     }
   })
 }
@@ -296,23 +252,41 @@ function parentContextOf(parent: ManifestParent | undefined): Context {
   })
 }
 
+// The final attempt reports the test's error; an earlier attempt reports only the error its own record kept.
+function errorMessageOf(
+  view: AttemptView,
+  facts: PreparedFacts
+): string | undefined {
+  const own = view.error === undefined ? undefined : capLength(view.error)
+  if (!view.final) {
+    return own
+  }
+  return facts.test.error === undefined
+    ? (own ?? facts.failureMessage)
+    : capLength(facts.test.error)
+}
+
 // A superseded final loses only the final flag: its error, failed action and zip are still its own, not a retry's.
 function prepareRoot(
   view: AttemptView,
   facts: PreparedFacts,
   superseded: boolean
 ): PreparedRoot {
-  const { test, run, span, evidence, finalExtra, errorMessage } = facts
+  const { test, run, span, evidence, finalExtra } = facts
   const final = view.final && !superseded
-  const attributes = testAttributes(test, run.runId, view.state, view.attempt, {
+  const errorMessage = errorMessageOf(view, facts)
+  const attributes = testAttributes(test, run, view.state, view.attempt, {
     ...timingAttributes(test, view, span),
+    ...(errorMessage !== undefined
+      ? { [attr.ATTR_ERROR_MESSAGE]: errorMessage }
+      : {}),
     ...(view.final ? finalExtra : {})
   })
   return {
     attributes: { ...attributes, [attr.ATTR_TEST_FINAL_ATTEMPT]: final },
     bounds: rootBounds(view.timing, view.final ? span : undefined, run.mtimeMs),
     state: view.state,
-    errorMessage: view.final ? errorMessage : undefined,
+    errorMessage,
     ids: view.ids,
     context: parentContextOf(run.parent),
     final,
@@ -351,12 +325,7 @@ function prepareTest(
       }
     : undefined
   const span = evidence?.span
-  const errorMessage =
-    test.error === undefined ? failure?.failure?.message : capLength(test.error)
   const finalExtra = {
-    ...(errorMessage !== undefined
-      ? { [attr.ATTR_ERROR_MESSAGE]: errorMessage }
-      : {}),
     ...(failure ? { [attr.ATTR_FAILED_ACTION]: failure.key } : {}),
     ...(artifactUrl ? { [attr.ATTR_ARTIFACT_URL]: artifactUrl } : {})
   }
@@ -365,10 +334,35 @@ function prepareTest(
     roots: attemptViews(test).map((view) =>
       prepareRoot(
         view,
-        { test, run, span, evidence, finalExtra, errorMessage },
+        {
+          test,
+          run,
+          span,
+          evidence,
+          finalExtra,
+          failureMessage: failure?.failure?.message
+        },
         superseded
       )
     )
+  }
+}
+
+function runContextOf(
+  input: PushInput,
+  manifest: Manifest,
+  mtimeMs: number
+): RunContext {
+  return {
+    runId: input.runId,
+    mtimeMs,
+    parent: manifest.parent,
+    sessionId: manifest.sessionId,
+    cwd: manifest.cwd,
+    browserName: manifest.browserName,
+    browserVersion: manifest.browserVersion,
+    platformName: manifest.platformName,
+    warn: input.warn
   }
 }
 
@@ -382,12 +376,7 @@ function planManifest(
   const dir = path.dirname(file)
   const testUids = new Set(manifest.tests.map((test) => test.uid))
   const artifactsByUid = traceArtifactsByUid(manifest)
-  const run: RunContext = {
-    runId: input.runId,
-    mtimeMs,
-    parent: manifest.parent,
-    warn: input.warn
-  }
+  const run = runContextOf(input, manifest, mtimeMs)
   const pending: Array<() => PreparedTest> = []
   let warnedSharedZip = false
   for (const test of manifest.tests) {
@@ -429,16 +418,22 @@ function planManifest(
 
 interface FinalOutcome {
   test: ManifestTest
-  state: string
+  scope: string
+  state: string | undefined
   startMs: number
   endMs: number
 }
 
-function finalOutcomeOf(test: ManifestTest, mtimeMs: number): FinalOutcome {
+function finalOutcomeOf(
+  test: ManifestTest,
+  mtimeMs: number,
+  scope: string
+): FinalOutcome {
   const record = test.attempts?.find((candidate) => candidate.final)
   const startMs = record?.startTime ?? test.startTime ?? mtimeMs
   return {
     test,
+    scope,
     state: test.state,
     startMs,
     endMs: record?.endTime ?? test.endTime ?? startMs
@@ -447,15 +442,16 @@ function finalOutcomeOf(test: ManifestTest, mtimeMs: number): FinalOutcome {
 
 // specFileRetries reruns a failed spec in a fresh worker whose manifest marks its own final, so a failed final that
 // another worker's final started after is a retried attempt. Overlapping finals are siblings (another browser, shard
-// or worker) and each keeps its own outcome.
+// or worker) and each keeps its own outcome; so does a final from another browser or platform, run after it.
 function supersededFinals(
   manifests: readonly ManifestInput[]
 ): (test: ManifestTest) => boolean {
   const byUid = new Map<string, FinalOutcome[]>()
   for (const { manifest, mtimeMs } of manifests) {
+    const scope = browserScopeOf(manifest)
     for (const test of manifest.tests) {
       const finals = byUid.get(test.uid) ?? []
-      finals.push(finalOutcomeOf(test, mtimeMs))
+      finals.push(finalOutcomeOf(test, mtimeMs, scope))
       byUid.set(test.uid, finals)
     }
   }
@@ -465,7 +461,10 @@ function supersededFinals(
       if (
         earlier.state === STATE_FAILED &&
         finals.some(
-          (later) => later !== earlier && later.startMs >= earlier.endMs
+          (later) =>
+            later !== earlier &&
+            later.scope === earlier.scope &&
+            later.startMs >= earlier.endMs
         )
       ) {
         superseded.add(earlier.test)
@@ -475,25 +474,55 @@ function supersededFinals(
   return (test) => superseded.has(test)
 }
 
+function warnStatelessTests(
+  { file, manifest }: ManifestInput,
+  warn: (message: string) => void
+): void {
+  const count = manifest.tests.filter((test) => test.state === undefined).length
+  if (count > 0) {
+    warn(
+      `${count} test(s) in ${file} have no recorded outcome and are pushed without a status`
+    )
+  }
+}
+
+const FLUSH_AT_PENDING_SPANS = 4096
+
 export function planPush(input: PushInput): PushPlan {
   const reader = zipReader(input.loadZip, input.warn)
   const isSuperseded = supersededFinals(input.manifests)
-  const pending = input.manifests.flatMap((manifest) =>
-    planManifest(input, manifest, reader.read, isSuperseded)
-  )
+  const pending = input.manifests.flatMap((manifest) => {
+    warnStatelessTests(manifest, input.warn)
+    return planManifest(input, manifest, reader.read, isSuperseded)
+  })
   return {
     unreadable: () => reader.unreadable(),
     async emit(sink) {
+      let emitted = 0
+      const flushOrExplain = async () => {
+        try {
+          await sink.flush()
+        } catch (error) {
+          const unsent =
+            emitted < pending.length
+              ? `, and tests ${emitted + 1}..${pending.length} were not sent`
+              : ''
+          throw Object.assign(
+            new Error(
+              `export failed: ${sink.exportedSpans()} span(s) reached the collector, ${sink.pendingSpans()} emitted span(s) did not${unsent}: ${describe(error)}`
+            ),
+            { cause: error }
+          )
+        }
+      }
       for (const prepare of pending) {
         emitPrepared(sink, prepare())
+        emitted++
+        if (sink.pendingSpans() >= FLUSH_AT_PENDING_SPANS) {
+          await flushOrExplain()
+        }
       }
-      try {
-        await sink.flush()
-      } catch (error) {
-        throw new Error(
-          `the export of ${pending.length} test(s) failed, so some may not have reached the collector: ${describe(error)}`
-        )
-      }
+      await flushOrExplain()
       return pending.length
     }
   }

@@ -34,6 +34,7 @@ export interface AttemptView {
   /** End minus start of a recorded attempt; absent when the record has no end. */
   durationMs: number | undefined
   final: boolean
+  error: string | undefined
 }
 
 export interface PreparedRoot {

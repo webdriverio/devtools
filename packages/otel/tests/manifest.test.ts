@@ -64,16 +64,34 @@ describe('parseManifest', () => {
     expect(parseManifest(media, 'm.json').artifacts).toHaveLength(2)
   })
 
-  it('drops step entries without a state from the parsed tests', () => {
+  it('still drops an old-format step whose owner is in tests', () => {
     const cucumber = {
       ...valid,
       tests: [
         valid.tests[0],
-        { uid: 'step-1', title: 'Given a user', specFile: 'a.feature' },
-        { uid: 'step-2', title: 'When they log in' }
+        { uid: 'u1:step:0', title: 'Given a user', specFile: 'a.feature' },
+        { uid: 'u1:step:1', title: 'When they log in' }
       ]
     }
     expect(parseManifest(cucumber, 'm.json').tests).toEqual(valid.tests)
+  })
+
+  it('keeps a test with no state, with attempt 0', () => {
+    const stateless = {
+      ...valid,
+      tests: [{ uid: 'u2', title: 'b', specFile: 'b.spec.ts' }]
+    }
+    expect(parseManifest(stateless, 'm.json').tests).toEqual([
+      { uid: 'u2', title: 'b', specFile: 'b.spec.ts', attempt: 0 }
+    ])
+  })
+
+  it('keeps a stateless step-shaped entry whose owner is absent', () => {
+    const orphan = {
+      ...valid,
+      tests: [{ uid: 'u9:step:0', title: 'Given', specFile: 'a.feature' }]
+    }
+    expect(parseManifest(orphan, 'm.json').tests).toHaveLength(1)
   })
 
   it('names the index and keys of a malformed test entry', () => {
@@ -212,12 +230,127 @@ describe('parseManifest run identity and attempts', () => {
       parent: { ...stamped.parent, traceFlags: 256 }
     }
     expect(() => parseManifest(broken, 'm.json')).toThrow(
-      'is not an artifacts manifest'
+      'm.json is not an artifacts manifest: parent.traceFlags must be an integer 0-255, found 256 (number)'
     )
   })
 
   it('rejects a non-string run id', () => {
     expect(() => parseManifest({ ...valid, runId: 7 }, 'm.json')).toThrow(
+      'is not an artifacts manifest'
+    )
+  })
+})
+
+describe('parseManifest specific reasons', () => {
+  const ok = valid.tests[0]
+  const attempt = {
+    attempt: 0,
+    state: 'passed',
+    startTime: 1,
+    endTime: 2,
+    traceId: TRACE_ID,
+    spanId: SPAN_ID,
+    final: true
+  }
+  const withFourTests = (fourth: unknown) => ({
+    ...valid,
+    tests: [ok, ok, ok, fourth]
+  })
+
+  it('names a parent trace flag that is a string', () => {
+    const broken = {
+      ...valid,
+      parent: { traceId: TRACE_ID, spanId: SPAN_ID, traceFlags: '01' }
+    }
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: parent.traceFlags must be an integer 0-255, found "01" (string)'
+    )
+  })
+
+  it('names a test whose attempts have no record marked final', () => {
+    const broken = withFourTests({
+      ...ok,
+      attempts: [{ ...attempt, final: undefined }]
+    })
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: tests[3].attempts has no record marked final'
+    )
+  })
+
+  it('names a test whose attempts have two records marked final', () => {
+    const broken = withFourTests({
+      ...ok,
+      attempts: [attempt, { ...attempt, attempt: 1 }]
+    })
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: tests[3].attempts has 2 records marked final'
+    )
+  })
+
+  it('names the attempt whose trace id is malformed', () => {
+    const broken = withFourTests({
+      ...ok,
+      attempts: [
+        attempt,
+        { ...attempt, attempt: 1, final: false, traceId: 'abc' }
+      ]
+    })
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: tests[3].attempts[1].traceId is not a 32-hex trace id'
+    )
+  })
+
+  it('names the attempt whose span id is malformed', () => {
+    const broken = withFourTests({
+      ...ok,
+      attempts: [
+        attempt,
+        { ...attempt, attempt: 1, final: false, spanId: SPAN_ID.toUpperCase() }
+      ]
+    })
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: tests[3].attempts[1].spanId is not a 16-hex span id'
+    )
+  })
+
+  it('names a test entry with no string uid', () => {
+    const { uid: _omitted, ...rest } = ok
+    expect(() => parseManifest(withFourTests(rest), 'm.json')).toThrow(
+      'm.json is not an artifacts manifest: tests[3] has no string uid'
+    )
+  })
+})
+
+describe('parseManifest run environment', () => {
+  it('accepts the cwd, browser and platform fields and an attempt error', () => {
+    const environment = {
+      ...valid,
+      cwd: '/repo',
+      browserName: 'chrome',
+      browserVersion: '120',
+      platformName: 'linux',
+      tests: [
+        {
+          ...valid.tests[0],
+          attempts: [
+            {
+              attempt: 0,
+              state: 'failed',
+              startTime: 1,
+              traceId: TRACE_ID,
+              spanId: SPAN_ID,
+              final: true,
+              error: 'boom'
+            }
+          ]
+        }
+      ]
+    }
+    expect(parseManifest(environment, 'm.json')).toEqual(environment)
+  })
+
+  it('rejects a browser name that is not a string', () => {
+    expect(() => parseManifest({ ...valid, browserName: 7 }, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
