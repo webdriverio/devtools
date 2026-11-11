@@ -20,7 +20,6 @@ export interface QueuedPageCapture {
 export interface NavigationRecapture {
   browser: NightwatchBrowser
   runner: TestRunnerId
-  native: boolean
   snapshots: ActionSnapshot[]
   queued: QueuedPageCapture
   /** False once a newer page capture has been queued; its own capture then reads the newer state. */
@@ -31,11 +30,11 @@ export interface NavigationRecapture {
  * A click resolves before its navigation commits, so the capture it queued can
  * read the page it left. The replacement is taken after that capture settles,
  * because a late upsert would otherwise merge the stale screenshot back over it.
+ * Always a web capture: only a session with a document is polled for navigation.
  */
 export async function recaptureAfterNavigation({
   browser,
   runner,
-  native,
   snapshots,
   queued,
   isLatest
@@ -46,8 +45,7 @@ export async function recaptureAfterNavigation({
       browser,
       queued.command,
       queued.timestamp,
-      runner,
-      native
+      runner
     )
     if (snap && capturedPageState(snap) && isLatest()) {
       supersedeSnapshotAt(snapshots, snap)

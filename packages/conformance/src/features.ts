@@ -25,6 +25,10 @@ const WDIO = ADAPTER_TESTS['devtools-service']
 const SELENIUM = ADAPTER_TESTS['selenium-devtools']
 const NIGHTWATCH = ADAPTER_TESTS['nightwatch-devtools']
 const PYTHON = ADAPTER_TESTS['selenium-devtools-py']
+const NO_STEP_RERUN = partial(
+  REASONS.NO_CUCUMBER_STEP_RERUN,
+  'no Cucumber step rerun'
+)
 
 export const FEATURES = [
   {
@@ -298,18 +302,9 @@ export const FEATURES = [
     name: 'Run, Rerun and Run all from the dashboard',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': partial(
-        REASONS.NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
-      'selenium-devtools': partial(
-        REASONS.NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
-      'nightwatch-devtools': partial(
-        REASONS.NO_CUCUMBER_STEP_RERUN,
-        'no Cucumber step rerun'
-      ),
+      'devtools-service': NO_STEP_RERUN,
+      'selenium-devtools': NO_STEP_RERUN,
+      'nightwatch-devtools': NO_STEP_RERUN,
       // pytest has no Gherkin steps to rerun.
       'selenium-devtools-py': covered(`${PYTHON}test_rerun.py`)
     }
@@ -348,12 +343,8 @@ export const FEATURES = [
     name: 'Turn off per-command screenshots (`captureScreenshots`)',
     tables: ['readme-dashboard', 'cross-framework'],
     cells: {
-      'devtools-service': unsupported(
-        'No option: every command row takes a screenshot, except on Appium, where only native sessions in live mode do.'
-      ),
-      'selenium-devtools': byHand(
-        'No unit test asserts that `captureScreenshots: false` skips the row screenshot; check on the Selenium example.'
-      ),
+      'devtools-service': unsupported(REASONS.SERVICE_SCREENSHOT_ALWAYS),
+      'selenium-devtools': byHand(REASONS.SELENIUM_SCREENSHOT_SWITCH_BY_HAND),
       'nightwatch-devtools': unsupported(REASONS.NO_SCREENSHOT_SWITCH),
       'selenium-devtools-py': unsupported(REASONS.NO_SCREENSHOT_SWITCH)
     }
@@ -411,9 +402,7 @@ export const FEATURES = [
         'Nightwatch has no live Allure signal to turn the manifest on by itself, so it stays opt-in.',
         'opt-in'
       ),
-      'selenium-devtools-py': unsupported(
-        'The Python adapter writes no artifacts manifest.'
-      )
+      'selenium-devtools-py': unsupported(REASONS.PYTHON_NO_MANIFEST)
     }
   },
   {
@@ -472,6 +461,17 @@ export const FEATURES = [
       'selenium-devtools': covered(`${SELENIUM}session.test.ts`),
       'nightwatch-devtools': covered(`${NIGHTWATCH}native-session.test.ts`),
       'selenium-devtools-py': covered(`${PYTHON}test_device.py`)
+    }
+  },
+  {
+    id: 'native-element-tree',
+    name: 'Native app element list and accessibility tree per action (trace mode)',
+    tables: ['readme-mobile', 'mobile'],
+    cells: {
+      'devtools-service': covered(`${WDIO}action-snapshot.test.ts`),
+      'selenium-devtools': covered(`${SELENIUM}action-snapshot.test.ts`),
+      'nightwatch-devtools': covered(`${NIGHTWATCH}native-session.test.ts`),
+      'selenium-devtools-py': unsupported(REASONS.PYTHON_NATIVE_SCREENSHOT)
     }
   },
   {

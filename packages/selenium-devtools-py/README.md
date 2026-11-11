@@ -456,7 +456,7 @@ bugs:
 
 ## Mobile (Appium)
 
-Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands, screenshots and element data from the platform's XML tree, with no DOM. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands and screenshots, with no DOM; this adapter reads no page source, so a native trace has no element list or accessibility tree. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
 
 The demo runs bare `python3`, so from the root of a built checkout of this repo (`pnpm install && pnpm build`) install the adapter into that interpreter, plus the Appium client the desktop examples don't need:
 

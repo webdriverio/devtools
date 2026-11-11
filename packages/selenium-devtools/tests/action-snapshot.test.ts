@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,9 +20,14 @@ import type { SessionLifecycleCtx } from '../src/session-lifecycle.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
 import {
   RetryTracker,
-  captureActionSnapshot as coreCapture
+  captureActionSnapshot as coreCapture,
+  reportCaptureTiming
 } from '@wdio/devtools-core'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import {
+  CAPTURE_TIMING_ENV,
+  type ActionSnapshot,
+  type CaptureTimingRecord
+} from '@wdio/devtools-shared'
 import type { CapturedCommand, SeleniumDriverLike } from '../src/types.js'
 
 vi.mock('@wdio/devtools-core', async (importOriginal) => {
@@ -357,24 +365,33 @@ describe('selenium action-snapshot locator dialect', () => {
 })
 
 /**
- * The per-action snapshot is the densest page-script path there is: two
- * injected scripts plus url and title, on every action. On a session with no
- * document all four can only fail, and the screenshot is the one probe a
- * native app still serves.
+ * A native app serves no page script, url or title, so the screenshot and the
+ * page-source XML are the only probes; core builds the element list and the
+ * accessibility tree from the XML.
  *
  * Stubs the patcher's `originals` bag, because that is the path the adapter
- * takes whenever anything has been patched — a plain fake driver's own methods
- * are only reached when the bag is empty.
+ * takes whenever anything has been patched; the source read has to go through
+ * it, or it would be recorded as a `getPageSource` row of the user's own.
  */
 describe('the per-action snapshot on a native session', () => {
-  const probes = () => {
+  const ANDROID_SOURCE = `<hierarchy>
+  <android.widget.FrameLayout bounds="[0,0][1080,2424]">
+    <android.widget.Button clickable="true" content-desc="Start" text="Start" bounds="[100,200][400,300]"/>
+  </android.widget.FrameLayout>
+</hierarchy>`
+  const IOS_SOURCE = `<XCUIElementTypeApplication name="Settings" label="Settings" x="0" y="0" width="402" height="874">
+  <XCUIElementTypeButton name="General" label="General" enabled="true" visible="true" accessible="true" x="0" y="100" width="402" height="44"/>
+</XCUIElementTypeApplication>`
+
+  const probes = (source = ANDROID_SOURCE) => {
     const originals = getDriverOriginals()
     const before = { ...originals }
     const calls = {
       executeScript: vi.fn().mockResolvedValue([]),
       takeScreenshot: vi.fn().mockResolvedValue('AA'),
       getCurrentUrl: vi.fn().mockResolvedValue('http://x/'),
-      getTitle: vi.fn().mockResolvedValue('X')
+      getTitle: vi.fn().mockResolvedValue('X'),
+      getPageSource: vi.fn().mockResolvedValue(source)
     }
     Object.assign(originals, calls)
     return {
@@ -388,12 +405,16 @@ describe('the per-action snapshot on a native session', () => {
     }
   }
 
-  it('takes the screenshot and makes no page read', async () => {
+  it('reads the page source and the screenshot, and makes no page read', async () => {
     const { calls, restore } = probes()
     try {
-      const snap = await captureActionSnapshot(fakeDriver(), 'click', 1, true)
+      const driver = fakeDriver()
+      const snap = await captureActionSnapshot(driver, 'click', 1, {
+        platform: 'android'
+      })
 
       expect(calls.takeScreenshot).toHaveBeenCalled()
+      expect(calls.getPageSource).toHaveBeenCalledWith(driver)
       expect(calls.executeScript).not.toHaveBeenCalled()
       expect(calls.getCurrentUrl).not.toHaveBeenCalled()
       expect(calls.getTitle).not.toHaveBeenCalled()
@@ -403,13 +424,94 @@ describe('the per-action snapshot on a native session', () => {
     }
   })
 
+  it('builds the element list and accessibility tree from an Android page source', async () => {
+    const { restore } = probes()
+    try {
+      const snap = await captureActionSnapshot(fakeDriver(), 'click', 1, {
+        platform: 'android'
+      })
+
+      expect(snap?.snapshotText).toContain('[android]')
+      expect(snap?.snapshotText).toContain('button "Start"')
+      expect(snap?.elements?.length).toBeGreaterThan(0)
+    } finally {
+      restore()
+    }
+  })
+
+  it('reads an iOS page source as iOS', async () => {
+    const { restore } = probes(IOS_SOURCE)
+    try {
+      const snap = await captureActionSnapshot(fakeDriver(), 'click', 1, {
+        platform: 'ios'
+      })
+
+      expect(snap?.snapshotText).toContain('[ios]')
+      expect(snap?.snapshotText).toContain('General')
+      expect(snap?.elements?.length).toBeGreaterThan(0)
+    } finally {
+      restore()
+    }
+  })
+
+  it('passes the session platform from the capturer to the capture', async () => {
+    const { calls, restore } = probes(IOS_SOURCE)
+    try {
+      const bag = makeCtx(fakeDriver())
+      bag.capturer.metadata = {
+        capabilities: {
+          platformName: 'iOS',
+          'appium:automationName': 'XCUITest',
+          'appium:app': '/Settings.app'
+        }
+      } as never
+      await handleOnCommand(bag.ctx, cmd({ command: 'click', timestamp: 7 }))
+      await Promise.all(bag.snapshotCaptures)
+
+      expect(calls.executeScript).not.toHaveBeenCalled()
+      expect(bag.actionSnapshots[0]?.snapshotText).toContain('[ios]')
+      expect(bag.actionSnapshots[0]?.elements?.length).toBeGreaterThan(0)
+    } finally {
+      restore()
+    }
+  })
+
+  it('reports the capture as native, with the page-source probe timed', async () => {
+    const { restore } = probes()
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'se-native-timing-'))
+    try {
+      await captureActionSnapshot(fakeDriver(), 'click', 1, {
+        platform: 'android'
+      })
+      const file = await reportCaptureTiming(outDir, () => undefined)
+      const [record] = fs
+        .readFileSync(file!, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as CaptureTimingRecord)
+
+      expect(record?.native).toBe(true)
+      expect(record?.probes.map((p) => p.probe)).toEqual([
+        'pageSource',
+        'screenshot',
+        'process'
+      ])
+    } finally {
+      vi.unstubAllEnvs()
+      fs.rmSync(outDir, { recursive: true, force: true })
+      restore()
+    }
+  })
+
   it('reads the page for a session that has one', async () => {
     const { calls, restore } = probes()
     try {
-      await captureActionSnapshot(fakeDriver(), 'click', 1, false)
+      await captureActionSnapshot(fakeDriver(), 'click', 1)
 
       expect(calls.executeScript).toHaveBeenCalled()
       expect(calls.getCurrentUrl).toHaveBeenCalled()
+      expect(calls.getPageSource).not.toHaveBeenCalled()
     } finally {
       restore()
     }

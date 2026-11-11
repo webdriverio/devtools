@@ -344,6 +344,11 @@ function stashDriverOriginals(driverProto: Patchable): void {
     const orig = title as (this: unknown) => unknown
     originals.getTitle = (driver) => orig.call(driver) as Promise<string>
   }
+  const source = driverProto.getPageSource
+  if (typeof source === 'function') {
+    const orig = source as (this: unknown) => unknown
+    originals.getPageSource = (driver) => orig.call(driver) as Promise<string>
+  }
   const handle = driverProto.getWindowHandle
   if (typeof handle === 'function') {
     const orig = handle as (this: unknown) => unknown
