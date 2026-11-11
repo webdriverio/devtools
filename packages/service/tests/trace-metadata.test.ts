@@ -252,13 +252,10 @@ describe('DevtoolsService - afterTest state stamping', () => {
     // Two starts before a single end simulate a same-process (Mocha) retry.
     // WDIO's mocha framework reports retries.attempts:0 even on the retry, so
     // the runner field must NOT clobber the tracker's real count of 1.
+    const wdioResult = { passed: true, retries: { attempts: 0 } }
     service.beforeTest({ file, fullTitle: title })
     service.beforeTest({ file, fullTitle: title })
-    await service.afterTest(
-      { file, fullTitle: title },
-      {},
-      { passed: true, retries: { attempts: 0 } }
-    )
+    await service.afterTest({ file, fullTitle: title }, {}, wdioResult)
     await service.after()
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
       testMetadata: Map<string, { attempt?: number }>
@@ -273,12 +270,9 @@ describe('DevtoolsService - afterTest state stamping', () => {
     })
     await service.before({} as never, [], mockBrowser)
     const title = 'checkout retries'
+    const wdioResult = { passed: true, retries: { attempts: 3 } }
     service.beforeTest({ file, fullTitle: title })
-    await service.afterTest(
-      { file, fullTitle: title },
-      {},
-      { passed: true, retries: { attempts: 3 } }
-    )
+    await service.afterTest({ file, fullTitle: title }, {}, wdioResult)
     await service.after()
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
       testMetadata: Map<string, { attempt?: number }>

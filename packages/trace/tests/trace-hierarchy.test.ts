@@ -61,6 +61,18 @@ describe('buildGroupPath', () => {
     ])
   })
 
+  it('keys a retried attempt of the test on its own group uid', () => {
+    const meta: TestMetadataMap = new Map([
+      ['t1', { title: 'logs in', specFile: 'a.js' }]
+    ])
+    expect(buildGroupPath(cmd({ testUid: 't1', attempt: 1 }), meta)).toEqual([
+      { uid: 't1-retry1', title: 'logs in' }
+    ])
+    expect(buildGroupPath(cmd({ testUid: 't1', attempt: 0 }), meta)).toEqual([
+      { uid: 't1', title: 'logs in' }
+    ])
+  })
+
   // The composition of this with core's per-test metadata filter is asserted in
   // core's spec-trace-helpers.test.ts — it spans both packages, so it can only
   // live in the one that sees both.

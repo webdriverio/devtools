@@ -203,6 +203,8 @@ export interface CommandLog {
   callSource?: string
   screenshot?: string
   testUid?: string
+  /** 0-based retry attempt of `testUid` this row ran in; unset for a first attempt. */
+  attempt?: number
   performance?: PerformanceData
   cookies?: string
   documentInfo?: DocumentInfo

@@ -107,7 +107,7 @@ describe('mocha attempt state', () => {
       _retries: 2,
       _currentRetry: 0
     })
-    expect(cb.onTestEnd.mock.calls[0][0]).toBe('failed')
+    expect(vi.mocked(cb.onTestEnd).mock.calls[0]?.[0]).toBe('failed')
   })
 
   it('does not force the final allowed attempt to failed', async () => {
@@ -117,7 +117,7 @@ describe('mocha attempt state', () => {
       _retries: 2,
       _currentRetry: 2
     })
-    expect(cb.onTestEnd.mock.calls[0][0]).toBe('passed')
+    expect(vi.mocked(cb.onTestEnd).mock.calls[0]?.[0]).toBe('passed')
   })
 
   it('keeps a first-attempt pass passed when retries are configured', async () => {
@@ -127,7 +127,7 @@ describe('mocha attempt state', () => {
       _retries: 2,
       _currentRetry: 0
     })
-    expect(cb.onTestEnd.mock.calls[0][0]).toBe('passed')
+    expect(vi.mocked(cb.onTestEnd).mock.calls[0]?.[0]).toBe('passed')
   })
 
   it('passes the failure message to onTestEnd', async () => {
