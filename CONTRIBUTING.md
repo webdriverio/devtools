@@ -9,7 +9,7 @@ Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clon
 
 pnpm 11 has two install checks that can stop an install, in CI too:
 
-- **A dependency version less than one day old** (`minimumReleaseAge`). Wait one day, then install again. The packages under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` (`@wdio/*`, `create-wdio`, `webdriver`, `webdriverio`) are accepted on the day of their release, because WebdriverIO v10 releases often. The cost: a bad release of one of them is not held back for that day. Add a package to that list only with a comment that gives the reason.
+- **A dependency version less than one day old** (`minimumReleaseAge`, set in `pnpm-workspace.yaml`). In CI the install fails. In a terminal pnpm asks whether to add the version to `minimumReleaseAgeExclude`: answer No (the default) and wait one day, then install again. The packages under `minimumReleaseAgeExclude` in `pnpm-workspace.yaml` (`@wdio/*`, `create-wdio`, `webdriver`, `webdriverio`) are accepted on the day of their release, because WebdriverIO v10 releases often. The cost: a bad release of one of them is not held back for that day. Add a package to that list only with a comment that gives the reason.
 - **A new dependency with a build script** (`strictDepBuilds`). List the package under `allowBuilds` in `pnpm-workspace.yaml`. Set it to `false` unless the package does not work without its build script.
 
 ## Setup
