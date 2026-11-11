@@ -14,10 +14,10 @@ import { getCallSourceFromStack } from './utils.js'
 import { serializeCommandResult } from './serializeCommandResult.js'
 import { NativeAssertRecorder } from './nativeAssertRecorder.js'
 import { WaitRows } from './waitRows.js'
+import { beginCommandWindow } from './commandWindow.js'
 import { wrapNavigation } from './navigationWrap.js'
 import {
   RetryTracker,
-  beginInputDispatch,
   clearReadValues,
   rememberReadValue,
   toError
@@ -571,22 +571,17 @@ export class BrowserProxy {
 
     const cmd = this.pendingCommand(methodName, args)
     const captureCallback = this.makeCaptureCallback(browser, cmd)
-    // Suppress screencast polling while this command may be dispatching input: a
-    // screenshot landing mid-click makes the click activate nothing. Enqueue is
-    // the only hook the adapter has — Nightwatch executes off a queue it exposes
-    // no start event for — so an awaited call (enqueue ≈ execution) is covered,
-    // while one queued behind a long wait can see its window expire before it
-    // runs. The bound is what keeps that from stalling the recorder instead.
-    const closeInputWindow = beginInputDispatch(methodName)
+    // Opened at enqueue, Nightwatch's only hook; a command queued behind a long wait can outlive its bounded window.
+    const closeCommandWindow = beginCommandWindow(methodName)
     const gatedCallback = (callbackResult: unknown) => {
-      closeInputWindow()
+      closeCommandWindow()
       return captureCallback(callbackResult)
     }
     const modifiedArgs = [...this.waits.args(cmd), gatedCallback]
     try {
       return originalMethod(...modifiedArgs)
     } catch (error) {
-      closeInputWindow()
+      closeCommandWindow()
       this.popCommandStackIfMatches(methodName, cmd.cmdSig)
       if (cmd.wait) {
         this.closeWait(browser, cmd.wait, undefined, toError(error), Date.now())

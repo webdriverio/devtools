@@ -8,6 +8,8 @@ import {
 } from '@wdio/devtools-core'
 import { BLANK_FRAME_THRESHOLD_BYTES } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
+import { cdpUnavailableReason } from './helpers/cdp-endpoint.js'
+import { makeCapGet } from './helpers/driverMetadata.js'
 import type { SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:ScreencastRecorder')
@@ -139,8 +141,30 @@ export class ScreencastRecorder extends ScreencastRecorderBase<SeleniumDriverLik
     return cdp
   }
 
+  /** Declines before calling: without an endpoint selenium-webdriver throws a TypeError rather than declining. */
+  async #cdpDeclineReason(): Promise<string | undefined> {
+    const driver = this.driver
+    if (typeof driver?.getCapabilities !== 'function') {
+      return undefined
+    }
+    // selenium-webdriver answers getCapabilities from the session it already holds, so no round trip.
+    const capabilities = await withTimeout(
+      driver.getCapabilities(),
+      SCREENCAST_HANDSHAKE_TIMEOUT_MS,
+      undefined
+    )
+    return capabilities === undefined
+      ? undefined
+      : cdpUnavailableReason(makeCapGet(capabilities))
+  }
+
   protected override async tryStartCdp(): Promise<boolean> {
     try {
+      const declined = await this.#cdpDeclineReason()
+      if (declined) {
+        log.info(`${declined}; polling`)
+        return false
+      }
       const cdp = await this.#openCdpConnection()
       if (!cdp) {
         log.warn('CDP connection unavailable — falling back to polling')

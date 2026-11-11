@@ -38,6 +38,25 @@ export function isWaitCommand(command: string): boolean {
   return isWaitAction(mapCommandToAction(command))
 }
 
+/** Runner commands that run on the test host and send the driver nothing. */
+const HOST_ONLY_COMMANDS: ReadonlySet<string> = new Set([
+  'pause',
+  'debug',
+  'call',
+  'perform',
+  'useCss',
+  'useXpath'
+])
+
+/**
+ * Whether a runner command holds the driver for as long as it runs. A wait does
+ * not: the driver is idle between its polls, and each poll that goes through
+ * the runner is a command of its own.
+ */
+export function occupiesDriver(command: string): boolean {
+  return !HOST_ONLY_COMMANDS.has(command) && !isWaitCommand(command)
+}
+
 const ASSERT_TITLE_VALUE_MAX = 40
 
 function formatAssertValue(value: unknown): string {

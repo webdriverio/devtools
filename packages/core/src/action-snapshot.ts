@@ -20,6 +20,8 @@ import {
   withTimeout
 } from './with-timeout.js'
 import { startCaptureTimer, type CaptureTimer } from './capture-timing.js'
+import { beginDriverCapture } from './driver-activity.js'
+import { ScreencastRecorderBase } from './screencast.js'
 import {
   deviceFromCapabilities,
   hasScreenshot,
@@ -225,11 +227,19 @@ export async function captureActionSnapshot(
       input.trigger ?? 'action',
       isNativeMobile
     )
-    const [url, title, pageSource, tree, elements, shot] = await readProbes(
-      input,
-      isNativeMobile,
-      timer
-    )
+    const closeDriverWindow = beginDriverCapture()
+    let probes: Awaited<ReturnType<typeof readProbes>>
+    try {
+      probes = await readProbes(input, isNativeMobile, timer)
+    } finally {
+      closeDriverWindow()
+    }
+    const [url, title, pageSource, tree, elements, shot] = probes
+    // The screenshot is issued last, so it is the last read to settle: stamped
+    // now, the moment a poll taking it would have stamped it.
+    if (hasScreenshot(shot)) {
+      ScreencastRecorderBase.offerCapturedFrame(shot, Date.now())
+    }
 
     const processedFrom = timer ? performance.now() : 0
     const mobile =

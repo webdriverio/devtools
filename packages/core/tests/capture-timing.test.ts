@@ -9,10 +9,16 @@ import {
   type CaptureTimingRecord
 } from '@wdio/devtools-shared'
 import { captureActionSnapshot } from '../src/action-snapshot.js'
+import { ScreencastRecorderBase } from '../src/screencast.js'
 import {
   CaptureTimer,
   captureTimingEnabled,
   formatCaptureTimingSummary,
+  RECORDER_SHOT_SAMPLE_MAX,
+  formatRecorderTiming,
+  recordRecorderReuse,
+  recordRecorderShot,
+  recordRecorderSkip,
   reportCaptureTiming,
   startCaptureTimer,
   summarizeCaptureTiming
@@ -312,5 +318,80 @@ describe('reporting', () => {
     ).toBeUndefined()
     expect(drained[0]).toContain('could not write')
     expect(drained[1]).toContain('1 captures')
+  })
+})
+
+describe('filmstrip recorder line', () => {
+  it('formats shots, skipped ticks by reason and reused frames', () => {
+    expect(
+      formatRecorderTiming({
+        shots: 3,
+        total: 1830,
+        median: 600.4,
+        skipped: { busy: 31, fresh: 6, inFlight: 0 },
+        reused: 6
+      })
+    ).toBe(
+      '[devtools] filmstrip recorder: 3 screenshots, total 1.8 s, median 600 ms; 37 ticks skipped (31 driver busy, 6 fresh frame); 6 capture screenshots reused as frames'
+    )
+  })
+
+  it('records nothing while timing is off', async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '')
+    recordRecorderShot(100)
+    recordRecorderSkip('busy')
+    recordRecorderReuse()
+    await reportCaptureTiming(outDir, (t) => drained.push(t))
+    expect(drained).toEqual([])
+  })
+
+  it("prints the recorder's own screenshots and skips beside the capture summary", async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    class Recorder extends ScreencastRecorderBase<object> {
+      protected override async takeScreenshot(): Promise<string | null> {
+        return 'polled'
+      }
+    }
+    const recorder = new Recorder({ pollIntervalMs: 60_000 })
+    await recorder.start({})
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    await captureActionSnapshot({
+      command: 'click',
+      takeScreenshot: () => Promise.resolve('captured')
+    })
+    await recorder.stop()
+    recordRecorderSkip('busy')
+    await reportCaptureTiming(outDir, (t) => drained.push(t))
+    expect(drained[0]).toContain('1 captures')
+    expect(drained[1]).toMatch(
+      /^\[devtools\] filmstrip recorder: 1 screenshots, .*; 1 ticks skipped \(1 driver busy\); 1 capture screenshots reused as frames\n$/
+    )
+  })
+
+  it('prints the recorder line alone when no capture ran', async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    recordRecorderShot(250)
+    recordRecorderShot(150)
+    recordRecorderSkip('inFlight')
+    expect(
+      await reportCaptureTiming(outDir, (t) => drained.push(t))
+    ).toBeUndefined()
+    expect(drained).toEqual([
+      '[devtools] filmstrip recorder: 2 screenshots, total 0.4 s, median 200 ms; 1 ticks skipped (1 shot in flight); 0 capture screenshots reused as frames\n'
+    ])
+  })
+
+  it('keeps the shot sample bounded while still counting every shot', async () => {
+    vi.stubEnv(CAPTURE_TIMING_ENV, '1')
+    const shots = RECORDER_SHOT_SAMPLE_MAX * 3
+    for (let i = 0; i < shots; i++) {
+      recordRecorderShot(i < shots - RECORDER_SHOT_SAMPLE_MAX ? 1000 : 10)
+    }
+    await reportCaptureTiming(outDir, (t) => drained.push(t))
+    const total =
+      (shots - RECORDER_SHOT_SAMPLE_MAX) * 1000 + RECORDER_SHOT_SAMPLE_MAX * 10
+    expect(drained[0]).toContain(
+      `${shots} screenshots, total ${(total / 1000).toFixed(1)} s, median 10 ms`
+    )
   })
 })

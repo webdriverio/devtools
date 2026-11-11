@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ScreencastRecorder } from '../src/screencast.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
 import type { SeleniumDriverLike } from '../src/types.js'
@@ -135,5 +135,108 @@ describe('ScreencastRecorder — CDP handshake ceiling', () => {
       getDriverOriginals().takeScreenshot = undefined
       vi.useRealTimers()
     }
+  })
+})
+
+function capabilities(bag: Record<string, unknown>) {
+  const map = new Map(Object.entries(bag))
+  return { get: (k: string) => map.get(k), keys: () => map.keys() }
+}
+
+async function startWith(
+  caps: Record<string, unknown>,
+  createCDPConnection: SeleniumDriverLike['createCDPConnection']
+): Promise<TestScreencastRecorder> {
+  const driver: SeleniumDriverLike = {
+    executeScript: () => Promise.resolve(null),
+    getCapabilities: async () => capabilities(caps),
+    createCDPConnection
+  }
+  getDriverOriginals().takeScreenshot = vi.fn(async () => 'frame-1')
+  const r = new TestScreencastRecorder({ pollIntervalMs: 50 })
+  await r.start(driver)
+  return r
+}
+
+describe('ScreencastRecorder: CDP decided from the session capabilities', () => {
+  afterEach(() => {
+    getDriverOriginals().takeScreenshot = undefined
+    vi.unstubAllEnvs()
+  })
+
+  it.each([
+    ['desktop Safari', { browserName: 'Safari', platformName: 'mac' }],
+    [
+      'Appium native',
+      { platformName: 'Android', 'appium:automationName': 'UiAutomator2' }
+    ],
+    // The shape that made selenium-webdriver throw: vendor options with no debuggerAddress.
+    [
+      'Appium Chrome',
+      {
+        browserName: 'chrome',
+        platformName: 'Android',
+        'goog:chromeOptions': {}
+      }
+    ],
+    ['Firefox', { browserName: 'firefox', 'moz:debuggerAddress': true }]
+  ])('%s polls without calling createCDPConnection', async (_name, caps) => {
+    vi.stubEnv('SELENIUM_REMOTE_URL', '')
+    const createCDPConnection = vi.fn()
+    const r = await startWith(caps, createCDPConnection)
+    expect(createCDPConnection).not.toHaveBeenCalled()
+    expect(r.isRecording).toBe(true)
+    expect(r.frames[0].data).toBe('frame-1')
+    await r.stop()
+  })
+
+  it.each([
+    [
+      'local Chrome',
+      {
+        browserName: 'chrome',
+        'goog:chromeOptions': { debuggerAddress: 'localhost:9222' }
+      }
+    ],
+    [
+      'local Edge',
+      {
+        browserName: 'MicrosoftEdge',
+        'ms:edgeOptions': { debuggerAddress: 'localhost:9223' }
+      }
+    ],
+    [
+      'Grid Chrome',
+      { browserName: 'chrome', 'se:cdp': 'ws://grid:4444/session/1/se/cdp' }
+    ]
+  ])('%s tries CDP', async (_name, caps) => {
+    vi.stubEnv('SELENIUM_REMOTE_URL', '')
+    const createCDPConnection = vi.fn(async () => ({ execute: vi.fn() }))
+    const r = await startWith(caps, createCDPConnection)
+    expect(createCDPConnection).toHaveBeenCalledWith('page')
+    await r.stop()
+  })
+
+  it('a session under SELENIUM_REMOTE_URL tries CDP, since selenium-webdriver routes it through the grid', async () => {
+    vi.stubEnv('SELENIUM_REMOTE_URL', 'http://grid:4444/wd/hub')
+    const createCDPConnection = vi.fn(async () => ({ execute: vi.fn() }))
+    const r = await startWith({ browserName: 'chrome' }, createCDPConnection)
+    expect(createCDPConnection).toHaveBeenCalledTimes(1)
+    await r.stop()
+  })
+
+  it('a CDP connection that still fails falls back to polling', async () => {
+    vi.stubEnv('SELENIUM_REMOTE_URL', '')
+    const createCDPConnection = vi.fn(async () => {
+      throw new Error('ECONNREFUSED')
+    })
+    const r = await startWith(
+      { 'goog:chromeOptions': { debuggerAddress: 'localhost:9222' } },
+      createCDPConnection
+    )
+    expect(createCDPConnection).toHaveBeenCalledTimes(1)
+    expect(r.isRecording).toBe(true)
+    expect(r.frames[0].data).toBe('frame-1')
+    await r.stop()
   })
 })
