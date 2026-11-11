@@ -1,5 +1,4 @@
-# Tempo config of grafana/otel-lgtm:0.37.0 (/otel-lgtm/tempo-config.yaml) with two changes; re-copy from the image when its tag changes.
-# max_traces_per_user 0 lifts the 10000 live-trace limit that silently drops half of a 20000-test push; ingestion_time_range_slack 24h lets spans that ended before the push still count (measured to 97 minutes).
+# Tempo config of grafana/otel-lgtm:0.37.0 with the live-trace limit off and a 24h ingestion slack; the o11y README says why.
 server:
   http_listen_port: 3200
   grpc_listen_port: 9096
