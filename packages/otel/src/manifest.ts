@@ -7,12 +7,19 @@ import {
   type TraceArtifact
 } from '@wdio/devtools-shared'
 
-// Narrowed to what the validators below check: `scope`/`format` are not read, `state`/`attempt` are required strings/numbers.
+// Narrowed to what the validators below check: `scope`/`format` are not read, `path`/`kind`/`retained` are required.
 export type ManifestArtifact = Omit<TraceArtifact, 'scope'>
 
-export type ManifestTest = Omit<ArtifactManifestTest, 'state' | 'attempt'> & {
-  state: string
+export type ManifestAttempt = TestAttemptRecord & { error?: string }
+
+// `state` is absent for a test the run started and never finished; such a test is pushed without a status.
+export type ManifestTest = Omit<
+  ArtifactManifestTest,
+  'state' | 'attempt' | 'attempts'
+> & {
+  state?: string
   attempt: number
+  attempts?: ManifestAttempt[]
 }
 
 export type Manifest = Pick<
@@ -21,11 +28,23 @@ export type Manifest = Pick<
 > & {
   artifacts: ManifestArtifact[]
   tests: ManifestTest[]
+  cwd?: string
+  browserName?: string
+  browserVersion?: string
+  platformName?: string
+}
+
+type TestEntry = Omit<ManifestTest, 'attempt'> & { attempt?: number }
+
+interface ManifestFile extends Omit<Manifest, 'tests'> {
+  tests: unknown[]
 }
 
 const MANIFEST_KEYS = ['sessionId', 'artifacts', 'tests'] as const
 const ARTIFACT_KINDS = ['trace', 'video', 'screenshot'] as const
 const MAX_TRACE_FLAGS = 0xff
+// An old-format Cucumber step is listed under the uid `<ownerUid>:step:<index>`.
+const STEP_UID = /^(.+):step:\d+$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -61,7 +80,20 @@ function isString(value: unknown): boolean {
   return typeof value === 'string'
 }
 
-function isAttempt(value: unknown): value is TestAttemptRecord {
+function isBoolean(value: unknown): boolean {
+  return typeof value === 'boolean'
+}
+
+function isTraceFlags(value: unknown): boolean {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_TRACE_FLAGS
+  )
+}
+
+function isAttempt(value: unknown): value is ManifestAttempt {
   return (
     isRecord(value) &&
     Number.isInteger(value.attempt) &&
@@ -70,7 +102,8 @@ function isAttempt(value: unknown): value is TestAttemptRecord {
     isAbsentOr(value.endTime, isNumber) &&
     isTraceId(value.traceId) &&
     isSpanId(value.spanId) &&
-    isAbsentOr(value.final, (field) => typeof field === 'boolean')
+    isAbsentOr(value.final, isBoolean) &&
+    isAbsentOr(value.error, isString)
   )
 }
 
@@ -79,22 +112,19 @@ function isParent(value: unknown): boolean {
     isRecord(value) &&
     isTraceId(value.traceId) &&
     isSpanId(value.spanId) &&
-    typeof value.traceFlags === 'number' &&
-    Number.isInteger(value.traceFlags) &&
-    value.traceFlags >= 0 &&
-    value.traceFlags <= MAX_TRACE_FLAGS &&
+    isTraceFlags(value.traceFlags) &&
     isAbsentOr(value.traceState, isString)
   )
 }
 
-function isTest(value: unknown): value is ManifestTest {
+function isTest(value: unknown): value is TestEntry {
   return (
     isRecord(value) &&
     typeof value.uid === 'string' &&
     typeof value.title === 'string' &&
     typeof value.specFile === 'string' &&
-    typeof value.state === 'string' &&
-    typeof value.attempt === 'number' &&
+    isAbsentOr(value.state, isString) &&
+    isAbsentOr(value.attempt, (field) => typeof field === 'number') &&
     isAbsentOr(value.startTime, isNumber) &&
     isAbsentOr(value.endTime, isNumber) &&
     isAbsentOr(value.durationMs, isNumber) &&
@@ -114,38 +144,116 @@ function isAttemptList(value: unknown): boolean {
 }
 
 /** Manifests written before steps were filtered out list each WDIO Cucumber step in `tests[]`, without a `state`. */
-function isStepEntry(value: unknown): boolean {
+function isStepOf(value: unknown, tests: unknown[]): boolean {
+  if (
+    !isRecord(value) ||
+    value.state !== undefined ||
+    typeof value.uid !== 'string'
+  ) {
+    return false
+  }
+  const owner = STEP_UID.exec(value.uid)?.[1]
   return (
-    isRecord(value) &&
-    value.state === undefined &&
-    typeof value.uid === 'string' &&
-    typeof value.title === 'string'
+    owner !== undefined &&
+    tests.some((test) => isRecord(test) && test.uid === owner)
   )
-}
-
-function isTestEntry(value: unknown): boolean {
-  return isTest(value) || isStepEntry(value)
-}
-
-interface ManifestFile extends Omit<Manifest, 'tests'> {
-  tests: unknown[]
 }
 
 function isManifestFile(value: unknown): value is ManifestFile {
+  if (!isRecord(value) || !Array.isArray(value.tests)) {
+    return false
+  }
+  const tests: unknown[] = value.tests
   return (
-    isRecord(value) &&
     typeof value.sessionId === 'string' &&
     isAbsentOr(value.runId, isString) &&
     isAbsentOr(value.parent, isParent) &&
+    isAbsentOr(value.cwd, isString) &&
+    isAbsentOr(value.browserName, isString) &&
+    isAbsentOr(value.browserVersion, isString) &&
+    isAbsentOr(value.platformName, isString) &&
     Array.isArray(value.artifacts) &&
     value.artifacts.every(isArtifact) &&
-    Array.isArray(value.tests) &&
-    value.tests.every(isTestEntry)
+    tests.every((entry) => isTest(entry) || isStepOf(entry, tests))
   )
 }
 
+function describeValue(value: unknown): string {
+  const shown =
+    typeof value === 'string' ? JSON.stringify(value) : String(value)
+  return `${shown} (${typeof value})`
+}
+
+function parentProblem(parent: Record<string, unknown>): string | undefined {
+  if (!isTraceId(parent.traceId)) {
+    return 'parent.traceId is not a 32-hex trace id'
+  }
+  if (!isSpanId(parent.spanId)) {
+    return 'parent.spanId is not a 16-hex span id'
+  }
+  if (!isTraceFlags(parent.traceFlags)) {
+    return `parent.traceFlags must be an integer 0-255, found ${describeValue(parent.traceFlags)}`
+  }
+  return undefined
+}
+
+function attemptsProblem(
+  path: string,
+  attempts: unknown[]
+): string | undefined {
+  for (const [index, record] of attempts.entries()) {
+    if (isRecord(record) && !isTraceId(record.traceId)) {
+      return `${path}.attempts[${index}].traceId is not a 32-hex trace id`
+    }
+    if (isRecord(record) && !isSpanId(record.spanId)) {
+      return `${path}.attempts[${index}].spanId is not a 16-hex span id`
+    }
+  }
+  const finals = attempts.filter(
+    (record) => isRecord(record) && record.final === true
+  ).length
+  if (attempts.length > 0 && finals === 0) {
+    return `${path}.attempts has no record marked final`
+  }
+  return finals > 1
+    ? `${path}.attempts has ${finals} records marked final`
+    : undefined
+}
+
+function testProblem(entry: unknown, index: number): string | undefined {
+  if (!isRecord(entry)) {
+    return undefined
+  }
+  const path = `tests[${index}]`
+  if (typeof entry.uid !== 'string') {
+    return `${path} has no string uid`
+  }
+  return Array.isArray(entry.attempts)
+    ? attemptsProblem(path, entry.attempts)
+    : undefined
+}
+
+/** The first field that names its own problem; undefined leaves the generic diagnosis. */
+function specificProblem(json: Record<string, unknown>): string | undefined {
+  if (
+    json.parent !== undefined &&
+    !isParent(json.parent) &&
+    isRecord(json.parent)
+  ) {
+    const problem = parentProblem(json.parent)
+    if (problem) {
+      return problem
+    }
+  }
+  return Array.isArray(json.tests)
+    ? json.tests.map(testProblem).find((problem) => problem !== undefined)
+    : undefined
+}
+
 function describeMalformedTest(tests: unknown[]): string | undefined {
-  const index = tests.findIndex((entry) => !isTestEntry(entry))
+  const index = tests.findIndex(
+    (entry) => !isTest(entry) && !isStepOf(entry, tests)
+  )
   if (index === -1) {
     return undefined
   }
@@ -154,17 +262,42 @@ function describeMalformedTest(tests: unknown[]): string | undefined {
   return `tests[${index}] is neither a test nor a step (keys: ${keys})`
 }
 
-/** Validates at the file boundary; throws naming the keys the file did have. */
+function manifestProblem(json: unknown): string {
+  if (isRecord(json)) {
+    const specific = specificProblem(json)
+    if (specific) {
+      return specific
+    }
+  }
+  const found = isRecord(json) ? Object.keys(json).join(', ') : typeof json
+  const malformedTest =
+    isRecord(json) && Array.isArray(json.tests)
+      ? describeMalformedTest(json.tests)
+      : undefined
+  return `expected ${MANIFEST_KEYS.join(', ')} (artifacts and tests with their fields); found ${found}${malformedTest ? `; ${malformedTest}` : ''}`
+}
+
+/** Validates at the file boundary; throws naming the first problem it can name. */
 export function parseManifest(json: unknown, source: string): Manifest {
   if (!isManifestFile(json)) {
-    const found = isRecord(json) ? Object.keys(json).join(', ') : typeof json
-    const malformedTest =
-      isRecord(json) && Array.isArray(json.tests)
-        ? describeMalformedTest(json.tests)
-        : undefined
     throw new Error(
-      `${source} is not an artifacts manifest: expected ${MANIFEST_KEYS.join(', ')} (artifacts and tests with their fields); found ${found}${malformedTest ? `; ${malformedTest}` : ''}`
+      `${source} is not an artifacts manifest: ${manifestProblem(json)}`
     )
   }
-  return { ...json, tests: json.tests.filter(isTest) }
+  const tests = json.tests
+    .filter((entry) => !isStepOf(entry, json.tests))
+    .filter(isTest)
+  return {
+    ...json,
+    tests: tests.map((test) => ({ ...test, attempt: test.attempt ?? 0 }))
+  }
+}
+
+// Browser and platform decide whether two finals are siblings: a failure in one browser is not retried by a pass in another.
+export function browserScopeOf(manifest: Manifest): string {
+  return JSON.stringify([
+    manifest.browserName ?? '',
+    manifest.browserVersion ?? '',
+    manifest.platformName ?? ''
+  ])
 }

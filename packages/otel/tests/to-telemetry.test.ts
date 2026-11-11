@@ -143,6 +143,7 @@ interface PushOptions {
   zips?: Map<string, Uint8Array>
   artifactBaseUrl?: string
   flush?: () => Promise<void>
+  pendingSpans?: () => number
   traceZips?: boolean
 }
 
@@ -176,7 +177,9 @@ async function push(options: PushOptions = {}) {
   await plan.emit({
     tracer: tracerProvider.getTracer('test'),
     ids,
-    flush: options.flush ?? (async () => {})
+    flush: options.flush ?? (async () => {}),
+    pendingSpans: options.pendingSpans ?? (() => 0),
+    exportedSpans: () => 0
   })
   return {
     spans: spanExporter.getFinishedSpans(),
@@ -1064,7 +1067,24 @@ describe('pushRun export failure', () => {
         }
       })
     ).rejects.toThrow(
-      'the export of 3 test(s) failed, so some may not have reached the collector: collector unreachable'
+      'export failed: 0 span(s) reached the collector, 0 emitted span(s) did not: collector unreachable'
+    )
+  })
+
+  it('names the tests left unsent when a mid-run flush fails', async () => {
+    let flushes = 0
+    await expect(
+      push({
+        manifests: [{ file: MANIFEST_FILE, manifest: threeTests() }],
+        pendingSpans: () => 5000,
+        flush: async () => {
+          if (++flushes > 1) {
+            throw new Error('collector unreachable')
+          }
+        }
+      })
+    ).rejects.toThrow(
+      'export failed: 0 span(s) reached the collector, 5000 emitted span(s) did not, and tests 3..3 were not sent: collector unreachable'
     )
   })
 })
@@ -1213,9 +1233,31 @@ describe('pushRun across specFileRetries workers', () => {
     })
   })
 
+  it('keeps a failed Chrome final that Firefox ran after', async () => {
+    const chrome = {
+      ...worker('s1', 'failed', '000000000000aaa1', TRACE_A, 0),
+      browserName: 'chrome'
+    }
+    const firefox = {
+      ...worker('s2', 'passed', 'bbbbbbbbbbbbbbb2', TRACE_B, 10_000),
+      browserName: 'firefox'
+    }
+    const { spans } = await pushWorkers([chrome, firefox])
+    expect(finalsBySpan(spans)).toEqual({
+      '000000000000aaa1': true,
+      bbbbbbbbbbbbbbb2: true
+    })
+  })
+
   it("keeps only the later worker's root final", async () => {
-    const first = worker('s1', 'failed', '000000000000aaa1', TRACE_A, 0)
-    const retry = worker('s2', 'passed', 'bbbbbbbbbbbbbbb2', TRACE_B, 10_000)
+    const first = {
+      ...worker('s1', 'failed', '000000000000aaa1', TRACE_A, 0),
+      browserName: 'chrome'
+    }
+    const retry = {
+      ...worker('s2', 'passed', 'bbbbbbbbbbbbbbb2', TRACE_B, 10_000),
+      browserName: 'chrome'
+    }
     for (const order of [
       [first, retry],
       [retry, first]
@@ -1708,7 +1750,9 @@ describe('planPush unreadable zips', () => {
     await plan.emit({
       tracer: new TracerProvider().getTracer('test'),
       ids: new PinnedIdGenerator(),
-      flush: async () => {}
+      flush: async () => {},
+      pendingSpans: () => 0,
+      exportedSpans: () => 0
     })
     return plan.unreadable()
   }
@@ -1761,5 +1805,134 @@ describe('planPush unreadable zips', () => {
     })
     const plan = planOf(manifest, new Map([[ZIP_PATH, new Uint8Array([1])]]))
     expect(await emitAndListUnreadable(plan)).toEqual([])
+  })
+})
+
+describe('pushRun manifest context', () => {
+  const contextOf = (overrides: Partial<Manifest>) =>
+    manifestOf({ artifacts: [], ...overrides })
+  const rootAttributes = async (manifest: Manifest) => {
+    const { spans } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }],
+      traceZips: false
+    })
+    return byName(spans, 'logs in').attributes
+  }
+  const withSpec = (specFile: string, cwd?: string): Manifest =>
+    contextOf({
+      cwd,
+      tests: [
+        {
+          uid: 'uid-login',
+          title: 'logs in',
+          specFile,
+          state: 'failed',
+          attempt: 0
+        }
+      ]
+    })
+
+  it('stamps session, browser and uid, and a suite name relative to cwd', async () => {
+    const attributes = await rootAttributes(
+      contextOf({
+        cwd: '/repo',
+        browserName: 'chrome',
+        browserVersion: '120',
+        platformName: 'linux',
+        tests: [
+          {
+            uid: 'uid-login',
+            title: 'logs in',
+            specFile: '/repo/test/login.spec.ts',
+            state: 'failed',
+            attempt: 0
+          }
+        ]
+      })
+    )
+    expect(attributes[attr.ATTR_SESSION_ID]).toBe('s1')
+    expect(attributes[attr.ATTR_DEVTOOLS_TEST_UID]).toBe('uid-login')
+    expect(attributes[attr.ATTR_DEVTOOLS_BROWSER_NAME]).toBe('chrome')
+    expect(attributes[attr.ATTR_DEVTOOLS_BROWSER_VERSION]).toBe('120')
+    expect(attributes[attr.ATTR_DEVTOOLS_PLATFORM_NAME]).toBe('linux')
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('test/login.spec.ts')
+  })
+
+  it('keeps the raw spec file without cwd', async () => {
+    const attributes = await rootAttributes(withSpec('/repo/test/a.spec.ts'))
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('/repo/test/a.spec.ts')
+  })
+
+  it('relativizes a Windows manifest', async () => {
+    const attributes = await rootAttributes(
+      withSpec('C:\\repo\\test\\a.spec.ts', 'C:\\repo')
+    )
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('test/a.spec.ts')
+  })
+
+  it('keeps a spec outside cwd', async () => {
+    const attributes = await rootAttributes(
+      withSpec('/other/a.spec.ts', '/repo')
+    )
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('/other/a.spec.ts')
+  })
+
+  it('pushes a test with no recorded outcome without a status', async () => {
+    const { spans, warnings } = await push({
+      manifests: [
+        {
+          file: MANIFEST_FILE,
+          manifest: contextOf({
+            tests: [
+              {
+                uid: 'uid-login',
+                title: 'logs in',
+                specFile: 'specs/login.spec.ts',
+                attempt: 0
+              }
+            ]
+          })
+        }
+      ],
+      traceZips: false
+    })
+    const root = byName(spans, 'logs in')
+    expect(root.attributes[attr.ATTR_TEST_CASE_RESULT_STATUS]).toBeUndefined()
+    expect(root.status.code).toBe(SpanStatusCode.UNSET)
+    expect(warnings).toEqual([
+      `1 test(s) in ${MANIFEST_FILE} have no recorded outcome and are pushed without a status`
+    ])
+  })
+
+  it('a failed earlier attempt carries its own error', async () => {
+    const manifest = contextOf({
+      tests: [
+        {
+          uid: 'uid-login',
+          title: 'logs in',
+          specFile: 'specs/login.spec.ts',
+          state: 'passed',
+          attempt: 1,
+          attempts: [
+            {
+              ...attemptRecord(0, 'failed', '000000000000aaa1'),
+              error: 'first boom'
+            },
+            finalRecord(1, 'passed', 'bbbbbbbbbbbbbbb2')
+          ]
+        }
+      ]
+    })
+    const { spans } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }],
+      traceZips: false
+    })
+    const [first, final] = rootsNamed(spans, 'logs in')
+    expect(first.attributes[attr.ATTR_ERROR_MESSAGE]).toBe('first boom')
+    expect(first.status).toEqual({
+      code: SpanStatusCode.ERROR,
+      message: 'first boom'
+    })
+    expect(final.attributes[attr.ATTR_ERROR_MESSAGE]).toBeUndefined()
   })
 })

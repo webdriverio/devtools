@@ -2,6 +2,8 @@
 import { readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { DiagConsoleLogger, DiagLogLevel, diag } from '@opentelemetry/api'
+import { describe } from './artifact-sources.js'
 import { CLI_USAGE, isBrowserFetchable, parseCliArgs } from './cli-args.js'
 import { parseManifest } from './manifest.js'
 import { createTelemetry } from './providers.js'
@@ -15,9 +17,7 @@ function loadManifest(file: string): ManifestInput {
   try {
     json = JSON.parse(readFileSync(absolute, 'utf8'))
   } catch (error) {
-    throw new Error(
-      `${absolute} is not JSON: ${error instanceof Error ? error.message : String(error)}`
-    )
+    throw new Error(`${absolute} is not JSON: ${describe(error)}`)
   }
   return {
     file: absolute,
@@ -36,7 +36,7 @@ function loadManifests(files: string[]): {
     try {
       loaded.push(loadManifest(file))
     } catch (error) {
-      problems.push(error instanceof Error ? error.message : String(error))
+      problems.push(describe(error))
     }
   }
   return { loaded, problems }
@@ -88,7 +88,7 @@ async function main(argv: string[]): Promise<number> {
     loadZip: (zipPath) => readFileSync(zipPath),
     warn: (message) => process.stderr.write(`wdio-otel: ${message}\n`)
   })
-  const telemetry = createTelemetry({ dryRun: args.dryRun })
+  const telemetry = createTelemetry({ dryRun: args.dryRun, env: process.env })
   try {
     const tests = await plan.emit(telemetry)
     process.stdout.write(
@@ -105,14 +105,14 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN)
+
 main(process.argv.slice(2)).then(
   (code) => {
     process.exitCode = code
   },
   (error: unknown) => {
-    process.stderr.write(
-      `wdio-otel: ${error instanceof Error ? error.message : String(error)}\n`
-    )
+    process.stderr.write(`wdio-otel: ${describe(error)}\n`)
     process.exitCode = 1
   }
 )

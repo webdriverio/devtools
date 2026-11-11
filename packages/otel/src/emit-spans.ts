@@ -35,6 +35,8 @@ export interface TelemetrySink {
   tracer: Tracer
   ids: PinnedIdGenerator
   flush: () => Promise<void>
+  pendingSpans: () => number
+  exportedSpans: () => number
 }
 
 /** The SDK takes ids from `ids` only for the span started inside this call. */

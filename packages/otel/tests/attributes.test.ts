@@ -4,6 +4,7 @@ import * as attr from '../src/attributes.js'
 
 describe('incubating semantic-convention copies', () => {
   it('match the installed incubating export', () => {
+    expect(attr.ATTR_SESSION_ID).toBe(incubating.ATTR_SESSION_ID)
     expect(attr.ATTR_TEST_CASE_NAME).toBe(incubating.ATTR_TEST_CASE_NAME)
     expect(attr.ATTR_TEST_SUITE_NAME).toBe(incubating.ATTR_TEST_SUITE_NAME)
     expect(attr.ATTR_TEST_CASE_RESULT_STATUS).toBe(
