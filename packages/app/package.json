@@ -10,7 +10,8 @@
   },
   "exports": "./src/index.ts",
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "vite build --watch",
