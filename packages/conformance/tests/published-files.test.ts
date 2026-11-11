@@ -36,4 +36,45 @@ describe('published workspace packages', () => {
       existsSync(path.join(REPO_ROOT, dir, '.npmignore'))
     expect(ownRules, `${dir}: add a "files" list to package.json`).toBe(true)
   })
+
+  it.each(published)('%s publishes every entry point it declares', (dir) => {
+    const manifest = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, dir, 'package.json'), 'utf8')
+    )
+    if (!Array.isArray(manifest.files)) {
+      return
+    }
+    const roots = (manifest.files as string[]).map(normalize)
+    const unpublished = entryTargets(manifest).filter(
+      (target) =>
+        !roots.some((root) => target === root || target.startsWith(`${root}/`))
+    )
+    expect(unpublished, `${dir}: entry points outside "files"`).toEqual([])
+  })
 })
+
+function normalize(target: string): string {
+  return path.posix.normalize(target).replace(/\/$/, '')
+}
+
+function entryTargets(manifest: Record<string, unknown>): string[] {
+  const targets: string[] = []
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') {
+      targets.push(normalize(value))
+    } else if (value && typeof value === 'object') {
+      Object.values(value).forEach(collect)
+    }
+  }
+  for (const field of [
+    'main',
+    'module',
+    'types',
+    'typings',
+    'exports',
+    'bin'
+  ]) {
+    collect(manifest[field])
+  }
+  return targets
+}
