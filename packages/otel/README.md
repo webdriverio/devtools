@@ -145,6 +145,8 @@ A test the run started but never finished has no recorded outcome. It is pushed 
 
 A root span starts and ends at its attempt's `startTime` and `endTime` in the manifest. A manifest from before attempts existed uses the test's own timing instead: its `startTime`, `endTime` and `durationMs`. Under `--trace-zips`, a root is widened to cover the zip's actions, so every action falls inside its root. A root with no timing at all is zero-width at the manifest file's mtime. The SDK never stamps push time.
 
+Because spans keep the test's own times, a push made after the run sends spans that are already minutes or hours old, and the backend has to accept them. Tempo 3 drops spans older than `live_store.wal.ingestion_time_range_slack` (2 minutes by default) from TraceQL metrics, so a dashboard counts nothing for a run pushed later than that, while the trace still opens by id. `examples/o11y` raises that setting to 24 hours. A search needs a time range that covers the test's own time, not the push time. Other backends were not tested.
+
 A test's own `endTime` and `durationMs` are written when the adapter stamps them: the WDIO service does so as each test ends, and Selenium and Nightwatch take them from their suite stats once the suite has ended. A root's timing comes from its attempt record when the manifest has one. A test with no start and no end is timed at the manifest file's mtime (`devtools.time_source=manifest-file`). The Python adapter writes no manifest, so a pytest run has nothing to push.
 
 ## Attempts
