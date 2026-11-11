@@ -8,7 +8,7 @@ the **same backend and UI**, unchanged, over the language-neutral
 **Both modes work.** **Live** streams to a dashboard window that auto-opens and
 tears down with the run; **trace** writes the same portable `trace.zip` the
 JavaScript adapters do and opens no window. Command capture and the test tree,
-browser console & network via BiDi, assertion rows, per-command screenshots and
+browser console & network via BiDi, assertion rows, screenshots and
 selectors, DOM replay, and screencast video are common to both. Verified against
 real headless Chrome. See [Trace mode](#trace-mode) and [Roadmap](#roadmap).
 
@@ -177,7 +177,7 @@ The first row that applies wins. A policy or granularity left without trace
 mode does nothing, and the run logs a warning saying so.
 
 `DEVTOOLS_CAPTURE_TIMING=1` on a trace-mode run times the screenshot and the
-two page reads taken for each command. When the trace is exported, the run
+two page reads taken for each capture. When the trace is exported, the run
 prints a per-read table to stderr and appends the raw records to
 `capture-timing-<pid>.ndjson` beside the trace, in the format the JS adapters
 write. It only measures; see "Measuring capture cost" in the repo README.
@@ -252,7 +252,7 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Data | How | Scope | Mode |
 |---|---|---|---|
 | Commands (driver + element) | wrap `WebDriver.execute()` — the single chokepoint all commands flow through | `commands` | both |
-| Command screenshot + selector | one screenshot per command, and the locator the element handle was found by | `commands` | both |
+| Command screenshot + selector | one screenshot per command in live mode, per captured command in trace mode (below), and the locator the element handle was found by | `commands` | both |
 | Session metadata | read `session_id` + `caps` on the first ready command | `metadata` | both |
 | Test / suite tree | pytest plugin (`pytest_runtest_logreport` / `sessionfinish`) | `suites` | both |
 | Browser console + JS errors | Selenium **BiDi** (`driver.script` handlers) | `consoleLogs` | both |
@@ -261,9 +261,9 @@ is on `PATH`; otherwise keep it current (`brew upgrade chromedriver`).
 | Assertions | pytest hooks under pytest; line tracing for a plain script | `commands` | both |
 | DOM snapshot / time-travel | register `packages/script` as a BiDi document-start preload, drain mutations with a forced document anchor (per-document `<script>` injection when BiDi is absent) | `mutations` | both |
 | Navigation + resource timing | read from the page after a navigation, then the command row is re-sent with it | `commands` | both |
-| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere one screenshot per command → ffmpeg-encoded `.webm` | `screencast` | live |
-| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm` | `screencastFrames` | trace |
-| A11y tree + element rects | run the backend's page-side element scripts beside each action | `actionSnapshots` | trace |
+| Screencast video | Chrome: CDP `Page.startScreencast` (pushed frames); elsewhere each command's screenshot → ffmpeg-encoded `.webm` | `screencast` | live |
+| Dense filmstrip | the same frame stream, carried into the archive instead of a `.webm`; without a pushed stream, the captured commands' screenshots plus a frame for every command a wait issues that returns and for other reads at most every 200 ms | `screencastFrames` | trace |
+| A11y tree + element rects | run the backend's page-side element scripts beside each captured command | `actionSnapshots` | trace |
 | Stylesheets + fonts | the page collector reads back what the page loaded, from the HTTP cache, when the drain asks (`collectorDrainResources`) | `pageResources`, `resourceReReads` | trace |
 
 Element actions (`click`, `send_keys`, `text`, …) are captured for free: they
@@ -521,13 +521,32 @@ porting them would be a second copy of ~2,000 lines, with a third waiting for
 the next language ([#298](https://github.com/webdriverio/devtools/issues/298)).
 That is the one way this differs from the JS adapters' backend-free trace mode.
 
+Trace mode captures the page (a screenshot, plus the A11y tree on a page)
+only after a command that can change it, as the JS adapters do. A read, wait or
+lookup (`find_element`, `.text`, `is_displayed()`, `is_enabled()`,
+`current_url`, `title`, `get_attribute`, ...) takes no screenshot, and its row
+shows the capture of the last command that took one. A command the adapter
+does not know to be a read is captured, so a script or an `actions` chain that
+moves the page is. Each test's first command with a row in the trace is
+captured even when it reads, so a test that opens with reads has a frame, and
+when reads follow a test's last capture, the test's end takes one more,
+stamped at that capture and replacing it. On a native app the capture is the
+screenshot alone.
+
+Without a pushed screencast (a native app, Safari, Firefox) the filmstrip is
+built from these screenshots, so a command that takes no capture can still
+take one for the filmstrip alone, with no row screenshot and no A11y tree:
+every command a `WebDriverWait` issues that returns (a poll that raises, such as `NoSuchElementException`, takes none), and any other read once 200 ms (the JS
+adapters' poll interval) have passed since the last frame. The end-of-test
+capture is a frame too, so the filmstrip ends where the test did.
+
 What lands in the archive, beyond the command rows, console, network and
-per-command screenshots that both modes capture:
+screenshots described above:
 
 | | Default | Opt out |
 |---|---|---|
 | Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
-| A11y tree + element overlay — read beside each action, two extra round trips per command | on | `DEVTOOLS_A11Y=0` |
+| A11y tree + element overlay, read beside each captured command at two extra round trips each | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
 | Stylesheets and fonts the pages used, stored once each by content hash so the replay does not load them from the site (images still do); the collector's reads of them are left out of the network rows | on | `DEVTOOLS_TRACE_RESOURCES=none`, `--devtools-trace-resources none`, ini `devtools_trace_resources = none`, or `enable(trace_resources="none")` |
 
@@ -705,7 +724,7 @@ dry run never spends them.
 ## Roadmap
 
 Live mode, trace export with action snapshots, the pushed CDP screencast,
-per-command screenshots and selectors, performance timings, run controls
+command screenshots and selectors, performance timings, run controls
 (Run / Rerun / Run-all) and Preserve & Rerun are all done — see the sections
 above. What the JavaScript adapters have and this one does not:
 

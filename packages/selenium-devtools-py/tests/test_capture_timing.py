@@ -172,7 +172,7 @@ class TestTheAdapterCapture(Base):
         def execute_script(self, script, *args):
             return [{"selector": "#go"}]
 
-    def test_a_read_is_timed_with_its_screenshot_alone_and_the_end_frame_as_final(self):
+    def test_a_read_takes_no_capture_and_the_end_frame_is_timed_as_final(self):
         self.env("1")
         instrumentation.uninstall()
         self.addCleanup(instrumentation.uninstall)
@@ -191,15 +191,13 @@ class TestTheAdapterCapture(Base):
             driver.execute("getElementText", {"value": "x"})
             instrumentation._capture_final_frame(driver)
         records, _ = _drain(self.out)
-        read, final = records
-        self.assertEqual((read["command"], read["trigger"]), ("getElementText", "action"))
-        self.assertEqual([p["probe"] for p in read["probes"]], ["screenshot"])
+        self.assertEqual(len(records), 1, "a read was timed as a capture")
+        final = records[0]
         self.assertEqual((final["command"], final["trigger"]), ("getElementText", "final"))
         self.assertEqual(
             [p["probe"] for p in final["probes"]],
             ["screenshot", "elements", "accessibilityTree"],
         )
-
 
 if __name__ == "__main__":
     unittest.main()

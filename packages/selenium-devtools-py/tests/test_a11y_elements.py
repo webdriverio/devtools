@@ -107,7 +107,7 @@ class TestCapturingPerAction(unittest.TestCase):
                 raise RuntimeError("no such session")
             return self._elements
 
-    def _capture(self, driver, *, trace=True, a11y=True, scripts=SCRIPTS):
+    def _capture(self, driver, *, trace=True, a11y=True, scripts=SCRIPTS, shot="c2hvdA=="):
         with mock.patch.dict(
             instrumentation._state,
             {
@@ -118,14 +118,14 @@ class TestCapturingPerAction(unittest.TestCase):
             },
         ):
             instrumentation._capture_action_snapshot(
-                driver, "clickElement", 1200, "c2hvdA=="
+                driver, "clickElement", 1200, shot
             )
             return instrumentation.action_snapshots()
 
-    def test_a_native_app_is_not_read_at_all(self):
+    def test_a_native_app_keeps_the_screenshot_alone(self):
         """Both reads are page script and they fire on every action, so on a
         session with no document they are the densest source of round trips
-        that can only fail."""
+        that can only fail. The screenshot is the capture there."""
 
         class NativeDriver(self.Driver):
             capabilities = {"platformName": "Android", "appium:app": "/app.apk"}
@@ -134,7 +134,9 @@ class TestCapturingPerAction(unittest.TestCase):
         snaps = self._capture(driver)
 
         self.assertEqual(driver.scripts_run, [])
-        self.assertEqual(snaps, [])
+        self.assertEqual(
+            snaps, [{"timestamp": 1200, "command": "clickElement", "screenshot": "c2hvdA=="}]
+        )
 
     def test_a_phone_running_a_browser_is_still_read(self):
         class MobileWebDriver(self.Driver):
@@ -203,23 +205,26 @@ class TestCapturingPerAction(unittest.TestCase):
         self.assertEqual(self._capture(driver, trace=False), [])
         self.assertEqual(driver.scripts_run, [], "paid for a read in live mode")
 
-    def test_nothing_is_captured_with_a11y_off(self):
+    def test_a11y_off_reads_no_tree_and_keeps_the_screenshot(self):
         driver = self.Driver(elements=[{"selector": "#go"}])
-        self.assertEqual(self._capture(driver, a11y=False), [])
+        snaps = self._capture(driver, a11y=False)
         self.assertEqual(driver.scripts_run, [])
+        self.assertEqual([sorted(s) for s in snaps], [["command", "screenshot", "timestamp"]])
 
-    def test_without_the_scripts_it_is_a_no_op(self):
+    def test_without_the_scripts_it_reads_no_tree(self):
         # A backend too old to serve them.
         driver = self.Driver(elements=[{"selector": "#go"}])
-        self.assertEqual(self._capture(driver, scripts=None), [])
+        snaps = self._capture(driver, scripts=None)
         self.assertEqual(driver.scripts_run, [])
+        self.assertEqual([sorted(s) for s in snaps], [["command", "screenshot", "timestamp"]])
 
     # An empty tree carries nothing the A11y tab can show, and a snapshot with
     # no elements makes the exporter write no *-elements.json anyway.
-    def test_an_empty_or_failed_read_records_no_snapshot(self):
-        self.assertEqual(self._capture(self.Driver(elements=[])), [])
-        self.assertEqual(self._capture(self.Driver(elements=None)), [])
-        self.assertEqual(self._capture(self.Driver(raises=True)), [])
+    def test_an_empty_or_failed_read_keeps_only_the_screenshot(self):
+        for driver in (self.Driver(elements=[]), self.Driver(elements=None), self.Driver(raises=True)):
+            snaps = self._capture(driver)
+            self.assertEqual([sorted(s) for s in snaps], [["command", "screenshot", "timestamp"]])
+            self.assertEqual(self._capture(driver, shot=None), [])
 
     @contextlib.contextmanager
     def _armed(self, driver=None):
@@ -291,14 +296,16 @@ class TestCapturingPerAction(unittest.TestCase):
             self._gate(driver, "getElementText", shot="c2hvdA==")
             self.assertEqual(self._captured(), ["clickElement", "getElementText"])
 
-    def test_the_initial_frame_waits_for_a_capture_that_can_run(self):
+    def test_a_native_initial_frame_is_its_screenshot(self):
         class NativeDriver(self.Driver):
             capabilities = {"platformName": "Android", "appium:app": "/app.apk"}
 
         with self._armed(NativeDriver(elements=[{"selector": "#go"}])) as driver:
             self._gate(driver, "getElementText")
-            self.assertTrue(instrumentation._state["test"].awaiting_initial_frame)
+            self._gate(driver, "findElements")
+            self.assertFalse(instrumentation._state["test"].awaiting_initial_frame)
             self.assertEqual(driver.scripts_run, [])
+            self.assertEqual(self._captured(), ["getElementText"])
 
     # Deny-list: a command the set does not name is captured, so only commands
     # known not to change the page may be listed.

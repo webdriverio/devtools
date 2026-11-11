@@ -58,9 +58,9 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 | Run, Rerun and Run all from the dashboard | ◐ ² | ◐ ² | ◐ ² | ✓ |
 | Preserve & Rerun (compare a failed run with its rerun) | ✓ | ✓ | ✓ | ✓ |
 | Dashboard window opens by itself in live mode, and can be turned off | ◐ ³ | ✓ ⁴ | ◐ ⁵ | ✓ ⁶ |
-| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁸ |
-| Force the test browser headless (`headless`) | ✕ ⁹ | ◐ ¹⁰ | ✕ ⁹ | ✕ ⁹ |
-| Safari kept frontmost so input lands (live mode) | ◐ ¹¹ | ✓ ¹² | ◐ ¹¹ | ◐ ¹¹ |
+| Turn off per-command screenshots (`captureScreenshots`) | ✕ ⁷ | ✓ | ✕ ⁸ | ✕ ⁹ |
+| Force the test browser headless (`headless`) | ✕ ¹⁰ | ◐ ¹¹ | ✕ ¹⁰ | ✕ ¹⁰ |
+| Safari kept frontmost so input lands (live mode) | ◐ ¹² | ✓ ¹³ | ◐ ¹² | ◐ ¹² |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
@@ -80,13 +80,15 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 
 ⁸ No option: every command row takes a screenshot.
 
-⁹ No option: set headless in the browser capabilities, as for any run.
+⁹ No option: in live mode every command row takes a screenshot; in trace mode every row of a page-changing command does.
 
-¹⁰ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
+¹⁰ No option: set headless in the browser capabilities, as for any run.
 
-¹¹ Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+¹¹ The option adds `--headless=old` to `goog:chromeOptions` only, so other browsers stay headed; set their own headless capability.
 
-¹² Brings Safari to the front before each element click, type, clear and submit.
+¹² Brings Safari to the front once after the session starts (live mode, local macOS), so a click issued after another window took the front can still land nowhere.
+
+¹³ Brings Safari to the front before each element click, type, clear and submit.
 
 <!-- capability-matrix:readme-dashboard:end -->
 
@@ -220,7 +222,7 @@ The Python adapter (`selenium-devtools-py`) writes the same archive through the 
 
 ⁶ Nightwatch exposes no stable CDP handle, so frames come from a `takeScreenshot` poll every 200 ms.
 
-⁷ Chromium streams over CDP; other browsers take one frame per command.
+⁷ Chromium streams over CDP; other browsers take a frame per page-changing command, plus wait polls and reads at most every 200 ms.
 
 ⁸ Nightwatch fires the global `beforeEach` / `afterEach` once per test module for `describe/it` and exports-object tests, so they collapse to one slice keyed to the first test; Cucumber scenarios get real per-test slices.
 
@@ -402,7 +404,7 @@ raw records: /out/capture-timing-1.ndjson
 - **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
 - **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
 - **Filmstrip recorder.** With no CDP screencast (Safari, Appium), the `filmstrip` recorder polls a screenshot every 200 ms, and those screenshots share the driver with the captures. The last line counts them: the screenshots it took and their time from issue to settle, the ticks it let pass and why (`driver busy`: a command or a capture held the driver, so a poll would only have queued in front of it; once the newest frame is three intervals old it polls anyway, still waiting behind the command, but never during a click, typing or a capture; `fresh frame`: a capture's screenshot taken less than one interval earlier is already the frame; `shot in flight`: its previous screenshot had not answered yet), and how many per-action capture screenshots it kept as frames. Captures stay counted in the table only. CDP push mode takes no screenshots and prints no line. Python has no polling recorder; it records one frame per command.
-- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot alone.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot alone. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no capture and no record; a filmstrip-only frame it may still take without a pushed screencast is not timed.
 
 To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
 
@@ -684,7 +686,7 @@ The player is the `show-trace` bin of the Node backend the adapter already needs
 
 Capture is always opt-in, and there are three ways to say yes — `--devtools` / `--devtools-trace` for one run, `devtools` / `devtools_trace` under `[tool.pytest.ini_options]` for a project, `DEVTOOLS_ENABLE=1` (or `DEVTOOLS_PORT=<n>`, which also attaches to a running backend) for a shell. Highest wins, in that order. A plain script calls `devtools.enable(trace=True)` instead.
 
-A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, per-command screenshots and command selectors. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
+A Python trace carries the dense filmstrip, the A11y tree with its element overlay, DOM time-travel, console, network, screenshots and command selectors. As in the JS adapters, only a command that can change the page takes a capture; a read, wait or lookup shows the capture before it. The transforms that build the zip stay in the backend rather than being ported ([#298](https://github.com/webdriverio/devtools/issues/298)), so trace mode starts the backend but opens no window.
 
 Two settings shape the output, as flags, ini options, environment variables or `enable()` arguments: `traceGranularity` (`session`, the default, or `test` for one archive per test) and `tracePolicy` (`on`, or `retain-on-failure` to keep only what failed). Together, `test` + `retain-on-failure` writes one archive per failing test and nothing for a green run. The four retry-aware policies are accepted but behave exactly like `retain-on-failure`: nothing on the wire carries an attempt number. Per-test `screenshot`, `video` and inline Allure attach remain Node.js-only; it is the trace archive that is per-test. Password fields are masked in the replayed page by default here too: `mask_inputs` / `--devtools-no-mask-inputs` turns it off and `mask_selectors` / `--devtools-mask-selector` masks more (see [Password masking](#-password-masking)).
 

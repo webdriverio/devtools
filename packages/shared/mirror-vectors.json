@@ -821,6 +821,55 @@
         {"name": "outside the Basic Multilingual Plane", "url": "https://site.test/😀.css", "expect": "10dc522"},
         {"name": "a lone surrogate, encoded as U+FFFD like TextEncoder", "url": "https://site.test/\ud800.css", "expect": "1cjj3d2"}
       ]
+    },
+    "captureGate": {
+      "mirrors": {
+        "ts": "shared/trace-actions.ts skipsCapture, core/test-capture.ts TestCapture.queue",
+        "py": "instrumentation.py _capture_command, _capture_due"
+      },
+      "notes": "command is the WebDriver command name selenium-python's execute hook sees, and script the script of a w3cExecuteScript. expect.command is the command the capture is classified as: selenium-python runs some element methods as marked atom scripts, which selenium-webdriver's patched element methods report by name, so the TypeScript side is given expect.command. expect.capture is whether the command takes the per-action capture, its screenshot included; awaitingInitialFrame says the test has not taken its first capture yet.",
+      "cases": [
+        {"name": "a navigation captures", "command": "get", "awaitingInitialFrame": false, "expect": {"command": "get", "capture": true}},
+        {"name": "a click captures", "command": "clickElement", "awaitingInitialFrame": false, "expect": {"command": "clickElement", "capture": true}},
+        {"name": "typing captures", "command": "sendKeysToElement", "awaitingInitialFrame": false, "expect": {"command": "sendKeysToElement", "capture": true}},
+        {"name": "clearing a field captures", "command": "clearElement", "awaitingInitialFrame": false, "expect": {"command": "clearElement", "capture": true}},
+        {"name": "going back captures", "command": "goBack", "awaitingInitialFrame": false, "expect": {"command": "goBack", "capture": true}},
+        {"name": "a refresh captures", "command": "refresh", "awaitingInitialFrame": false, "expect": {"command": "refresh", "capture": true}},
+        {"name": "switching window captures", "command": "switchToWindow", "awaitingInitialFrame": false, "expect": {"command": "switchToWindow", "capture": true}},
+        {"name": "an actions sequence captures", "command": "actions", "awaitingInitialFrame": false, "expect": {"command": "actions", "capture": true}},
+        {"name": "a script the test runs captures", "command": "w3cExecuteScript", "script": "return document.title", "awaitingInitialFrame": false, "expect": {"command": "w3cExecuteScript", "capture": true}},
+        {"name": "accepting an alert captures", "command": "w3cAcceptAlert", "awaitingInitialFrame": false, "expect": {"command": "w3cAcceptAlert", "capture": true}},
+        {"name": "an unclassified command captures", "command": "setWindowRect", "awaitingInitialFrame": false, "expect": {"command": "setWindowRect", "capture": true}},
+        {"name": "a form submit atom is a page change", "command": "w3cExecuteScript", "script": "/* submitForm */var form = arguments[0];", "awaitingInitialFrame": false, "expect": {"command": "submit", "capture": true}},
+        {"name": "a lookup takes none", "command": "findElement", "awaitingInitialFrame": false, "expect": {"command": "findElement", "capture": false}},
+        {"name": "a multi-element lookup takes none", "command": "findElements", "awaitingInitialFrame": false, "expect": {"command": "findElements", "capture": false}},
+        {"name": "a child lookup takes none", "command": "findChildElement", "awaitingInitialFrame": false, "expect": {"command": "findChildElement", "capture": false}},
+        {"name": "a text read takes none", "command": "getElementText", "awaitingInitialFrame": false, "expect": {"command": "getElementText", "capture": false}},
+        {"name": "an enabled read takes none", "command": "isElementEnabled", "awaitingInitialFrame": false, "expect": {"command": "isElementEnabled", "capture": false}},
+        {"name": "a selected read takes none", "command": "isElementSelected", "awaitingInitialFrame": false, "expect": {"command": "isElementSelected", "capture": false}},
+        {"name": "an Appium displayed read takes none", "command": "isElementDisplayed", "awaitingInitialFrame": false, "expect": {"command": "isElementDisplayed", "capture": false}},
+        {"name": "a displayed atom takes none", "command": "w3cExecuteScript", "script": "/* isDisplayed */return (function(){}).apply(null, arguments);", "awaitingInitialFrame": false, "expect": {"command": "isDisplayed", "capture": false}},
+        {"name": "an attribute atom takes none", "command": "w3cExecuteScript", "script": "/* getAttribute */return (function(){}).apply(null, arguments);", "awaitingInitialFrame": false, "expect": {"command": "getElementAttribute", "capture": false}},
+        {"name": "an attribute read takes none", "command": "getElementAttribute", "awaitingInitialFrame": false, "expect": {"command": "getElementAttribute", "capture": false}},
+        {"name": "a property read takes none", "command": "getElementProperty", "awaitingInitialFrame": false, "expect": {"command": "getElementProperty", "capture": false}},
+        {"name": "a css read takes none", "command": "getElementValueOfCssProperty", "awaitingInitialFrame": false, "expect": {"command": "getElementValueOfCssProperty", "capture": false}},
+        {"name": "a rect read takes none", "command": "getElementRect", "awaitingInitialFrame": false, "expect": {"command": "getElementRect", "capture": false}},
+        {"name": "a tag read takes none", "command": "getElementTagName", "awaitingInitialFrame": false, "expect": {"command": "getElementTagName", "capture": false}},
+        {"name": "a url read takes none", "command": "getCurrentUrl", "awaitingInitialFrame": false, "expect": {"command": "getCurrentUrl", "capture": false}},
+        {"name": "a title read takes none", "command": "getTitle", "awaitingInitialFrame": false, "expect": {"command": "getTitle", "capture": false}},
+        {"name": "a page source read takes none", "command": "getPageSource", "awaitingInitialFrame": false, "expect": {"command": "getPageSource", "capture": false}},
+        {"name": "a window handle read takes none", "command": "w3cGetCurrentWindowHandle", "awaitingInitialFrame": false, "expect": {"command": "w3cGetCurrentWindowHandle", "capture": false}},
+        {"name": "an alert text read takes none", "command": "w3cGetAlertText", "awaitingInitialFrame": false, "expect": {"command": "w3cGetAlertText", "capture": false}},
+        {"name": "an aria role read takes none", "command": "getElementAriaRole", "awaitingInitialFrame": false, "expect": {"command": "getElementAriaRole", "capture": false}},
+        {"name": "an Appium context read takes none", "command": "getContexts", "awaitingInitialFrame": false, "expect": {"command": "getContexts", "capture": false}},
+        {"name": "an Appium activity read takes none", "command": "getCurrentActivity", "awaitingInitialFrame": false, "expect": {"command": "getCurrentActivity", "capture": false}},
+        {"name": "an Appium keyboard read takes none", "command": "isKeyboardShown", "awaitingInitialFrame": false, "expect": {"command": "isKeyboardShown", "capture": false}},
+        {"name": "an Appium app state read takes none", "command": "queryAppState", "awaitingInitialFrame": false, "expect": {"command": "queryAppState", "capture": false}},
+        {"name": "a mapped read as the test's first command captures", "command": "getElementText", "awaitingInitialFrame": true, "expect": {"command": "getElementText", "capture": true}},
+        {"name": "a url read as the test's first command captures", "command": "getCurrentUrl", "awaitingInitialFrame": true, "expect": {"command": "getCurrentUrl", "capture": true}},
+        {"name": "an unmapped lookup as the test's first command still takes none", "command": "findElement", "awaitingInitialFrame": true, "expect": {"command": "findElement", "capture": false}},
+        {"name": "a displayed atom as the test's first command captures", "command": "w3cExecuteScript", "script": "/* isDisplayed */return (function(){}).apply(null, arguments);", "awaitingInitialFrame": true, "expect": {"command": "isDisplayed", "capture": true}}
+      ]
     }
   }
 }

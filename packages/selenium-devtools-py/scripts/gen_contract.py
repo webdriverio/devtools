@@ -259,6 +259,18 @@ def _page_resource_constants(page_resources_ts: str) -> dict:
     }
 
 
+def _screencast_poll_interval_ms(types_ts: str) -> int:
+    """The JS adapters' screenshot poll interval, which paces this adapter's read frames."""
+    m = re.search(
+        r"export const SCREENCAST_DEFAULTS[^=]*= \{[^}]*?pollIntervalMs: ([0-9_]+)",
+        types_ts,
+        re.DOTALL,
+    )
+    if not m:
+        raise SystemExit("could not find `SCREENCAST_DEFAULTS.pollIntervalMs` in shared/types.ts")
+    return int(m.group(1).replace("_", ""))
+
+
 def _native_platforms(device_ts: str) -> list[str]:
     m = re.search(r"export const NATIVE_PLATFORMS = \[(.*?)\] as const", device_ts, re.DOTALL)
     if not m:
@@ -382,6 +394,9 @@ def main() -> int:
     page_resources = _page_resource_constants(
         (shared / "src" / "page-resources.ts").read_text()
     )
+    screencast_poll_interval_ms = _screencast_poll_interval_ms(
+        (shared / "src" / "types.ts").read_text()
+    )
     runner_ts = (shared / "src" / "runner.ts").read_text()
     run_id_env = _run_id_env(runner_ts)
     rerun_slot = _rerun_slot(runner_ts)
@@ -492,6 +507,7 @@ def main() -> int:
         f"PAGE_RESOURCE_SETTLE_TIMEOUT_S = {page_resources['PAGE_RESOURCE_SETTLE_TIMEOUT_MS'] / 1000}",
         f"PAGE_RESOURCE_SETTLE_POLL_S = {page_resources['PAGE_RESOURCE_SETTLE_POLL_MS'] / 1000}",
         f"MAX_STORED_RESOURCE_KEYS = {page_resources['MAX_STORED_RESOURCE_KEYS']}",
+        f"SCREENCAST_POLL_INTERVAL_MS = {screencast_poll_interval_ms}",
         "",
     ]
     pkg = shared.parent / "selenium-devtools-py" / "src" / "selenium_devtools"
