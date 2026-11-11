@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Installs the packed service and elements beside a given WebdriverIO major, the
-# way a user's project gets them, then proves they import and type-check there.
+# way a user's project gets them, then proves they import, type-check and
+# serve the dashboard there.
 #
 #   run.sh <webdriverio major> [work dir]
 #
@@ -30,7 +31,7 @@ repo_dev_version() {
   node -p "require('$ROOT/package.json').devDependencies['$1']"
 }
 
-cp "$HERE/check-imports.mjs" "$HERE/smoke.ts" "$HERE/tsconfig.json" "$PROJECT/"
+cp "$HERE/check-imports.mjs" "$HERE/check-dashboard.mjs" "$HERE/smoke.ts" "$HERE/tsconfig.json" "$PROJECT/"
 cat > "$PROJECT/package.json" <<'JSON'
 { "name": "wdio-peer-smoke", "private": true, "type": "module" }
 JSON
@@ -61,5 +62,6 @@ $NPM install --no-audit --no-fund --strict-peer-deps \
   "$PACKS"/*.tgz
 
 node check-imports.mjs "$MAJOR"
+node check-dashboard.mjs
 npx tsc -p tsconfig.json
-echo "WebdriverIO $MAJOR: install, import and type-check passed"
+echo "WebdriverIO $MAJOR: install, import, type-check and dashboard passed"

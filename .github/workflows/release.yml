@@ -19,7 +19,8 @@ on:
         default: 'patch'
 
 env:
-  NPM_CONFIG_PROVENANCE: true
+  # pnpm 11 publishes without npm and ignores NPM_CONFIG_PROVENANCE; without this a failed OIDC exchange publishes with no provenance.
+  PNPM_CONFIG_PROVENANCE: true
 
 jobs:
   release:

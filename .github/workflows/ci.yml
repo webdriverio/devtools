@@ -22,18 +22,10 @@ jobs:
           node-version-file: .nvmrc
           # the runner cache can hold a 24.x below the engines floor
           check-latest: true
-      - name: Cache pnpm modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           run_install: false
+          cache: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Lint
@@ -75,18 +67,10 @@ jobs:
           node-version-file: .nvmrc
           # the runner cache can hold a 24.x below the engines floor
           check-latest: true
-      - name: Cache pnpm modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           run_install: false
+          cache: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       # Two workers, not the runner default: each carries a Vite server plus a
@@ -113,18 +97,10 @@ jobs:
           node-version-file: .nvmrc
           # the runner cache can hold a 24.x below the engines floor
           check-latest: true
-      - name: Cache pnpm modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           run_install: false
+          cache: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Chrome version
@@ -154,18 +130,10 @@ jobs:
           node-version-file: .nvmrc
           # the runner cache can hold a 24.x below the engines floor
           check-latest: true
-      - name: Cache pnpm modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           run_install: false
+          cache: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: 📦 Bundle
@@ -222,11 +190,13 @@ jobs:
   # The workspace develops against one WebdriverIO major, but the service and
   # @wdio/elements declare peers on two. Each published major is installed from
   # npm into a scratch project beside the packed tarballs, so a peer conflict, a
-  # broken entry point or a type mismatch with that major fails here first. 9
-  # runs too so a red 10 can be told apart from a broken harness.
+  # broken entry point or a type mismatch with that major fails here first. The
+  # packed backend must also serve the dashboard from the packed app. 9 runs too
+  # so a red 10 can be told apart from a broken harness.
   wdio-peer:
     name: wdio-peer (webdriverio ${{ matrix.wdio }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -239,23 +209,15 @@ jobs:
           node-version-file: .nvmrc
           # the runner cache can hold a 24.x below the engines floor
           check-latest: true
-      - name: Cache pnpm modules
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        env:
-          cache-name: cache-pnpm-modules
-        with:
-          path: ~/.pnpm-store
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           run_install: false
+          cache: true
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       # The trailing `...` also builds what the two packages depend on, which
       # includes the app the backend tarball serves.
       - name: 📦 Bundle
         run: pnpm --workspace-concurrency=1 --filter "@wdio/devtools-service..." --filter "@wdio/elements..." build
-      - name: 🔌 Install, import and type-check against WebdriverIO ${{ matrix.wdio }}
+      - name: 🔌 Install, import, type-check and serve the dashboard against WebdriverIO ${{ matrix.wdio }}
         run: bash .github/scripts/wdio-peer-smoke/run.sh ${{ matrix.wdio }} "$RUNNER_TEMP/wdio-peer"

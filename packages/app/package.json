@@ -8,7 +8,11 @@
     "url": "git+https://github.com/webdriverio/devtools.git",
     "directory": "packages/devtools-app"
   },
-  "exports": "./src/index.ts",
+  "exports": "./dist/index.html",
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
