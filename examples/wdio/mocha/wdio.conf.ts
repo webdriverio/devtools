@@ -66,8 +66,11 @@ export const config: WebdriverIO.Config = {
               filmstrip: process.env.DEVTOOLS_FILMSTRIP !== 'off'
             }
           : {}),
-        // Always emitted, so the artifact set is inspectable for any rung.
-        emitArtifactsManifest: true
+        // Live mode warns that it ignores the manifest option, so it is set only for trace and telemetry.
+        ...(process.env.DEVTOOLS_MODE === 'trace' ||
+        process.env.DEVTOOLS_MODE === 'telemetry'
+          ? { emitArtifactsManifest: true }
+          : {})
       }
     ]
   ],

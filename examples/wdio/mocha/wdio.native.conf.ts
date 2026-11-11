@@ -74,7 +74,10 @@ export const config: WebdriverIO.Config = {
               // DEVTOOLS_FILMSTRIP=on to record one anyway.
               filmstrip: process.env.DEVTOOLS_FILMSTRIP === 'on'
             }),
-        emitArtifactsManifest: true
+        // Live mode warns that it ignores the manifest option, so it is set only for trace and telemetry.
+        ...(process.env.DEVTOOLS_MODE === 'live'
+          ? {}
+          : { emitArtifactsManifest: true })
       }
     ]
   ],

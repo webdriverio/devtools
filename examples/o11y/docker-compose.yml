@@ -2,12 +2,13 @@ services:
   lgtm:
     image: grafana/otel-lgtm:0.37.0
     ports:
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:3001:3000"
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
       - "127.0.0.1:3200:3200"
     volumes:
       - lgtm-data:/data
+      - ./tempo/tempo-config.yaml:/otel-lgtm/tempo-config.yaml:ro
       - ./grafana/devtools-provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/devtools.yaml:ro
       - ./grafana:/otel-lgtm/devtools-grafana:ro
 
