@@ -164,6 +164,59 @@ describe('traceArtifactsByUid', () => {
     )
     expect(linkedPath(manifest)).toBe('traces/login.zip')
   })
+
+  it('links a session-scope zip to a retried test final attempt', () => {
+    const manifest = manifestOf(
+      [{ ...traceZip('traces/session-s1.zip'), scope: 'session' }],
+      { attempt: 1 }
+    )
+    expect(linkedPath(manifest)).toBe('traces/session-s1.zip')
+  })
+
+  it('links a spec-scope zip to a retried test final attempt', () => {
+    const manifest = manifestOf(
+      [
+        {
+          ...traceZip('traces/login-spec.zip', 'specs/login.spec.ts'),
+          scope: 'spec'
+        }
+      ],
+      { attempt: 1 }
+    )
+    expect(linkedPath(manifest)).toBe('traces/login-spec.zip')
+  })
+
+  it('prefers the per-test zip of the final attempt over a flat session zip', () => {
+    const manifest = manifestOf(
+      [
+        { ...traceZip('traces/session-s1.zip'), scope: 'session' },
+        traceZip('traces/login-retry1.zip', `${UID}-retry1`)
+      ],
+      { attempt: 1 }
+    )
+    expect(linkedPath(manifest)).toBe('traces/login-retry1.zip')
+  })
+
+  it('links nothing for a per-test zip of attempt 0 when the test final attempt is 1', () => {
+    const manifest = manifestOf(
+      [{ ...traceZip('traces/login.zip', UID), scope: 'test' }],
+      { attempt: 1 }
+    )
+    expect(linkedPath(manifest)).toBeUndefined()
+  })
+
+  it('matches a session-scope zip in a retry folder by that retry number', () => {
+    const manifest = manifestOf(
+      [{ ...traceZip('run/session-retry1/trace.zip'), scope: 'session' }],
+      { attempt: 2 }
+    )
+    expect(linkedPath(manifest)).toBeUndefined()
+    const retried = manifestOf(
+      [{ ...traceZip('run/session-retry1/trace.zip'), scope: 'session' }],
+      { attempt: 1 }
+    )
+    expect(linkedPath(retried)).toBe('run/session-retry1/trace.zip')
+  })
 })
 
 describe('relativeWithin', () => {

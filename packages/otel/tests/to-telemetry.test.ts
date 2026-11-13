@@ -962,6 +962,39 @@ describe('pushRun attempt selection', () => {
     expect(childrenOf(final.spanContext().spanId)).toEqual(['Login'])
   })
 
+  it.each([
+    ['session', 'session/trace.zip', undefined],
+    ['spec', 'spec/login.zip', RETRIED_SPEC]
+  ] as const)(
+    'links a flat %s zip to a retried test without reading its actions',
+    async (scope, zipPath, key) => {
+      const flat: Manifest['artifacts'] = [
+        {
+          kind: 'trace',
+          path: zipPath,
+          scope,
+          key,
+          testUids: [RETRIED_UID],
+          retained: true
+        }
+      ]
+      const { spans, warnings } = await push({
+        manifests: [{ file: MANIFEST_FILE, manifest: retriedManifest(flat) }],
+        zips: new Map([
+          [path.join(RUN_DIR, zipPath), await zipOf(loginEvents)]
+        ]),
+        artifactBaseUrl: 'https://bucket.example/run-1'
+      })
+      expect(spans.map((span) => span.name)).toEqual([RETRIED_TITLE])
+      const root = byName(spans, RETRIED_TITLE)
+      expect(root.attributes[attr.ATTR_ARTIFACT_URL]).toBe(
+        `https://bucket.example/run-1/${zipPath}`
+      )
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain("record with traceGranularity:'test'")
+    }
+  )
+
   it('never stands an earlier attempt zip in for a final attempt that has none', async () => {
     const firstOnly: Manifest['artifacts'] = [keyedArtifacts[0]]
     const { spans, warnings } = await push({

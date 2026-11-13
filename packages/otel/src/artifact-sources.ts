@@ -3,7 +3,6 @@ import { parseTraceZip } from '@wdio/devtools-trace/trace-reader'
 import { retryKeyOf, type TracePlayerData } from '@wdio/devtools-shared'
 import type { ManifestArtifact, Manifest, ManifestTest } from './manifest.js'
 
-// Keyless artifacts (session-scope zips, manifests from before `key`) name their attempt only in the folder; a per-test key ends the same way.
 const RETRY_DIR_SUFFIX = /-retry(\d+)$/
 
 export function describe(error: unknown): string {
@@ -13,6 +12,23 @@ export function describe(error: unknown): string {
 function retryOf(artifact: ManifestArtifact): number {
   const dir = path.basename(path.dirname(artifact.path))
   return Number(RETRY_DIR_SUFFIX.exec(dir)?.[1] ?? 0)
+}
+
+/** A session or spec zip is flat and holds every attempt of its tests; only a per-test zip's folder names an attempt. */
+export function coversEveryAttempt(artifact: ManifestArtifact): boolean {
+  const dir = path.basename(path.dirname(artifact.path))
+  return (
+    (artifact.scope === 'session' || artifact.scope === 'spec') &&
+    !RETRY_DIR_SUFFIX.test(dir)
+  )
+}
+
+/** Whether the test's zip also holds the actions of an earlier attempt, so reading it would attach them to the final one. */
+export function holdsEarlierAttempts(
+  artifact: ManifestArtifact,
+  test: ManifestTest
+): boolean {
+  return coversEveryAttempt(artifact) && finalAttemptOf(test) > 0
 }
 
 /** The attempt the test's trace root is linked under: its final record's, or `test.attempt` when the manifest has no `attempts`. */
@@ -35,7 +51,12 @@ function pickTraceArtifact(
     return candidates.find((artifact) => artifact.key === key)
   }
   const attempt = finalAttemptOf(test)
-  return candidates.find((artifact) => retryOf(artifact) === attempt)
+  return (
+    candidates.find(
+      (artifact) =>
+        !coversEveryAttempt(artifact) && retryOf(artifact) === attempt
+    ) ?? candidates.find(coversEveryAttempt)
+  )
 }
 
 /** Each test's final-attempt trace zip, keyed by uid; built once per manifest. */

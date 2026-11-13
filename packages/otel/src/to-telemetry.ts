@@ -15,6 +15,7 @@ import * as attr from './attributes.js'
 import {
   artifactUrlFor,
   describe,
+  holdsEarlierAttempts,
   traceArtifactsByUid,
   zipReader
 } from './artifact-sources.js'
@@ -393,10 +394,11 @@ function planManifest(
     const artifact = artifactsByUid.get(test.uid)
     const sharedZip =
       artifact !== undefined &&
-      artifact.testUids.filter((uid) => testUids.has(uid)).length > 1
+      (artifact.testUids.filter((uid) => testUids.has(uid)).length > 1 ||
+        holdsEarlierAttempts(artifact, test))
     if (sharedZip && input.traceZips && !warnedSharedZip) {
       input.warn(
-        `skipped action spans in ${file}: its zips cover several tests, so they are linked but not read; record with traceGranularity:'test' for per-test action spans`
+        `skipped action spans in ${file}: its zips cover several tests or attempts, so they are linked but not read; record with traceGranularity:'test' for per-test action spans`
       )
       warnedSharedZip = true
     }
