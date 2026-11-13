@@ -1,8 +1,9 @@
 // Per-test metadata helpers shared between the before* and after* hooks so the
 // state stamp in afterTest/afterScenario lands on the entry beforeTest created.
 
-import { deterministicUid } from '@wdio/devtools-core'
+import { deterministicUid, type TestAttemptTracker } from '@wdio/devtools-core'
 import type { TestMetadataMap, TestStatus } from '@wdio/devtools-shared'
+import type { RetriedTest } from './types.js'
 
 /** The subset of a WDIO afterTest/afterScenario hook result this adapter reads:
  *  pass/skip state, the error, and WDIO's authoritative 0-based retry count. */
@@ -82,4 +83,39 @@ export function resolveTestAttempt(
 ): number {
   const attempts = result?.retries?.attempts
   return Math.max(typeof attempts === 'number' ? attempts : 0, fallback)
+}
+
+/** The ledger uid of a test the reporter saw retried, matched on file and title (the reporter's uid and dotted fullTitle are its own). */
+export function retriedTestUid(
+  metadata: TestMetadataMap,
+  started: (uid: string) => boolean,
+  test: RetriedTest,
+  fallback: string | undefined
+): string | undefined {
+  const named = (suffix: string) =>
+    [...metadata].filter(
+      ([uid, entry]) =>
+        started(uid) &&
+        entry.specFile === test.file &&
+        (entry.title === suffix || entry.title.endsWith(` ${suffix}`))
+    )
+  const byTitle = named(test.title)
+  const matches =
+    byTitle.length > 1 && test.parent
+      ? named(`${test.parent} ${test.title}`)
+      : byTitle
+  return matches.length === 1 ? matches[0][0] : fallback
+}
+
+/** Stamp a reporter `test:retry` failed in the ledger; a test it cannot name (a Cucumber step) is the current one, still open. */
+export function recordRetriedAttempt(
+  tracker: Pick<TestAttemptTracker, 'attemptFor' | 'recordOutcome'>,
+  metadata: TestMetadataMap,
+  { retried, current }: { retried: RetriedTest; current?: string }
+): void {
+  const started = (uid: string) => tracker.attemptFor(uid) !== undefined
+  const uid = retriedTestUid(metadata, started, retried, current)
+  if (uid) {
+    tracker.recordOutcome(uid, 'failed')
+  }
 }

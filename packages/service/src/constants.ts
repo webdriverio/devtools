@@ -1,4 +1,5 @@
 import type { ParserPlugin } from '@babel/parser'
+import type { HookStats } from '@wdio/reporter'
 
 // SCREENCAST_DEFAULTS hoisted to @wdio/devtools-shared; re-exported for
 // backwards compatibility with existing service-internal imports.
@@ -197,3 +198,15 @@ export const SPEC_FRAME_SEARCH_DEPTH = 40
 
 /** How long a test's end waits for the service's own command hooks, which a wait's timeout can leave running past it. */
 export const HOOKS_SETTLE_TIMEOUT_MS = 10_000
+
+/** The label of each hook kind @wdio/reporter reports, for a failed Cucumber hook's row. */
+export const CUCUMBER_HOOK_LABEL: Readonly<
+  Record<NonNullable<HookStats['hookKind']>, string>
+> = {
+  beforeAll: 'BeforeAll',
+  afterAll: 'AfterAll',
+  beforeEach: 'Before',
+  afterEach: 'After',
+  beforeStep: 'BeforeStep',
+  afterStep: 'AfterStep'
+}

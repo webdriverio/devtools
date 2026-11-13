@@ -96,6 +96,8 @@ declare module '@wdio/reporter' {
     // Cucumber-specific fields stay locally cast in reporter.ts.
     pickle?: { uri?: string; location?: { line?: number } }
     uri?: string
+    // Position among the suite's children, which the dashboard sorts by.
+    order?: number
   }
 
   interface SuiteStats {
@@ -105,6 +107,7 @@ declare module '@wdio/reporter' {
     featureLine?: number
     pickle?: { uri?: string; location?: { line?: number } }
     uri?: string
+    order?: number
   }
 }
 
@@ -114,6 +117,13 @@ declare module '@wdio/reporter' {
  *  versions, so we pin only what's invoked. */
 export interface CucumberExpressionLike {
   match(text: string): unknown
+}
+
+/** What the reporter knows of a retried test: its title, its suite's title and its file. */
+export interface RetriedTest {
+  title: string
+  parent?: string
+  file?: string
 }
 
 export type StepDef = {

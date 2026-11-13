@@ -269,6 +269,37 @@ describe('mergeSuite', () => {
     // state=undefined doesn't clobber existing 'passed'.
     expect(mergeSuite(existing, incoming, ctx()).state).toBe('passed')
   })
+
+  it('drops the failed attempt of a retried scenario, its failed hook row included', () => {
+    const existing = suite('scenario', {
+      state: undefined,
+      retries: 0,
+      tests: [
+        test('hook-before', { state: 'failed', title: 'Before' }),
+        test('step-1', { state: 'skipped' })
+      ]
+    })
+    const incoming = suite('scenario', {
+      state: undefined,
+      retries: 1,
+      tests: [test('step-1', { state: 'passed', start: 3000, end: 4000 })]
+    })
+    const merged = mergeSuite(existing, incoming, ctx())
+    expect(merged.tests?.map((t) => [t.uid, t.state])).toEqual([
+      ['step-1', 'passed']
+    ])
+    expect(merged.state).toBe('passed')
+    // Later updates of the same attempt merge as before.
+    const next = suite('scenario', {
+      state: undefined,
+      retries: 1,
+      tests: [test('step-2', { state: 'passed', start: 4000, end: 5000 })]
+    })
+    expect(mergeSuite(merged, next, ctx()).tests?.map((t) => t.uid)).toEqual([
+      'step-1',
+      'step-2'
+    ])
+  })
 })
 
 describe('mergeChildSuites', () => {

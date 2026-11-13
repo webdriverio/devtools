@@ -1,0 +1,55 @@
+{
+  "example": "wdio-cucumber",
+  "runFails": true,
+  "sourceFiles": [
+    "examples/wdio/cucumber/features/login.feature",
+    "examples/wdio/cucumber/features/login-fail.feature",
+    "examples/wdio/cucumber/features/step-definitions/steps.ts",
+    "examples/wdio/pageobjects/page.ts",
+    "examples/wdio/pageobjects/login.page.ts",
+    "examples/wdio/pageobjects/secure.page.ts"
+  ],
+  "pageResources": ["/css/fixture.css", "/fonts/fixture-icons.woff2"],
+  "traceBudget": {
+    "maxBytes": 370000,
+    "measuredBytes": 295554,
+    "measuredIn": "local run, Chrome 157, 2026-11-13 (2 zips: 190,385 + 105,169)"
+  },
+  "tests": [
+    {
+      "scope": "run",
+      "reason": "The service nests a Cucumber row under its step's group, and this example's step titles repeat across the outline's two rows and login-fail.feature, so the totals are checked over the run.",
+      "rows": [
+        "Page.navigate",
+        "Page.navigate",
+        "Page.navigate",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.fill",
+        "Element.click",
+        "Element.click",
+        "Element.click",
+        "Assert.toBeExisting",
+        "Assert.toBeExisting",
+        "Assert.toBeExisting",
+        "Assert.toHaveText",
+        "Assert.toHaveText",
+        "Assert.toHaveText"
+      ],
+      "error": true
+    },
+    {
+      "test": "When I login with tomsmith and SuperSecretPassword!",
+      "rows": ["Element.fill", "Element.fill", "Element.click"],
+      "error": false
+    },
+    {
+      "test": "Then I should see a flash message saying Your username is invalid!",
+      "rows": ["Assert.toBeExisting", "Assert.toHaveText"],
+      "error": false
+    }
+  ]
+}

@@ -201,7 +201,13 @@ export function mergeSuite(
   incoming: SuiteStatsFragment,
   ctx: MergeContext
 ): SuiteStatsFragment {
-  const mergedTests = mergeTests(existing.tests, incoming.tests, ctx)
+  // A suite that runs again (a retried Cucumber scenario) sends only the new attempt's rows, so the failed attempt's go.
+  const newAttempt = (incoming.retries ?? 0) > (existing.retries ?? 0)
+  const mergedTests = mergeTests(
+    newAttempt ? [] : existing.tests,
+    incoming.tests,
+    ctx
+  )
   const mergedSuites = mergeChildSuites(existing.suites, incoming.suites, ctx)
 
   // Strip nullish state from incoming so it doesn't overwrite a valid existing

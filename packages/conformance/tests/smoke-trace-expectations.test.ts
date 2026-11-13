@@ -797,11 +797,12 @@ describe('trace size budget', () => {
 describe('shipped expectation files', () => {
   const files = fs.readdirSync(EXPECTATIONS_DIR)
 
-  it('covers one example per adapter', () => {
+  it('covers one example per adapter, and WebdriverIO Cucumber', () => {
     expect(files.sort()).toEqual([
       'nightwatch-bdd.json',
       'python-pytest.json',
       'selenium-mocha.json',
+      'wdio-cucumber.json',
       'wdio-mocha.json'
     ])
   })

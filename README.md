@@ -34,6 +34,7 @@ Want a portable artifact instead of a live UI (CI / agent diffing)? Switch to **
 - **Smart Browser Reuse**: Tests rerun in the same browser window without opening new tabs, improving performance and user experience
 - **Stop Test Execution**: Terminate running tests with proper process cleanup using the stop button
 - **Test List Preservation**: All tests remain visible in the sidebar during reruns, maintaining full context
+- **Retries and Hooks** (WebdriverIO): A retried test is one row showing its final attempt and retry count, and a failed Cucumber hook (`BeforeAll`, `AfterAll`, `Before`, `After`) is a failed row of its feature or scenario
 
 ### 🎭 Multi-Framework Support
 - **Mocha**: Full support with grep-based filtering for test/suite execution
