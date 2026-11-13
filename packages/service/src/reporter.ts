@@ -1,4 +1,5 @@
 import WebdriverIOReporter, {
+  type HookStats,
   type SuiteStats,
   type TestStats
 } from '@wdio/reporter'
@@ -8,12 +9,20 @@ import {
   generateStableUid as generateStableUidByFileName,
   resetSignatureCounters
 } from '@wdio/devtools-core'
+import { FEATURE_FILE_RE } from '@wdio/devtools-shared'
 import {
   mapTestToSource,
   setCurrentSpecFile,
   mapSuiteToSource
 } from './utils.js'
 import { readFileSync, existsSync } from 'node:fs'
+import {
+  attemptKey,
+  descendants,
+  failedHookRow,
+  isCucumberSuite,
+  orderLast
+} from './reporter-helpers.js'
 
 // True when the stats object is a Cucumber scenario. The `type` field on
 // @wdio/reporter's SuiteStats/TestStats is a literal union ('suite' | 'test'),
@@ -31,7 +40,8 @@ function isScenario(item: SuiteStats | TestStats): boolean {
 // scenarios yields distinct, rerun-stable uids.
 function generateStableUid(
   item: SuiteStats | TestStats,
-  parentScope?: string
+  parentScope?: string,
+  inFeatureFile = false
 ): string {
   // For Cucumber scenarios, prefer the feature file URI:line as the stable
   // discriminator. The Cucumber pickle carries the actual line of the example
@@ -53,13 +63,12 @@ function generateStableUid(
   }
 
   // Fallback for Cucumber scenarios where the pickle URI:line wasn't captured.
+  // Not `parent`: WDIO 10.2 changed that feature id's form, and `file` names the feature.
   if (isScenario(item) && /^\d+$/.test(item.uid)) {
     const file = 'file' in item ? (item.file ?? '') : ''
-    const parent = 'parent' in item ? (item.parent ?? '') : ''
     return deterministicUid(
       item.title,
       file,
-      parent,
       item.cid || '',
       `example-${item.uid}`
     )
@@ -77,13 +86,9 @@ function generateStableUid(
     )
   }
 
-  // For Mocha/Jasmine tests and suites, use only stable identifiers
-  // that don't change between full and partial runs
-  // DO NOT use cid or parent as they can vary based on run context
-  return generateStableUidByFileName(
-    stepFile,
-    String(item.fullTitle || item.title)
-  )
+  // Mocha/Jasmine, and a `scenarioLevelReporter` scenario by title (its fullTitle holds the feature id); never cid or parent.
+  const name = inFeatureFile ? item.title : item.fullTitle || item.title
+  return generateStableUidByFileName(stepFile, String(name))
 }
 
 /**
@@ -171,6 +176,9 @@ function parseFeatureFileForExampleLines(
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: Record<string, SuiteStats>[]) => void
   #loadSource: (location: string) => void
+  #onRetry: (testStats: TestStats) => void
+  /** Stable uid of each retried test, which its next attempt takes over. */
+  #retriedUids = new Map<string, string>()
   #currentSpecFile?: string
   #suitePath: string[] = []
   /** Stable uid of the Cucumber scenario currently open, used to scope its
@@ -180,11 +188,13 @@ export class TestReporter extends WebdriverIOReporter {
   constructor(
     options: Reporters.Options,
     report: (data: Record<string, SuiteStats>[]) => void,
-    loadSource: (location: string) => void = () => {}
+    loadSource: (location: string) => void = () => {},
+    onRetry: (testStats: TestStats) => void = () => {}
   ) {
     super(options)
     this.#report = report
     this.#loadSource = loadSource
+    this.#onRetry = onRetry
     // Reset signature counters for each new reporter instance (new test run)
     resetSignatureCounters()
   }
@@ -257,6 +267,7 @@ export class TestReporter extends WebdriverIOReporter {
 
   onTestStart(testStats: TestStats): void {
     super.onTestStart(testStats)
+    const inFeatureFile = FEATURE_FILE_RE.test(testStats.file ?? '')
 
     // For Cucumber: capture feature file URI and line from pickle
     const cucumberArg = (testStats as { argument?: unknown }).argument as
@@ -280,7 +291,12 @@ export class TestReporter extends WebdriverIOReporter {
     // Generate stable UID after enriching metadata for consistent test
     // identification. Cucumber steps are scoped by their scenario's uid so
     // identical step text across scenarios stays distinct.
-    testStats.uid = generateStableUid(testStats, this.#currentScenarioUid)
+    const retryKey = attemptKey(testStats)
+    const retriedUid = this.#retriedUids.get(retryKey)
+    this.#retriedUids.delete(retryKey)
+    testStats.uid =
+      retriedUid ??
+      generateStableUid(testStats, this.#currentScenarioUid, inFeatureFile)
 
     this.#sendUpstream()
   }
@@ -319,6 +335,42 @@ export class TestReporter extends WebdriverIOReporter {
     this.#sendUpstream()
   }
 
+  // The retried attempt's row gives way to the next attempt, which keeps its uid.
+  onTestRetry(testStats: TestStats): void {
+    super.onTestRetry(testStats)
+    this.#retriedUids.set(attemptKey(testStats), testStats.uid)
+    const suite = Object.values(this.suites).find((s) =>
+      s?.tests.includes(testStats)
+    )
+    if (suite) {
+      suite.tests = suite.tests.filter((t) => t !== testStats)
+    }
+    this.#onRetry(testStats)
+    this.#sendUpstream()
+  }
+
+  // A failed Cucumber hook fails no step, so without a row of its own it shows nowhere.
+  onHookEnd(hookStats: HookStats): void {
+    super.onHookEnd(hookStats)
+    const error = hookStats.error ?? hookStats.errors?.[0]
+    if (!error || hookStats.failedTestUid) {
+      return
+    }
+    // In 10.2's parallel path a scenario hook's `parent` is the pickle id; only `parentUid` names the scenario's suite.
+    const ownerUid =
+      hookStats.parentUid ?? hookStats.hookSuiteUid ?? hookStats.parent
+    const owner = this.suites[ownerUid]
+    if (!isCucumberSuite(owner)) {
+      return
+    }
+    const row = failedHookRow(hookStats, owner, ownerUid, error)
+    owner.tests.push(row)
+    if (hookStats.hookKind === 'afterAll') {
+      orderLast(owner, row)
+    }
+    this.#sendUpstream()
+  }
+
   onSuiteEnd(suiteStats: SuiteStats): void {
     super.onSuiteEnd(suiteStats)
     // Stop scoping steps once the owning scenario closes.
@@ -347,9 +399,15 @@ export class TestReporter extends WebdriverIOReporter {
 
     const payload: Record<string, SuiteStats>[] = []
 
-    // Use the suite's current UID (which we've set to stable) as the key
-    for (const suite of Object.values(this.suites)) {
-      if (suite) {
+    // Use the suite's current UID (which we've set to stable) as the key.
+    // The tree too: on 9.x a second same-named feature replaces the first in `this.suites`.
+    const listed = new Set<SuiteStats>()
+    for (const suite of [
+      ...Object.values(this.suites),
+      ...descendants(this.currentSuites[0])
+    ]) {
+      if (suite && !listed.has(suite)) {
+        listed.add(suite)
         payload.push({ [suite.uid]: suite })
       }
     }

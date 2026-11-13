@@ -196,12 +196,33 @@ function resetStaleChildrenOnRerun(
   )
 }
 
+// A retried suite resends only the new attempt's rows; a fresh run drops old hook rows, which a passing hook never replaces.
+function testsCarriedInto(
+  existing: SuiteStatsFragment,
+  incoming: SuiteStatsFragment
+): TestStatsFragment[] | undefined {
+  if ((incoming.retries ?? 0) > (existing.retries ?? 0)) {
+    return []
+  }
+  const startsAgain =
+    !!existing.start &&
+    !!incoming.start &&
+    getTimestamp(existing.start) !== getTimestamp(incoming.start)
+  return startsAgain
+    ? existing.tests?.filter((test) => !test?.hook)
+    : existing.tests
+}
+
 export function mergeSuite(
   existing: SuiteStatsFragment,
   incoming: SuiteStatsFragment,
   ctx: MergeContext
 ): SuiteStatsFragment {
-  const mergedTests = mergeTests(existing.tests, incoming.tests, ctx)
+  const mergedTests = mergeTests(
+    testsCarriedInto(existing, incoming),
+    incoming.tests,
+    ctx
+  )
   const mergedSuites = mergeChildSuites(existing.suites, incoming.suites, ctx)
 
   // Strip nullish state from incoming so it doesn't overwrite a valid existing

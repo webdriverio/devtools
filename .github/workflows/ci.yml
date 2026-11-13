@@ -192,6 +192,10 @@ jobs:
       - name: 🧪 WebdriverIO + Mocha (examples/wdio/mocha)
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: bash .github/scripts/examples-smoke/run-example.sh wdio-mocha pnpm demo:wdio:mocha
+      # Both features, so the deliberately failing one is in the run.
+      - name: 🧪 WebdriverIO + Cucumber (examples/wdio/cucumber)
+        if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
+        run: bash .github/scripts/examples-smoke/run-example.sh wdio-cucumber env DEVTOOLS_SPECS=all pnpm demo:wdio
       - name: 🧪 Selenium + Mocha (examples/selenium-js/mocha)
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}
         run: bash .github/scripts/examples-smoke/run-example.sh selenium-mocha pnpm --filter @wdio/selenium-devtools example:mocha

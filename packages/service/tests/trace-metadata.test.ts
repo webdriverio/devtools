@@ -4,6 +4,7 @@ import { deterministicUid } from '@wdio/devtools-core'
 import {
   cucumberScenarioUid,
   resultToState,
+  retriedTestUid,
   testMetadataUid
 } from '../src/test-metadata.js'
 
@@ -90,6 +91,47 @@ describe('test-metadata helpers', () => {
     expect(cucumberScenarioUid(uri, 'log in')).toBe(
       deterministicUid(uri, 'log in')
     )
+  })
+})
+
+describe('retriedTestUid', () => {
+  const file = '/proj/specs/login.spec.ts'
+  const metadata = new Map([
+    ['uid-a', { title: 'a logs in', specFile: file }],
+    ['uid-b', { title: 'b logs in', specFile: file }],
+    [
+      'uid-other',
+      { title: 'a logs in', specFile: '/proj/specs/other.spec.ts' }
+    ],
+    ['uid-a:step:1', { title: 'Given I log in', specFile: file }]
+  ])
+  const started = (uid: string) => !uid.includes(':step:')
+
+  it('names a same-titled test by its suite and file', () => {
+    const test = { title: 'logs in', parent: 'b', file }
+    expect(retriedTestUid(metadata, started, test, 'uid-a')).toBe('uid-b')
+  })
+
+  it('falls back to the current test when nothing started matches (a Cucumber step)', () => {
+    const step = { title: 'Given I log in', parent: '0', file }
+    expect(retriedTestUid(metadata, started, step, 'uid-a')).toBe('uid-a')
+  })
+
+  it("never names another scenario from a Cucumber step's title", () => {
+    const feature = '/proj/features/checkout.feature'
+    const scenarios = new Map([
+      ['uid-earlier', { title: 'Then checkout succeeds', specFile: feature }],
+      ['uid-current', { title: 'Pay by card', specFile: feature }]
+    ])
+    const step = { title: 'Then checkout succeeds', parent: '1', file: feature }
+    expect(retriedTestUid(scenarios, () => true, step, 'uid-current')).toBe(
+      'uid-current'
+    )
+  })
+
+  it('falls back when the title is ambiguous and no suite matches', () => {
+    const test = { title: 'logs in', parent: 'c', file }
+    expect(retriedTestUid(metadata, started, test, 'uid-b')).toBe('uid-b')
   })
 })
 
@@ -217,6 +259,53 @@ describe('DevtoolsService - afterTest state stamping', () => {
       testMetadata: Map<string, { attempt?: number }>
     }
     expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(3)
+  })
+
+  it("records the reporter's test:retry on the retried test, not the current one", async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    const config = { reporters: [] as unknown[] }
+    service.beforeSession(config as never, { browserName: 'chrome' } as never)
+    const Reporter = config.reporters.at(-1) as new (options: object) => {
+      onTestRetry(stats: unknown): void
+    }
+    const reporter = new Reporter({ logFile: '/tmp/test.log' })
+    await service.before({} as never, [], mockBrowser)
+    // Two same-titled tests in different suites interleave; `b` is current when `a` retries.
+    service.beforeTest({ file, fullTitle: 'a logs in' })
+    service.beforeTest({ file, fullTitle: 'b logs in' })
+    // An outcome hook that reads the attempt as passed isolates the retry signal.
+    await service.afterTest(
+      { file, fullTitle: 'a logs in' },
+      {},
+      { passed: true }
+    )
+    reporter.onTestRetry({
+      uid: 'stable-x',
+      title: 'logs in',
+      fullTitle: 'a.logs in',
+      parent: 'a',
+      file
+    })
+    await service.afterTest(
+      { file, fullTitle: 'b logs in' },
+      {},
+      { passed: true }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      outcomes: { forTest(uid: string): unknown[] }
+    }
+    const uidA = deterministicUid(file, 'a logs in')
+    const uidB = deterministicUid(file, 'b logs in')
+    expect(ctx.outcomes.forTest(uidA)).toEqual([
+      { uid: uidA, attempt: 0, state: 'failed' }
+    ])
+    expect(ctx.outcomes.forTest(uidB)).toEqual([
+      { uid: uidB, attempt: 0, state: 'passed' }
+    ])
   })
 
   it('stamps a Cucumber scenario state in afterScenario', async () => {

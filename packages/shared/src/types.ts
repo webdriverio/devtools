@@ -759,6 +759,8 @@ export interface TestStats {
   hooks?: unknown[]
   callSource?: string
   order?: number
+  /** Set on a row that stands for a failed hook rather than a test. */
+  hook?: boolean
 }
 
 export interface SuiteStats {
