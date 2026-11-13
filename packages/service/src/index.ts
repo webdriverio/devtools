@@ -14,7 +14,6 @@ import {
   resolveAdapterOutputDir,
   stepMetadataUid,
   TestAttemptTracker,
-  tracePolicyModeWarning,
   upsertRichestSnapshot,
   type TraceArtifact,
   type TraceExportContext,
@@ -38,10 +37,15 @@ import {
   settleAfterLastAction
 } from './action-snapshot.js'
 import {
+  assertDevToolsMode,
+  capturesTrace,
+  ignoredOptionsWarning,
   isWaitCommand,
   skipsCapture,
+  startsBackend,
   type ActionSnapshot,
-  type TestMetadataMap
+  type TestMetadataMap,
+  observesPage
 } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
@@ -89,7 +93,7 @@ export { setupForDevtools } from './standalone.js'
 
 export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
-  #sessionCapturer = new SessionCapturer()
+  #sessionCapturer: SessionCapturer
   #browser?: WebdriverIO.Browser
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
@@ -106,8 +110,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #slices: TraceSliceTracker
 
   constructor(serviceOptions: ServiceOptions = {}) {
+    assertDevToolsMode(serviceOptions.mode)
     this.#options = serviceOptions
     configureInputMasking(serviceOptions)
+    this.#sessionCapturer = new SessionCapturer({
+      captureOutput: observesPage(serviceOptions.mode)
+    })
     this.#assertionTracker = new AssertionTracker({
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,
@@ -116,8 +124,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       options: this.#options,
       actionSnapshots: this.#actionSnapshots
     })
-    const policyWarning = tracePolicyModeWarning(
-      serviceOptions.tracePolicy,
+    const policyWarning = ignoredOptionsWarning(
+      serviceOptions,
       serviceOptions.mode
     )
     if (policyWarning) {
@@ -247,13 +255,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const wdioCaps = caps as Capabilities.W3CCapabilities & {
       'wdio:devtoolsOptions'?: ServiceOptions
     }
-    this.#sessionCapturer = new SessionCapturer(
-      wdioCaps['wdio:devtoolsOptions']
-    )
+    this.#sessionCapturer = new SessionCapturer({
+      ...wdioCaps['wdio:devtoolsOptions'],
+      captureOutput: observesPage(this.#options.mode)
+    })
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
     this.#sessionCapturer.pageResourceStore.configure(this.#options)
     // The dashboard window took the front; Safari clicks reach nothing there.
-    if ((this.#options.mode ?? 'live') === 'live') {
+    if (startsBackend(this.#options.mode)) {
       const caps = browser.capabilities as
         { browserName?: string; platformName?: string } | undefined
       restoreBrowserFocus({
@@ -266,7 +275,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
     publishConfigFile(this.#sessionCapturer)
 
-    if (this.#options.captureAssertions !== false) {
+    if (
+      this.#options.captureAssertions !== false &&
+      observesPage(this.#options.mode)
+    ) {
       wireAssertCapture(
         () => this.#sessionCapturer,
         () => this.#currentTestUid
@@ -278,7 +290,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * Skip on native mobile — Appium sessions don't support WebDriver BiDi
      * and the injection always fails with SevereServiceError.
      */
-    if (!isAppiumSession(browser)) {
+    if (!isAppiumSession(browser) && observesPage(this.#options.mode)) {
       try {
         await this.#injectScriptSync(browser)
       } catch (err) {
@@ -290,13 +302,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // WDIO has already subscribed the BiDi events by now, so attaching here
     // issues no mid-run protocol traffic and misses no early events.
-    if (browser.isBidi) {
+    if (browser.isBidi && observesPage(this.#options.mode)) {
       attachBidiListeners(browser, this.#sessionCapturer)
     }
 
     await this.#screencast.start(browser)
-    this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
-    await this.#nativeNetwork.start(browser)
+    if (observesPage(this.#options.mode)) {
+      this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
+      await this.#nativeNetwork.start(browser)
+    }
 
     /**
      * Propagate session metadata at the beginning of the session. Not awaited
@@ -338,7 +352,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   async #captureSessionMetadata(browser: WebdriverIO.Browser): Promise<void> {
     try {
       this.#sessionCapturer.mergeMetadata(
-        await resolveSessionMetadata(browser, this.captureType)
+        await resolveSessionMetadata(
+          browser,
+          this.captureType,
+          observesPage(this.#options.mode)
+        )
       )
     } catch (err) {
       log.warn(`Could not capture session metadata: ${errorMessage(err)}`)
@@ -614,7 +632,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   async #finalizePerScenario() {
-    if (this.#options.mode !== 'trace' || !this.#browser) {
+    if (!capturesTrace(this.#options.mode) || !this.#browser) {
       return
     }
     // Drain the collector one final time while the session is still alive, so the
@@ -803,6 +821,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser || isServiceProbe(command)) {
       return
     }
+    // `url` is the one start-of-recording signal every runner reaches (Mocha,
+    // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
+    if (command === 'url') {
+      this.#screencast.markStart()
+      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
+    }
+    if (!observesPage(this.#options.mode)) {
+      return
+    }
     // Holds the filmstrip poll off the driver for the whole command (see
     // driver-activity.ts); opened before the pre-action probes so it spans them.
     // Not for an injection call: #afterCommand skips those before closing, so
@@ -810,12 +837,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#injecting) {
       this.#closeCommandWindow?.()
       this.#closeCommandWindow = beginDriverCommand(command)
-    }
-    // `url` is the one start-of-recording signal every runner reaches (Mocha,
-    // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
-    if (command === 'url') {
-      this.#screencast.markStart()
-      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
     // Synchronous, and settled BEFORE any await below: afterCommand pops exactly
     // what this pushed, so a push stranded behind an await would let a same-tick
@@ -848,7 +869,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // session is captured normally.
     if (
       topLevelUserCommand &&
-      this.#options.mode === 'trace' &&
+      capturesTrace(this.#options.mode) &&
       this.#browser &&
       !inPageProbesDeadlock(
         this.#browser,
@@ -910,6 +931,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     error: Error | undefined,
     issuedByService: boolean
   ) {
+    // Pairs with #beforeCommand, which pushes no command frame without observesPage.
+    if (!observesPage(this.#options.mode)) {
+      return
+    }
     // Skip bookkeeping for internal injection calls and the snapshot's own probes
     if (this.#injecting || isServiceProbe(command)) {
       return
@@ -947,7 +972,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         )
         // Trace mode captures nothing here: the state this action produced is
         // taken by the NEXT action's pre-capture, when the app has settled.
-        if (this.#options.mode !== 'trace') {
+        if (startsBackend(this.#options.mode)) {
           await this.#drainAfterLiveCommand(command)
         }
         await this.#nativeNetwork?.forward({ throttle: true })
@@ -1075,7 +1100,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   async #ensureInjected(reason: string) {
     // Keep this for re-injection after context changes
-    if (!this.#browser || this.#injecting) {
+    if (
+      !this.#browser ||
+      this.#injecting ||
+      !observesPage(this.#options.mode)
+    ) {
       return
     }
     try {

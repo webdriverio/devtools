@@ -31,8 +31,11 @@ export enum TraceType {
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
-/** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
-export type DevToolsMode = 'live' | 'trace'
+/** `live` starts the backend and opens the DevTools UI window. `trace` skips
+ *  both and writes trace zips for a downstream exporter. `telemetry` skips both
+ *  and captures no per-action state: it writes only the artifacts manifest,
+ *  which carries per-test lifecycle, run id and attempt trace context. */
+export type DevToolsMode = 'live' | 'trace' | 'telemetry'
 
 /** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
  *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
@@ -448,7 +451,8 @@ export interface BaseDevToolsOptions {
   /** Capture node:assert assertions (and framework `expect` matchers where
    *  supported) as first-class commands. Default true. */
   captureAssertions?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  /** `live` (default) launches the DevTools UI; `trace` writes zips; `telemetry`
+   *  writes only the artifacts manifest. */
   mode?: DevToolsMode
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
@@ -471,7 +475,8 @@ export interface BaseDevToolsOptions {
    *  Off by default; auto-enabled when an Allure reporter is detected (WDIO:
    *  `@wdio/allure-reporter` in config; Selenium: an active `allure-js-commons`
    *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
-   *  Only applies in trace mode. */
+   *  Telemetry mode always writes the manifest; otherwise this only applies in
+   *  trace mode. */
   emitArtifactsManifest?: boolean
   /** Mask the value of password fields in the replayed page (DOM snapshot,
    *  field state, value mutations). Default true. Command rows always keep

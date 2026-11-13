@@ -62,6 +62,8 @@ export interface SessionCapturerOptions {
    * which covers the same-run case a process can't flag: the next spec's worker.
    */
   reconnect?: boolean
+  /** False leaves console and stdout/stderr unpatched: a mode that reads no console rows must not buffer them unbounded. */
+  captureOutput?: boolean
 }
 
 type ConsoleMethod = (typeof CONSOLE_METHODS)[number]
@@ -169,8 +171,11 @@ export abstract class SessionCapturerBase {
   }
 
   // ── Construction ────────────────────────────────────────────────────────
+  readonly #captureOutput: boolean
+
   constructor(opts: SessionCapturerOptions = {}) {
     const { hostname, port, reconnect } = opts
+    this.#captureOutput = opts.captureOutput !== false
     if (hostname && port) {
       const query = new URLSearchParams({
         [WORKER_WS_QUERY.runId]: resolveRunId(),
@@ -665,6 +670,9 @@ export abstract class SessionCapturerBase {
   // ── Patching (call from subclass constructor) ───────────────────────────
   /** Patch `console.log/info/warn/error` to forward through `onLine`. */
   protected patchConsole(): void {
+    if (!this.#captureOutput) {
+      return
+    }
     CONSOLE_METHODS.forEach((method) => {
       const original = this.#originalConsoleMethods[method]
       console[method] = (...args: unknown[]) => {
@@ -695,6 +703,9 @@ export abstract class SessionCapturerBase {
    * re-entrance when console patching itself writes to stdout.
    */
   protected patchStreams(): void {
+    if (!this.#captureOutput) {
+      return
+    }
     const captureChunk = (raw: string | Uint8Array) => {
       if (this.#isCapturingStream) {
         return
@@ -753,13 +764,20 @@ export abstract class SessionCapturerBase {
     wrap(process.stderr, this.#originalStderrWrite)
   }
 
+  // Unpatched, there is nothing to restore, and writing the construction-time references back would undo a later patch.
   protected restoreConsole(): void {
+    if (!this.#captureOutput) {
+      return
+    }
     CONSOLE_METHODS.forEach((method) => {
       console[method] = this.#originalConsoleMethods[method]
     })
   }
 
   protected restoreStreams(): void {
+    if (!this.#captureOutput) {
+      return
+    }
     // Restoring the pre-patch references — the typed write signature differs
     // slightly from the runtime instance type after `.bind()`, hence the cast
     // through the stream's own `write` member type.

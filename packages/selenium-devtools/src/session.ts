@@ -13,7 +13,8 @@ import {
   pollUntilReady,
   PENDING_SETTLE_TIMEOUT_MS,
   serializeError,
-  settlePending
+  settlePending,
+  type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import {
   COLLECTOR_INJECT_SCRIPT,
@@ -61,7 +62,7 @@ export class SessionCapturer extends SessionCapturerBase {
   #socket: IncomingMessage['socket'] | undefined
 
   constructor(
-    devtoolsOptions: { hostname?: string; port?: number } = {},
+    devtoolsOptions: SessionCapturerOptions = {},
     driver?: SeleniumDriverLike
   ) {
     super(devtoolsOptions)

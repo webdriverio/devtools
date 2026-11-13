@@ -61,10 +61,11 @@ async function resolveViewport(
  */
 export async function resolveSessionMetadata(
   browser: WebdriverIO.Browser,
-  type: TraceType
+  type: TraceType,
+  readsViewport = true
 ): Promise<Partial<Metadata>> {
   const capabilities = browser.capabilities as Capabilities.W3CCapabilities
-  const viewport = await resolveViewport(browser)
+  const viewport = readsViewport ? await resolveViewport(browser) : undefined
   const device = deviceFromCapabilities(capabilities)
   return {
     type,

@@ -3,6 +3,7 @@
 // slice. The plugin only forwards its hooks here — everything that reads or
 // writes recorder frames lives in this file.
 
+import { capturesTrace, startsBackend } from '@wdio/devtools-shared'
 import {
   accumulatedScreencastFrames,
   captureAndAttachVideo,
@@ -61,13 +62,6 @@ export class ScreencastLifecycle {
 
   constructor(ctx: ScreencastLifecycleContext) {
     this.#ctx = ctx
-    if (ctx.options.mode === 'trace' && ctx.options.screencast?.enabled) {
-      ctx.log(
-        'warn',
-        'trace mode: `screencast.enabled` is ignored — use `video` to record; ' +
-          'the tuning fields (quality/interval) still apply'
-      )
-    }
   }
 
   /** Filmstrip defaults ON in trace mode; explicit `filmstrip: false` opts out. */
@@ -79,13 +73,16 @@ export class ScreencastLifecycle {
    *  mode: a non-`off` `video` policy (frames sliced per test at flush) or
    *  `filmstrip` (dense frames written into the trace itself). */
   #shouldRecord(): boolean {
-    if (this.#ctx.options.mode === 'trace') {
+    if (capturesTrace(this.#ctx.options.mode)) {
       return (
         (!!this.#ctx.options.video && this.#ctx.options.video !== 'off') ||
         this.#filmstripOn()
       )
     }
-    return !!this.#ctx.options.screencast?.enabled
+    return (
+      startsBackend(this.#ctx.options.mode) &&
+      !!this.#ctx.options.screencast?.enabled
+    )
   }
 
   /** Whole-run filmstrip frames for the export context: earlier sessions'
@@ -133,7 +130,7 @@ export class ScreencastLifecycle {
     // cucumber `After(() => reloadSession())` is WDIO boilerplate), by which
     // point the recorder below has replaced these frames. Snapshot them now,
     // keyed to the ending test, so afterScenario can still slice its video.
-    if (this.#ctx.options.mode === 'trace' && this.#recorder) {
+    if (capturesTrace(this.#ctx.options.mode) && this.#recorder) {
       const frames = [...this.#recorder.frames]
       this.#pendingVideoFrames = {
         testUid: this.#ctx.getTestUid(),
@@ -166,7 +163,7 @@ export class ScreencastLifecycle {
     // Trace mode: the video is emitted per-test (sliced in attachTestVideo),
     // and there's no dashboard to receive a session recording — so just stop the
     // recorder to release resources; never encode an orphan session-wide webm.
-    if (this.#ctx.options.mode === 'trace') {
+    if (!startsBackend(this.#ctx.options.mode)) {
       await this.#recorder.stop()
       return
     }

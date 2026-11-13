@@ -16,7 +16,9 @@ import {
 import {
   COLLECTOR_INJECT_SCRIPT,
   COLLECTOR_READY_SCRIPT,
-  skipsCapture
+  capturesTrace,
+  skipsCapture,
+  observesPage
 } from '@wdio/devtools-shared'
 import { captureActionSnapshot } from './action-snapshot.js'
 import {
@@ -175,7 +177,7 @@ export class SessionCapturer extends SessionCapturerBase {
     timestamp: number,
     parentId: number | undefined
   ): void {
-    if (this.traceMode !== 'trace' || !this.#browser) {
+    if (!capturesTrace(this.traceMode) || !this.#browser) {
       return
     }
     // `url()` without a string argument is a getter; it does not navigate.
@@ -443,7 +445,7 @@ export class SessionCapturer extends SessionCapturerBase {
   ): Promise<void> {
     // Polls the page for its own document identity, so there is nothing to
     // poll and nothing to anchor without one.
-    if (this.isNativeAppSession) {
+    if (!observesPage(this.traceMode) || this.isNativeAppSession) {
       return
     }
     const before = this.lastDocumentOrigin
@@ -545,7 +547,7 @@ export class SessionCapturer extends SessionCapturerBase {
    * Inject the WDIO devtools script into the browser page
    */
   async injectScript(browser: NightwatchBrowser) {
-    if (this.isNativeAppSession) {
+    if (!observesPage(this.traceMode) || this.isNativeAppSession) {
       return
     }
     try {
@@ -595,7 +597,11 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async captureNetworkFromPerformanceLogs(browser: NightwatchBrowser) {
     // BiDi network inspector is the source of truth when attached.
-    if (this.bidiActive || !this.perfLogsRequested) {
+    if (
+      this.bidiActive ||
+      !this.perfLogsRequested ||
+      !observesPage(this.traceMode)
+    ) {
       return
     }
     // Off the queue: a queued `getLog` issued mid-command becomes that command's child and resolves its await early.
@@ -648,6 +654,9 @@ export class SessionCapturer extends SessionCapturerBase {
     forceAnchor = false,
     anchorTimestamp?: number
   ) {
+    if (!observesPage(this.traceMode)) {
+      return
+    }
     // A native app has no document to drain, only the proxy's requests. Inside
     // the method, because the command hook and the navigation proxy both reach it.
     if (this.isNativeAppSession) {
@@ -662,7 +671,7 @@ export class SessionCapturer extends SessionCapturerBase {
 
   /** Rows after the last capture saw a state nothing captured; one more capture, stamped at that capture, shows the test's end. */
   async captureFinalFrame(): Promise<void> {
-    if (this.traceMode !== 'trace') {
+    if (!capturesTrace(this.traceMode)) {
       return
     }
     await this.testCapture.captureEndFrame(
@@ -689,6 +698,9 @@ export class SessionCapturer extends SessionCapturerBase {
 
   /** At a test or scenario end, before its slice is written: the proxy drain there is never throttled. */
   async captureTraceAtTestEnd(browser: NightwatchBrowser) {
+    if (!observesPage(this.traceMode)) {
+      return
+    }
     if (this.isNativeAppSession) {
       await this.nativeNetwork.forward()
       return

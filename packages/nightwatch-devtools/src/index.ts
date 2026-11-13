@@ -12,7 +12,6 @@ import {
   flushRangeLogged,
   resolveAdapterOutputDir,
   TestAttemptTracker,
-  tracePolicyModeWarning,
   configureInputMasking,
   type SpecRange,
   type TraceArtifact,
@@ -25,8 +24,13 @@ import { stop as stopBackend } from '@wdio/devtools-backend'
 import {
   DEFAULT_TRACE_RESOURCES,
   REUSE_ENV,
+  assertDevToolsMode,
+  capturesTrace,
+  ignoredOptionsWarning,
+  startsBackend,
   type CucumberPickle,
-  type CucumberPickleStep
+  type CucumberPickleStep,
+  observesPage
 } from '@wdio/devtools-shared'
 import logger from '@wdio/logger'
 import {
@@ -139,6 +143,7 @@ class NightwatchDevToolsPlugin {
   #attemptTracker = new TestAttemptTracker()
 
   constructor(options: DevToolsOptions = {}) {
+    assertDevToolsMode(options.mode)
     const mode = options.mode ?? 'live'
     // Resolve the defaults ONCE and gate on the resolved values: reading the raw
     // `options.filmstrip === true` left the default-on filmstrip inert unless a
@@ -152,9 +157,6 @@ class NightwatchDevToolsPlugin {
       video,
       screencast: options.screencast
     })
-    if (screencast.warning) {
-      log.warn(screencast.warning)
-    }
     this.options = {
       port: options.port ?? 3000,
       hostname: options.hostname ?? 'localhost',
@@ -176,7 +178,7 @@ class NightwatchDevToolsPlugin {
       maskSelectors: options.maskSelectors ?? []
     }
     configureInputMasking(this.options)
-    const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
+    const policyWarning = ignoredOptionsWarning(options, mode)
     if (policyWarning) {
       log.warn(policyWarning)
     }
@@ -364,7 +366,7 @@ class NightwatchDevToolsPlugin {
       },
       getRerunLabel: () => self.#getRerunLabel(),
       get traceMode() {
-        return self.options.mode === 'trace'
+        return capturesTrace(self.options.mode)
       },
       get traceGranularity() {
         return self.options.traceGranularity
@@ -403,7 +405,7 @@ class NightwatchDevToolsPlugin {
     internals.handleReuse = () => this.#handleReuseMode()
     internals.plugin = this
     await runPluginBefore(internals)
-    if (this.options.captureAssertions) {
+    if (this.options.captureAssertions && observesPage(this.options.mode)) {
       wireAssertCapture(
         () => this.sessionCapturer,
         // Rows are tagged per-`it` (BrowserProxy.rowTestUid); `#currentTestUid`
@@ -534,7 +536,7 @@ class NightwatchDevToolsPlugin {
       suiteLine,
       testLines
     )
-    if (fullPath && fullPath.includes('/')) {
+    if (fullPath && fullPath.includes('/') && observesPage(this.options.mode)) {
       this.sessionCapturer.captureSource(fullPath).catch(() => {})
     }
 
@@ -646,7 +648,7 @@ class NightwatchDevToolsPlugin {
     try {
       await this.#finalizeAllSuites(browser)
       this.#logRunSummary()
-      if (this.options.mode === 'trace') {
+      if (!startsBackend(this.options.mode)) {
         await this.#writeTraceIfNeeded()
         await this.sessionCapturer?.closeWebSocket()
         await stopBackend()
@@ -721,7 +723,7 @@ class NightwatchDevToolsPlugin {
 
   async #writeTraceIfNeeded(): Promise<void> {
     const sessionId = this.sessionCapturer?.metadata?.sessionId
-    if (this.options.mode !== 'trace' || !this.sessionCapturer || !sessionId) {
+    if (!this.sessionCapturer || !sessionId) {
       return
     }
     await finalizeTraceExport(this.#traceContext(sessionId))

@@ -114,6 +114,30 @@ describe('patchNodeAssert', () => {
     expect(message).not.toContain('ExampleThis')
   })
 
+  it('leaves the call a plain node:assert while its gate is off, then captures once it is on', () => {
+    const captured: CapturedAssert[] = []
+    let active = false
+    patchNodeAssert(
+      (c) => captured.push(c),
+      undefined,
+      undefined,
+      () => active
+    )
+    const failure = (): string => {
+      try {
+        assert.strict.equal('Example Domain', 'This Is Not The Heading')
+      } catch (err) {
+        return (err as Error).message
+      }
+      return ''
+    }
+    expect(failure()).not.toContain("Expected: 'This Is Not The Heading'")
+    expect(captured).toHaveLength(0)
+    active = true
+    expect(failure()).toContain("Expected: 'This Is Not The Heading'")
+    expect(captured).toHaveLength(1)
+  })
+
   it('handles Promise-returning asserts (rejects/doesNotReject)', async () => {
     const captured: CapturedAssert[] = []
     patchNodeAssert((c) => captured.push(c))

@@ -4,7 +4,11 @@
 
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
-import type { ActionSnapshot } from '@wdio/devtools-shared'
+import {
+  capturesTrace,
+  observesPage,
+  type ActionSnapshot
+} from '@wdio/devtools-shared'
 import {
   captureExpectFailure,
   expectAssertionToCommandLog,
@@ -53,6 +57,14 @@ export class AssertionTracker {
     this.#ctx = ctx
   }
 
+  // Telemetry observes no page, so a matcher row (and its screenshot) would have no reader.
+  #capturing(): boolean {
+    return (
+      this.#ctx.options.captureAssertions !== false &&
+      observesPage(this.#ctx.options.mode)
+    )
+  }
+
   /** True while an expect-webdriverio matcher is polling, so a capture taken now is one of its polls. */
   get matcherPolling(): boolean {
     return this.#assertionDepth > 0
@@ -76,7 +88,7 @@ export class AssertionTracker {
     matcherName: string
     expectedValue?: unknown
   }): void {
-    if (this.#ctx.options.captureAssertions === false) {
+    if (!this.#capturing()) {
       return
     }
     if (this.#assertionDepth === 0) {
@@ -103,7 +115,7 @@ export class AssertionTracker {
    * this reliable hook: no `#assertionDepth`, no stack-frame detection.
    */
   async afterAssertion(params: ExpectAssertion): Promise<void> {
-    if (this.#ctx.options.captureAssertions === false) {
+    if (!this.#capturing()) {
       return
     }
     this.#assertionDepth = Math.max(0, this.#assertionDepth - 1)
@@ -132,7 +144,7 @@ export class AssertionTracker {
         log.debug(`assertion screenshot skipped: ${errorMessage(err)}`)
       }
     }
-    if (this.#ctx.options.mode === 'trace' && browser) {
+    if (capturesTrace(this.#ctx.options.mode) && browser) {
       await pushActionSnapshotAt(
         browser,
         entry.command,
@@ -148,7 +160,7 @@ export class AssertionTracker {
    *  afterAssertion never fired — synthesize its failing expect row. Any other
    *  failure just marks the last action with the error. */
   handleOutcome(error: unknown): void {
-    if (this.#ctx.options.captureAssertions === false) {
+    if (!this.#capturing()) {
       return
     }
     if (this.#pendingAssertion) {

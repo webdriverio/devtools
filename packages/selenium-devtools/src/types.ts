@@ -161,6 +161,8 @@ export interface DriverPatcherHooks {
   beforeInput?: () => Promise<void>
   // Fired after perform() settles, failed too: a partly performed sequence may already have moved the page.
   afterActions?: (driver: SeleniumDriverLike) => void
+  // False in telemetry: onCommand still runs for its test lifecycle, but each command's args, result and stack are not read.
+  observesPage?: () => boolean
 }
 
 // Unwrapped WebDriver methods used by the plugin's own internal calls

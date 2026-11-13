@@ -10,6 +10,9 @@ import {
   selectorForReadValue
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
+import { attachBidiListeners } from '../src/bidi-listeners.js'
+import { specFrameBelow } from '../src/call-source.js'
+import type * as CallSource from '../src/call-source.js'
 
 // Controllable stack: `frames` defaults to a single user-spec frame (commands
 // read as top-level). A test can splice in `matcherFrame` to simulate a command
@@ -60,6 +63,10 @@ const mockSessionCapturerInstance = {
   metadata: { url: 'http://test.com', viewport: {} }
 }
 
+vi.mock('../src/bidi-listeners.js', () => ({
+  attachBidiListeners: vi.fn()
+}))
+
 vi.mock('../src/session.js', () => ({
   SessionCapturer: vi.fn(function (this: any) {
     return mockSessionCapturerInstance
@@ -104,6 +111,10 @@ const mockNativeNetwork = {
   forward: vi.fn().mockResolvedValue(undefined)
 }
 
+vi.mock('../src/call-source.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof CallSource>()
+  return { ...actual, specFrameBelow: vi.fn(actual.specFrameBelow) }
+})
 vi.mock('../src/intercepted-network.js', () => ({
   InterceptedNetwork: vi.fn(function () {
     return mockNativeNetwork
@@ -504,6 +515,78 @@ describe('DevtoolsService - Internal Command Filtering', () => {
         {}
       )
       expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+
+    it('neither injects the collector nor attaches BiDi listeners in telemetry mode', async () => {
+      vi.clearAllMocks()
+      const telemetryBrowser = {
+        ...mockBrowser,
+        isBidi: true,
+        waitUntil: vi.fn().mockResolvedValue(true),
+        pause: vi.fn().mockResolvedValue(undefined),
+        getUrl: vi.fn().mockResolvedValue('http://test.com'),
+        getTitle: vi.fn().mockResolvedValue('title')
+      } as any
+      await new DevToolsHookService({ mode: 'telemetry' }).before(
+        {} as any,
+        [],
+        telemetryBrowser
+      )
+      expect(mockSessionCapturerInstance.injectScript).not.toHaveBeenCalled()
+      expect(attachBidiListeners).not.toHaveBeenCalled()
+
+      vi.clearAllMocks()
+      await new DevToolsHookService({ mode: 'live' }).before(
+        {} as any,
+        [],
+        telemetryBrowser
+      )
+      expect(mockSessionCapturerInstance.injectScript).toHaveBeenCalled()
+      expect(attachBidiListeners).toHaveBeenCalled()
+    })
+
+    it('does not drain or flush in telemetry mode', async () => {
+      const telemetryBrowser = {
+        ...mockBrowser,
+        waitUntil: vi.fn().mockResolvedValue(true),
+        pause: vi.fn().mockResolvedValue(undefined),
+        getUrl: vi.fn().mockResolvedValue('http://test.com'),
+        getTitle: vi.fn().mockResolvedValue('title')
+      } as any
+      const telemetryService = new DevToolsHookService({ mode: 'telemetry' })
+      await telemetryService.before({} as any, [], telemetryBrowser)
+      vi.clearAllMocks()
+      telemetryService.beforeCommand('click' as any, ['button'])
+      await telemetryService.afterCommand('click' as any, ['button'], {})
+      telemetryService.beforeCommand('setValue' as any, ['#username', 'foobar'])
+      await telemetryService.afterCommand(
+        'setValue' as any,
+        ['#username', 'foobar'],
+        {}
+      )
+      expect(mockSessionCapturerInstance.captureTrace).not.toHaveBeenCalled()
+    })
+
+    it('walks no call stack per command in telemetry mode, and does in live', async () => {
+      const telemetryBrowser = {
+        ...mockBrowser,
+        waitUntil: vi.fn().mockResolvedValue(true),
+        pause: vi.fn().mockResolvedValue(undefined),
+        getUrl: vi.fn().mockResolvedValue('http://test.com'),
+        getTitle: vi.fn().mockResolvedValue('title')
+      } as any
+      const telemetryService = new DevToolsHookService({ mode: 'telemetry' })
+      await telemetryService.before({} as any, [], telemetryBrowser)
+      vi.clearAllMocks()
+      await telemetryService.beforeCommand('click' as any, ['button'])
+      await telemetryService.afterCommand('click' as any, ['button'], {})
+      expect(specFrameBelow).not.toHaveBeenCalled()
+
+      const liveService = new DevToolsHookService({ mode: 'live' })
+      await liveService.before({} as any, [], telemetryBrowser)
+      vi.clearAllMocks()
+      await liveService.beforeCommand('click' as any, ['button'])
+      expect(specFrameBelow).toHaveBeenCalled()
     })
   })
 })

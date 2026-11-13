@@ -219,6 +219,21 @@ describe('DevtoolsService - trace granularity slicing', () => {
     expect(flushRangeTrace).not.toHaveBeenCalled()
   })
 
+  it('telemetry: after() reaches the trace finalizer, so the manifest is written', async () => {
+    const service = new DevToolsHookService({ mode: 'telemetry' })
+    await service.before({} as never, [], mockBrowser)
+    service.beforeTest({ file, fullTitle: 'logs in' })
+    await service.afterTest(
+      { file, fullTitle: 'logs in' },
+      {},
+      { passed: true }
+    )
+    await service.after()
+    expect(finalizeTraceExport).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'telemetry' })
+    )
+  })
+
   it('prints every written trace once capture is torn down, so a warn-level config still learns where its traces went', async () => {
     const service = await newService('test')
     finalizeTraceExport.mockImplementation(
