@@ -13,6 +13,9 @@ const {
   resolveIosDevice
 } = require('../mobile-preflight.cjs')
 
+const MODE = ['live', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'trace'
 const isWeb = process.env.DEVTOOLS_MOBILE === 'web'
 const IOS = process.env.DEVTOOLS_MOBILE_PLATFORM === 'ios'
 
@@ -102,11 +105,12 @@ module.exports = {
         nightwatchDevtools({
           port: 3000,
           // Trace by default, matching the desktop demos.
-          mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
+          mode: MODE,
           // The BDD describe/it interface fires the plugin's beforeEach once per
           // MODULE, so per-test slicing collapses to one session-scoped slice
           // here regardless — see CLAUDE.md § Known debt.
-          traceGranularity: 'session',
+          // Live and telemetry modes warn that they ignore this, so set it only for trace.
+          ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
           // Appium serves no BiDi, so leave it off rather than have the attach
           // fail once per run; the perf-log fallback covers a mobile-web session.
           bidi: false

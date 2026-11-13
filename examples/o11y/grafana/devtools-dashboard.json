@@ -1,0 +1,689 @@
+{
+  "uid": "devtools-tests",
+  "title": "WebdriverIO DevTools - Test Results",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Results by status",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fail"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true } | count_over_time() by (span.test.case.result.status)",
+          "legendFormat": "{{span.test.case.result.status}}"
+        }
+      ],
+      "id": 1,
+      "description": "Pass and fail counts of final attempts, one per test. TraceQL metrics cannot divide two results in Grafana, so this shows counts rather than a percentage."
+    },
+    {
+      "type": "stat",
+      "title": "Test executions",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true } | count_over_time()"
+        }
+      ],
+      "id": 2,
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      },
+      "description": "Counts each test once, by its final attempt (span devtools.test.final_attempt)."
+    },
+    {
+      "type": "stat",
+      "title": "Failures",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "0"
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true && span.test.case.result.status = \"fail\" } | count_over_time()"
+        }
+      ],
+      "id": 3,
+      "description": "Counts each test once, by its final attempt (span devtools.test.final_attempt)."
+    },
+    {
+      "type": "stat",
+      "title": "Flaky (in-process retries only)",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.test.case.result.status = \"pass\" && span.devtools.test.attempt > 0 } | count_over_time()"
+        }
+      ],
+      "id": 4,
+      "description": "Counts tests that passed after a retry inside one worker process. specFileRetries retries in a fresh worker and are not counted.",
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "0"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Executions by status",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 80
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "fail"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pass"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "range",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true } | count_over_time() by (span.test.case.result.status)",
+          "legendFormat": "{{span.test.case.result.status}}"
+        }
+      ],
+      "id": 5,
+      "description": "Counts each test once, by its final attempt (span devtools.test.final_attempt)."
+    },
+    {
+      "type": "table",
+      "title": "p95 test duration (ms)",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true } | quantile_over_time(span.devtools.duration_ms, .95) by (span.test.case.name)",
+          "legendFormat": "{{span.test.case.name}}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true,
+              "p": true
+            },
+            "renameByName": {
+              "value": "p95 ms",
+              "span.test.case.name": "Test"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "p95 ms",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "id": 6,
+      "description": "Framework-reported duration (span attribute devtools.duration_ms). Tempo estimates quantiles from power-of-two histogram buckets, so values are bucketed. Final attempts only."
+    },
+    {
+      "type": "table",
+      "title": "Top failing actions",
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "options": {
+        "showHeader": true
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true
+            },
+            "renameByName": {
+              "value": "Failures",
+              "span.devtools.failed_action": "Action"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true && span.test.case.result.status = \"fail\" && span.devtools.failed_action != nil } | count_over_time() by (span.devtools.failed_action) | topk(10)"
+        }
+      ],
+      "id": 7,
+      "description": "Counts each test once, by its final attempt (span devtools.test.final_attempt)."
+    },
+    {
+      "type": "table",
+      "title": "Failing test traces (Tempo)",
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status = \"fail\" && span.devtools.test.final_attempt = true }",
+          "limit": 20
+        }
+      ],
+      "id": 8
+    },
+    {
+      "type": "table",
+      "title": "Test results",
+      "description": "One row per test, from its final attempt (span devtools.* attributes on the test root span). Artifact is the trace zip's URL as pushed; the Replays panel below links the ones a browser can open.",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 11
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true } | max_over_time(span.devtools.duration_ms) by (trace:id, span.test.case.name, span.test.case.result.status, span.devtools.failed_action, span.devtools.artifact.url)"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true
+            },
+            "indexByName": {
+              "trace:id": 0,
+              "span.test.case.name": 1,
+              "span.test.case.result.status": 2,
+              "value": 3,
+              "span.devtools.failed_action": 4,
+              "span.devtools.artifact.url": 5
+            },
+            "renameByName": {
+              "trace:id": "Trace ID",
+              "span.test.case.name": "Test",
+              "span.test.case.result.status": "Status",
+              "value": "Duration (ms)",
+              "span.devtools.failed_action": "Failed action",
+              "span.devtools.artifact.url": "Artifact"
+            }
+          }
+        }
+      ],
+      "id": 9
+    },
+    {
+      "type": "table",
+      "title": "Replays",
+      "description": "Final attempts whose trace zip has an http(s) URL, each linked to the replay host set by the player_base variable (default trace.webdriver.io). Your browser fetches the zip from the artifact URL. Tests with no retained zip, or an s3:// URL, are not listed.",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Artifact"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open replay in ${player_base}",
+                    "url": "${player_base}/?trace=${__value.raw:percentencode}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Time",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "metricsQueryType": "instant",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true && span.devtools.artifact.url =~ \"https?://.+\" } | max_over_time(span.devtools.duration_ms) by (trace:id, span.test.case.name, span.test.case.result.status, span.devtools.failed_action, span.devtools.artifact.url)"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge"
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "time": true
+            },
+            "indexByName": {
+              "trace:id": 0,
+              "span.test.case.name": 1,
+              "span.test.case.result.status": 2,
+              "value": 3,
+              "span.devtools.failed_action": 4,
+              "span.devtools.artifact.url": 5
+            },
+            "renameByName": {
+              "trace:id": "Trace ID",
+              "span.test.case.name": "Test",
+              "span.test.case.result.status": "Status",
+              "value": "Duration (ms)",
+              "span.devtools.failed_action": "Failed action",
+              "span.devtools.artifact.url": "Artifact"
+            }
+          }
+        }
+      ],
+      "id": 11
+    },
+    {
+      "type": "table",
+      "title": "Test results (latest traces)",
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name=\"devtools-tests\" && span.test.case.result.status != nil && span.devtools.test.final_attempt = true }",
+          "limit": 50
+        }
+      ],
+      "id": 10,
+      "description": "Tempo search of final-attempt test root spans, newest first. A test whose root span has a parent missing from the trace shows no name here; panel 9 reads the span attributes and is unaffected.",
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "traceID",
+                "startTime",
+                "traceService",
+                "traceName",
+                "traceDuration"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "editable": false,
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "player_base",
+        "label": "Replay host",
+        "description": "Origin the Replays panel's Artifact links open the trace zip in. Opting in shares the zip URL with that origin; see examples/o11y/README.md.",
+        "query": "https://trace.webdriver.io",
+        "current": {
+          "text": "https://trace.webdriver.io",
+          "value": "https://trace.webdriver.io"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "https://trace.webdriver.io",
+            "value": "https://trace.webdriver.io"
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  }
+}

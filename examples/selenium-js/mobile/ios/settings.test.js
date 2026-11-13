@@ -23,9 +23,14 @@ const { requireMobileToolchain, resolveIosDevice } = createRequire(
   import.meta.url
 )('../../../mobile-preflight.cjs')
 
+const MODE = ['live', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'trace'
+
 DevTools.configure({
-  mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
-  traceGranularity: 'test'
+  mode: MODE,
+  // Live and telemetry modes warn that they ignore this, so set it only for trace.
+  ...(MODE === 'trace' ? { traceGranularity: 'test' } : {})
 })
 
 const APP_ID = 'com.apple.Preferences'

@@ -44,23 +44,33 @@ export const config: WebdriverIO.Config = {
     [
       'devtools',
       {
-        mode: (process.env.DEVTOOLS_MODE === 'trace' ? 'trace' : 'live') as
-          'live' | 'trace',
-        traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
-          'session') as 'session' | 'spec' | 'test',
-        tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
-          | 'on'
-          | 'retain-on-failure'
-          | 'retain-on-first-failure'
-          | 'on-first-retry'
-          | 'on-all-retries'
-          | 'retain-on-failure-and-retries',
-        // Dense screencast frames written into the trace; on by default, and the
-        // heaviest part of a session's teardown. DEVTOOLS_FILMSTRIP=off measures
-        // the trace without them.
-        filmstrip: process.env.DEVTOOLS_FILMSTRIP !== 'off',
-        // Always emitted, so the artifact set is inspectable for any rung.
-        emitArtifactsManifest: true
+        mode: (process.env.DEVTOOLS_MODE === 'trace' ||
+        process.env.DEVTOOLS_MODE === 'telemetry'
+          ? process.env.DEVTOOLS_MODE
+          : 'live') as 'live' | 'trace' | 'telemetry',
+        // Live and telemetry modes warn that they ignore these, so set them only for trace.
+        ...(process.env.DEVTOOLS_MODE === 'trace'
+          ? {
+              traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
+                'session') as 'session' | 'spec' | 'test',
+              tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
+                | 'on'
+                | 'retain-on-failure'
+                | 'retain-on-first-failure'
+                | 'on-first-retry'
+                | 'on-all-retries'
+                | 'retain-on-failure-and-retries',
+              // Dense screencast frames written into the trace; on by default, and the
+              // heaviest part of a session's teardown. DEVTOOLS_FILMSTRIP=off measures
+              // the trace without them.
+              filmstrip: process.env.DEVTOOLS_FILMSTRIP !== 'off'
+            }
+          : {}),
+        // Live mode warns that it ignores the manifest option, so it is set only for trace and telemetry.
+        ...(process.env.DEVTOOLS_MODE === 'trace' ||
+        process.env.DEVTOOLS_MODE === 'telemetry'
+          ? { emitArtifactsManifest: true }
+          : {})
       }
     ]
   ],
