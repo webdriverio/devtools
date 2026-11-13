@@ -19,10 +19,11 @@ import {
   zipReader
 } from './artifact-sources.js'
 import { emitPrepared, type TelemetrySink } from './emit-spans.js'
-import { browserScopeOf, type Manifest, type ManifestTest } from './manifest.js'
+import type { Manifest, ManifestTest } from './manifest.js'
 import { bounds, rootBounds, testBounds } from './bounds.js'
 import {
   actionStart,
+  capLength,
   normalizeSelector,
   STATE_FAILED,
   STATE_PASSED,
@@ -33,7 +34,8 @@ import {
   type PreparedTest,
   type TraceEvidence
 } from './prepared.js'
-import { suiteNameOf } from './suite-name.js'
+import { runIdOf, unsampledParent } from './run-identity.js'
+import { supersededFinals } from './superseded-finals.js'
 
 type ManifestParent = NonNullable<Manifest['parent']>
 
@@ -45,16 +47,25 @@ export interface ManifestInput {
 
 export interface PushInput {
   manifests: ManifestInput[]
-  runId: string
+  /** `--run-id`: names every manifest's run in place of the manifest's own runId. */
+  runId?: string
   artifactBaseUrl?: string
   traceZips: boolean
+  ignoreParentSampling: boolean
+  consoleMessages: boolean
   loadZip: (zipPath: string) => Uint8Array
+  realpath: (target: string) => string
   warn: (message: string) => void
 }
 
 export interface PushPlan {
   /** Zips requested under --trace-zips that could not be read or parsed; complete once `emit` has run. */
   unreadable: () => string[]
+  /** Distinct run ids of the manifests that will be pushed, in the order first seen. */
+  runIds: string[]
+  pushedManifests: number
+  /** Manifests left out because they were recorded under an unsampled TRACEPARENT. */
+  unsampledManifests: number
   emit: (sink: TelemetrySink) => Promise<number>
 }
 
@@ -63,7 +74,6 @@ interface RunContext {
   mtimeMs: number
   parent: ManifestParent | undefined
   sessionId: string
-  cwd: string | undefined
   browserName: string | undefined
   browserVersion: string | undefined
   platformName: string | undefined
@@ -112,16 +122,12 @@ function actionInfos(commands: CommandLog[]): ActionInfo[] {
 
 const MAX_ERROR_MESSAGE_LENGTH = 4096
 
-function capLength(message: string): string {
-  return message.length > MAX_ERROR_MESSAGE_LENGTH
-    ? `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…`
-    : message
-}
-
 function cappedFailure(
   failure: { message: string } | undefined
 ): { message: string } | undefined {
-  return failure && { message: capLength(failure.message) }
+  return (
+    failure && { message: capLength(failure.message, MAX_ERROR_MESSAGE_LENGTH) }
+  )
 }
 
 function status(state: string): string {
@@ -156,7 +162,7 @@ function testAttributes(
 ): Record<string, string | number> {
   return {
     [attr.ATTR_TEST_CASE_NAME]: test.title,
-    [attr.ATTR_TEST_SUITE_NAME]: suiteNameOf(test.specFile, run.cwd),
+    [attr.ATTR_TEST_SUITE_NAME]: test.specFile,
     [attr.ATTR_SESSION_ID]: run.sessionId,
     [attr.ATTR_DEVTOOLS_TEST_UID]: test.uid,
     ...browserAttributes(run),
@@ -257,13 +263,16 @@ function errorMessageOf(
   view: AttemptView,
   facts: PreparedFacts
 ): string | undefined {
-  const own = view.error === undefined ? undefined : capLength(view.error)
+  const own =
+    view.error === undefined
+      ? undefined
+      : capLength(view.error, MAX_ERROR_MESSAGE_LENGTH)
   if (!view.final) {
     return own
   }
   return facts.test.error === undefined
     ? (own ?? facts.failureMessage)
-    : capLength(facts.test.error)
+    : capLength(facts.test.error, MAX_ERROR_MESSAGE_LENGTH)
 }
 
 // A superseded final loses only the final flag: its error, failed action and zip are still its own, not a retry's.
@@ -350,15 +359,15 @@ function prepareTest(
 
 function runContextOf(
   input: PushInput,
+  runId: string,
   manifest: Manifest,
   mtimeMs: number
 ): RunContext {
   return {
-    runId: input.runId,
+    runId,
     mtimeMs,
     parent: manifest.parent,
     sessionId: manifest.sessionId,
-    cwd: manifest.cwd,
     browserName: manifest.browserName,
     browserVersion: manifest.browserVersion,
     platformName: manifest.platformName,
@@ -370,13 +379,14 @@ function runContextOf(
 function planManifest(
   input: PushInput,
   { file, manifest, mtimeMs }: ManifestInput,
-  readTrace: (zipPath: string) => TracePlayerData | undefined,
+  runId: string,
+  readTrace: (zipPath: string, dir: string) => TracePlayerData | undefined,
   isSuperseded: (test: ManifestTest) => boolean
 ): Array<() => PreparedTest> {
   const dir = path.dirname(file)
   const testUids = new Set(manifest.tests.map((test) => test.uid))
   const artifactsByUid = traceArtifactsByUid(manifest)
-  const run = runContextOf(input, manifest, mtimeMs)
+  const run = runContextOf(input, runId, manifest, mtimeMs)
   const pending: Array<() => PreparedTest> = []
   let warnedSharedZip = false
   for (const test of manifest.tests) {
@@ -404,7 +414,7 @@ function planManifest(
         {
           data:
             input.traceZips && zipPath && !sharedZip
-              ? readTrace(zipPath)
+              ? readTrace(zipPath, dir)
               : undefined,
           artifactUrl
         },
@@ -414,64 +424,6 @@ function planManifest(
     )
   }
   return pending
-}
-
-interface FinalOutcome {
-  test: ManifestTest
-  scope: string
-  state: string | undefined
-  startMs: number
-  endMs: number
-}
-
-function finalOutcomeOf(
-  test: ManifestTest,
-  mtimeMs: number,
-  scope: string
-): FinalOutcome {
-  const record = test.attempts?.find((candidate) => candidate.final)
-  const startMs = record?.startTime ?? test.startTime ?? mtimeMs
-  return {
-    test,
-    scope,
-    state: test.state,
-    startMs,
-    endMs: record?.endTime ?? test.endTime ?? startMs
-  }
-}
-
-// specFileRetries reruns a failed spec in a fresh worker whose manifest marks its own final, so a failed final that
-// another worker's final started after is a retried attempt. Overlapping finals are siblings (another browser, shard
-// or worker) and each keeps its own outcome; so does a final from another browser or platform, run after it.
-function supersededFinals(
-  manifests: readonly ManifestInput[]
-): (test: ManifestTest) => boolean {
-  const byUid = new Map<string, FinalOutcome[]>()
-  for (const { manifest, mtimeMs } of manifests) {
-    const scope = browserScopeOf(manifest)
-    for (const test of manifest.tests) {
-      const finals = byUid.get(test.uid) ?? []
-      finals.push(finalOutcomeOf(test, mtimeMs, scope))
-      byUid.set(test.uid, finals)
-    }
-  }
-  const superseded = new Set<ManifestTest>()
-  for (const finals of byUid.values()) {
-    for (const earlier of finals) {
-      if (
-        earlier.state === STATE_FAILED &&
-        finals.some(
-          (later) =>
-            later !== earlier &&
-            later.scope === earlier.scope &&
-            later.startMs >= earlier.endMs
-        )
-      ) {
-        superseded.add(earlier.test)
-      }
-    }
-  }
-  return (test) => superseded.has(test)
 }
 
 function warnStatelessTests(
@@ -488,41 +440,66 @@ function warnStatelessTests(
 
 const FLUSH_AT_PENDING_SPANS = 4096
 
+async function flushOrExplain(
+  sink: TelemetrySink,
+  emitted: number,
+  total: number
+): Promise<void> {
+  try {
+    await sink.flush()
+  } catch (error) {
+    const unsent =
+      emitted < total
+        ? `, and tests ${emitted + 1}..${total} were not sent`
+        : ''
+    throw Object.assign(
+      new Error(
+        `export failed: ${sink.exportedSpans()} span(s) reached the collector, ${sink.pendingSpans()} emitted span(s) did not${unsent}: ${describe(error)}`
+      ),
+      { cause: error }
+    )
+  }
+}
+
 export function planPush(input: PushInput): PushPlan {
-  const reader = zipReader(input.loadZip, input.warn)
-  const isSuperseded = supersededFinals(input.manifests)
-  const pending = input.manifests.flatMap((manifest) => {
-    warnStatelessTests(manifest, input.warn)
-    return planManifest(input, manifest, reader.read, isSuperseded)
+  const reader = zipReader(input)
+  const pushed = input.manifests.filter(
+    ({ file, manifest }) =>
+      input.ignoreParentSampling || !unsampledParent(file, manifest, input.warn)
+  )
+  const runIds = pushed.map(({ file, manifest }) =>
+    runIdOf(file, manifest, input.runId, input.warn)
+  )
+  const runIdOfPushed = new Map(
+    pushed.map((entry, index) => [entry, runIds[index]])
+  )
+  const isSuperseded = supersededFinals(
+    input.manifests.map((entry) => ({
+      ...entry,
+      runId:
+        runIdOfPushed.get(entry) ??
+        runIdOf(entry.file, entry.manifest, input.runId, () => {})
+    }))
+  )
+  const pending = pushed.flatMap((entry, index) => {
+    warnStatelessTests(entry, input.warn)
+    return planManifest(input, entry, runIds[index], reader.read, isSuperseded)
   })
   return {
     unreadable: () => reader.unreadable(),
+    runIds: [...new Set(runIds)],
+    pushedManifests: pushed.length,
+    unsampledManifests: input.manifests.length - pushed.length,
     async emit(sink) {
       let emitted = 0
-      const flushOrExplain = async () => {
-        try {
-          await sink.flush()
-        } catch (error) {
-          const unsent =
-            emitted < pending.length
-              ? `, and tests ${emitted + 1}..${pending.length} were not sent`
-              : ''
-          throw Object.assign(
-            new Error(
-              `export failed: ${sink.exportedSpans()} span(s) reached the collector, ${sink.pendingSpans()} emitted span(s) did not${unsent}: ${describe(error)}`
-            ),
-            { cause: error }
-          )
-        }
-      }
       for (const prepare of pending) {
-        emitPrepared(sink, prepare())
+        emitPrepared(sink, prepare(), input.consoleMessages)
         emitted++
         if (sink.pendingSpans() >= FLUSH_AT_PENDING_SPANS) {
-          await flushOrExplain()
+          await flushOrExplain(sink, emitted, pending.length)
         }
       }
-      await flushOrExplain()
+      await flushOrExplain(sink, emitted, pending.length)
       return pending.length
     }
   }

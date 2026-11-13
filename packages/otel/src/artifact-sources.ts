@@ -67,41 +67,78 @@ function withTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`
 }
 
+/** The path of `file` under `dir`, or undefined when it is `dir` itself or resolves outside it. */
+export function relativeWithin(dir: string, file: string): string | undefined {
+  const relative = path.relative(dir, file)
+  return relative === '' ||
+    path.isAbsolute(relative) ||
+    relative.split(path.sep).includes('..')
+    ? undefined
+    : relative
+}
+
 export function artifactUrlFor(
   dir: string,
   zipPath: string,
   base: string,
   warn: (message: string) => void
 ): string | undefined {
-  const relative = path.relative(dir, zipPath)
-  const segments = relative.split(path.sep)
-  if (path.isAbsolute(relative) || segments.includes('..')) {
+  const relative = relativeWithin(dir, zipPath)
+  if (relative === undefined) {
     warn(
       `no artifact URL for ${zipPath}: the zip is outside the manifest directory ${dir}, so it cannot be addressed under --artifact-base-url`
     )
     return undefined
   }
   return new URL(
-    segments.map(encodeURIComponent).join('/'),
+    relative.split(path.sep).map(encodeURIComponent).join('/'),
     withTrailingSlash(base)
   ).href
 }
 
 interface ZipReader {
-  read: (zipPath: string) => TracePlayerData | undefined
+  read: (zipPath: string, dir: string) => TracePlayerData | undefined
   unreadable: () => string[]
 }
 
-/** An unreadable zip warns and its test's actions are skipped; it is listed by `unreadable()`. */
-export function zipReader(
-  loadZip: (zipPath: string) => Uint8Array,
+interface ZipReaderInput {
+  loadZip: (zipPath: string) => Uint8Array
+  realpath: (target: string) => string
   warn: (message: string) => void
-): ZipReader {
+}
+
+// A symlink in the manifest folder can point outside it, so the real paths are compared too; a missing zip throws here.
+function containedRealPath(
+  dir: string,
+  zipPath: string,
+  realpath: (target: string) => string
+): string | undefined {
+  if (relativeWithin(dir, zipPath) === undefined) {
+    return undefined
+  }
+  const real = realpath(zipPath)
+  return relativeWithin(realpath(dir), real) === undefined ? undefined : real
+}
+
+/** An unreadable zip, or one outside `dir`, warns and is listed by `unreadable()`; its test's actions are skipped. */
+export function zipReader({
+  loadZip,
+  realpath,
+  warn
+}: ZipReaderInput): ZipReader {
   const failed = new Set<string>()
   return {
-    read(zipPath) {
+    read(zipPath, dir) {
       try {
-        return parseTraceZip(loadZip(zipPath))
+        const real = containedRealPath(dir, zipPath, realpath)
+        if (real === undefined) {
+          warn(
+            `skipped the actions in ${zipPath}: the zip is outside the manifest directory ${dir}, so it is not read`
+          )
+          failed.add(zipPath)
+          return undefined
+        }
+        return parseTraceZip(loadZip(real))
       } catch (error) {
         warn(
           `skipped the actions in ${zipPath}, which could not be read: ${describe(error)}`

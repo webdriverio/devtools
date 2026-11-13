@@ -1,4 +1,5 @@
 import {
+  ARTIFACTS_MANIFEST_VERSION,
   isSpanId,
   isTraceId,
   type ArtifactManifestTest,
@@ -24,11 +25,10 @@ export type ManifestTest = Omit<
 
 export type Manifest = Pick<
   ArtifactsManifest,
-  'sessionId' | 'runId' | 'parent'
+  'manifestVersion' | 'sessionId' | 'runId' | 'parent'
 > & {
   artifacts: ManifestArtifact[]
   tests: ManifestTest[]
-  cwd?: string
   browserName?: string
   browserVersion?: string
   platformName?: string
@@ -43,8 +43,6 @@ interface ManifestFile extends Omit<Manifest, 'tests'> {
 const MANIFEST_KEYS = ['sessionId', 'artifacts', 'tests'] as const
 const ARTIFACT_KINDS = ['trace', 'video', 'screenshot'] as const
 const MAX_TRACE_FLAGS = 0xff
-// An old-format Cucumber step is listed under the uid `<ownerUid>:step:<index>`.
-const STEP_UID = /^(.+):step:\d+$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -61,6 +59,7 @@ function isArtifact(value: unknown): value is ManifestArtifact {
     typeof value.path === 'string' &&
     (value.key === undefined || typeof value.key === 'string') &&
     Array.isArray(value.testUids) &&
+    value.testUids.every(isString) &&
     typeof value.retained === 'boolean'
   )
 }
@@ -76,12 +75,20 @@ function isNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function endsAfterStart(start: unknown, end: unknown): boolean {
+  return typeof start !== 'number' || typeof end !== 'number' || end >= start
+}
+
 function isString(value: unknown): boolean {
   return typeof value === 'string'
 }
 
 function isBoolean(value: unknown): boolean {
   return typeof value === 'boolean'
+}
+
+function isAttemptNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
 }
 
 function isTraceFlags(value: unknown): boolean {
@@ -96,10 +103,11 @@ function isTraceFlags(value: unknown): boolean {
 function isAttempt(value: unknown): value is ManifestAttempt {
   return (
     isRecord(value) &&
-    Number.isInteger(value.attempt) &&
+    isAttemptNumber(value.attempt) &&
     isAbsentOr(value.state, isString) &&
     isNumber(value.startTime) &&
     isAbsentOr(value.endTime, isNumber) &&
+    endsAfterStart(value.startTime, value.endTime) &&
     isTraceId(value.traceId) &&
     isSpanId(value.spanId) &&
     isAbsentOr(value.final, isBoolean) &&
@@ -124,9 +132,10 @@ function isTest(value: unknown): value is TestEntry {
     typeof value.title === 'string' &&
     typeof value.specFile === 'string' &&
     isAbsentOr(value.state, isString) &&
-    isAbsentOr(value.attempt, (field) => typeof field === 'number') &&
+    isAbsentOr(value.attempt, isAttemptNumber) &&
     isAbsentOr(value.startTime, isNumber) &&
     isAbsentOr(value.endTime, isNumber) &&
+    endsAfterStart(value.startTime, value.endTime) &&
     isAbsentOr(value.durationMs, isNumber) &&
     isAbsentOr(value.error, isString) &&
     isAbsentOr(value.attempts, isAttemptList)
@@ -143,38 +152,27 @@ function isAttemptList(value: unknown): boolean {
   )
 }
 
-/** Manifests written before steps were filtered out list each WDIO Cucumber step in `tests[]`, without a `state`. */
-function isStepOf(value: unknown, tests: unknown[]): boolean {
-  if (
-    !isRecord(value) ||
-    value.state !== undefined ||
-    typeof value.uid !== 'string'
-  ) {
-    return false
-  }
-  const owner = STEP_UID.exec(value.uid)?.[1]
-  return (
-    owner !== undefined &&
-    tests.some((test) => isRecord(test) && test.uid === owner)
-  )
-}
-
-function isManifestFile(value: unknown): value is ManifestFile {
+function hasManifestShape(value: unknown): value is ManifestFile {
   if (!isRecord(value) || !Array.isArray(value.tests)) {
     return false
   }
-  const tests: unknown[] = value.tests
   return (
     typeof value.sessionId === 'string' &&
     isAbsentOr(value.runId, isString) &&
     isAbsentOr(value.parent, isParent) &&
-    isAbsentOr(value.cwd, isString) &&
     isAbsentOr(value.browserName, isString) &&
     isAbsentOr(value.browserVersion, isString) &&
     isAbsentOr(value.platformName, isString) &&
     Array.isArray(value.artifacts) &&
     value.artifacts.every(isArtifact) &&
-    tests.every((entry) => isTest(entry) || isStepOf(entry, tests))
+    value.tests.every(isTest)
+  )
+}
+
+function isManifestFile(value: unknown): value is ManifestFile {
+  return (
+    hasManifestShape(value) &&
+    value.manifestVersion === ARTIFACTS_MANIFEST_VERSION
   )
 }
 
@@ -202,11 +200,17 @@ function attemptsProblem(
   attempts: unknown[]
 ): string | undefined {
   for (const [index, record] of attempts.entries()) {
+    if (isRecord(record) && !endsAfterStart(record.startTime, record.endTime)) {
+      return `${path}.attempts[${index}].endTime is earlier than its startTime`
+    }
     if (isRecord(record) && !isTraceId(record.traceId)) {
       return `${path}.attempts[${index}].traceId is not a 32-hex trace id`
     }
     if (isRecord(record) && !isSpanId(record.spanId)) {
       return `${path}.attempts[${index}].spanId is not a 16-hex span id`
+    }
+    if (isRecord(record) && !isAttemptNumber(record.attempt)) {
+      return `${path}.attempts[${index}].attempt must be a non-negative integer, found ${describeValue(record.attempt)}`
     }
   }
   const finals = attempts.filter(
@@ -228,9 +232,27 @@ function testProblem(entry: unknown, index: number): string | undefined {
   if (typeof entry.uid !== 'string') {
     return `${path} has no string uid`
   }
+  if (!isAbsentOr(entry.attempt, isAttemptNumber)) {
+    return `${path}.attempt must be a non-negative integer, found ${describeValue(entry.attempt)}`
+  }
+  if (!endsAfterStart(entry.startTime, entry.endTime)) {
+    return `${path}.endTime is earlier than its startTime`
+  }
   return Array.isArray(entry.attempts)
     ? attemptsProblem(path, entry.attempts)
     : undefined
+}
+
+function artifactProblem(artifacts: unknown[]): string | undefined {
+  const index = artifacts.findIndex(
+    (artifact) =>
+      isRecord(artifact) &&
+      Array.isArray(artifact.testUids) &&
+      !artifact.testUids.every(isString)
+  )
+  return index === -1
+    ? undefined
+    : `artifacts[${index}].testUids must hold only strings`
 }
 
 /** The first field that names its own problem; undefined leaves the generic diagnosis. */
@@ -245,29 +267,44 @@ function specificProblem(json: Record<string, unknown>): string | undefined {
       return problem
     }
   }
+  if (Array.isArray(json.artifacts)) {
+    const problem = artifactProblem(json.artifacts)
+    if (problem) {
+      return problem
+    }
+  }
   return Array.isArray(json.tests)
     ? json.tests.map(testProblem).find((problem) => problem !== undefined)
     : undefined
 }
 
+function versionProblem(found: unknown): string {
+  const shown = found === undefined ? 'none' : String(found)
+  return `manifest version ${shown}, this wdio-otel reads version ${ARTIFACTS_MANIFEST_VERSION}; record the run with a current devtools adapter`
+}
+
 function describeMalformedTest(tests: unknown[]): string | undefined {
-  const index = tests.findIndex(
-    (entry) => !isTest(entry) && !isStepOf(entry, tests)
-  )
+  const index = tests.findIndex((entry) => !isTest(entry))
   if (index === -1) {
     return undefined
   }
   const entry = tests[index]
   const keys = isRecord(entry) ? Object.keys(entry).join(', ') : typeof entry
-  return `tests[${index}] is neither a test nor a step (keys: ${keys})`
+  return `tests[${index}] is not a test (keys: ${keys})`
 }
 
 function manifestProblem(json: unknown): string {
+  if (isRecord(json) && json.manifestVersion !== ARTIFACTS_MANIFEST_VERSION) {
+    return versionProblem(json.manifestVersion)
+  }
   if (isRecord(json)) {
     const specific = specificProblem(json)
     if (specific) {
       return specific
     }
+  }
+  if (hasManifestShape(json)) {
+    return versionProblem(json.manifestVersion)
   }
   const found = isRecord(json) ? Object.keys(json).join(', ') : typeof json
   const malformedTest =
@@ -284,11 +321,16 @@ export function parseManifest(json: unknown, source: string): Manifest {
       `${source} is not an artifacts manifest: ${manifestProblem(json)}`
     )
   }
-  const tests = json.tests
-    .filter((entry) => !isStepOf(entry, json.tests))
-    .filter(isTest)
+  const tests = json.tests.filter(isTest)
   return {
-    ...json,
+    manifestVersion: json.manifestVersion,
+    sessionId: json.sessionId,
+    runId: json.runId,
+    parent: json.parent,
+    browserName: json.browserName,
+    browserVersion: json.browserVersion,
+    platformName: json.platformName,
+    artifacts: json.artifacts,
     tests: tests.map((test) => ({ ...test, attempt: test.attempt ?? 0 }))
   }
 }

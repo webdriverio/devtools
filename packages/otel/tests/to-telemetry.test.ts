@@ -1,19 +1,25 @@
 import path from 'node:path'
-import { SpanStatusCode } from '@opentelemetry/api'
+import { SpanStatusCode, TraceFlags } from '@opentelemetry/api'
 import {
   InMemorySpanExporter,
   SimpleSpanProcessor,
   TracerProvider,
   type ReadableSpan
 } from '@opentelemetry/sdk-trace'
-import type { TestAttemptRecord } from '@wdio/devtools-shared'
+import {
+  ARTIFACTS_MANIFEST_VERSION,
+  type TestAttemptRecord
+} from '@wdio/devtools-shared'
 import { buildTraceZip } from '@wdio/devtools-trace'
 import { describe, expect, it } from 'vitest'
 import * as attr from '../src/attributes.js'
 import type { Manifest } from '../src/manifest.js'
 import { derivedSpanId, PinnedIdGenerator } from '../src/span-ids.js'
-import { SPAN_LIMITS } from '../src/providers.js'
-import { MAX_EVENTS_PER_TEST } from '../src/emit-spans.js'
+import { SPAN_LIMITS, telemetryWith } from '../src/providers.js'
+import {
+  MAX_CONSOLE_MESSAGE_CHARS,
+  MAX_EVENTS_PER_TEST
+} from '../src/emit-spans.js'
 import { planPush, type PushPlan } from '../src/to-telemetry.js'
 
 const EPOCH_2025 = Date.UTC(2025, 0, 1, 10, 0, 0)
@@ -116,6 +122,7 @@ async function zipOf(
 
 function manifestOf(overrides: Partial<Manifest> = {}): Manifest {
   return {
+    manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 's1',
     artifacts: [
       {
@@ -140,11 +147,14 @@ function manifestOf(overrides: Partial<Manifest> = {}): Manifest {
 
 interface PushOptions {
   manifests?: { file: string; manifest: Manifest }[]
+  runId?: string | null
   zips?: Map<string, Uint8Array>
   artifactBaseUrl?: string
   flush?: () => Promise<void>
   pendingSpans?: () => number
   traceZips?: boolean
+  consoleMessages?: boolean
+  ignoreParentSampling?: boolean
 }
 
 async function push(options: PushOptions = {}) {
@@ -162,9 +172,12 @@ async function push(options: PushOptions = {}) {
   ]
   const plan = planPush({
     manifests: manifests.map((entry) => ({ mtimeMs: MTIME_MS, ...entry })),
-    runId: 'run-1',
+    runId: options.runId === null ? undefined : (options.runId ?? 'run-1'),
     artifactBaseUrl: options.artifactBaseUrl,
     traceZips: options.traceZips ?? true,
+    ignoreParentSampling: options.ignoreParentSampling ?? false,
+    consoleMessages: options.consoleMessages ?? false,
+    realpath: (target) => target,
     loadZip: (zipPath) => {
       const zip = zips.get(zipPath)
       if (!zip) {
@@ -438,7 +451,7 @@ describe('pushRun span tree', () => {
     expect(wait.attributes[attr.ATTR_ACTION_INDEX]).toBe(1)
   })
 
-  it('records console errors and failed requests as span events without the query string', async () => {
+  it('records console errors as span events when console messages are requested', async () => {
     const consoleEvents = Array.from({ length: 150 }, (_, i) => ({
       type: 'console',
       time: 1150 + i,
@@ -454,7 +467,10 @@ describe('pushRun span tree', () => {
       [...loginEvents, ...consoleEvents],
       [...Array.from({ length: 150 }, () => HAR_500), HAR_200]
     )
-    const { spans } = await push({ zips: new Map([[ZIP_PATH, zip]]) })
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, zip]]),
+      consoleMessages: true
+    })
     const root = byName(spans, 'logs in')
     const consoleMessages = root.events
       .filter((event) => event.name === attr.EVENT_CONSOLE)
@@ -476,6 +492,59 @@ describe('pushRun span tree', () => {
     )
     expect(failed).toHaveLength(MAX_EVENTS_PER_TEST)
     expect(failed[0].attributes?.[attr.ATTR_URL_PATH]).toBe('/api/items')
+  })
+
+  it('pushes failed requests without the query string and no console events by default', async () => {
+    const consoleEvents = Array.from({ length: 3 }, (_, i) => ({
+      type: 'console',
+      time: 1150 + i,
+      messageType: 'error',
+      text: `boom ${i}`,
+      location: {
+        url: 'https://app.test/app.js',
+        lineNumber: 1,
+        columnNumber: 1
+      }
+    }))
+    const zip = await zipOf(
+      [...loginEvents, ...consoleEvents],
+      Array.from({ length: 3 }, () => HAR_500)
+    )
+    const { spans } = await push({ zips: new Map([[ZIP_PATH, zip]]) })
+    const root = byName(spans, 'logs in')
+    expect(
+      root.events.filter((event) => event.name === attr.EVENT_CONSOLE)
+    ).toEqual([])
+    const failed = root.events.filter(
+      (event) => event.name === attr.EVENT_REQUEST_FAILED
+    )
+    expect(failed).toHaveLength(3)
+    expect(failed[0].attributes?.[attr.ATTR_URL_PATH]).toBe('/api/items')
+  })
+
+  it('caps a console message at MAX_CONSOLE_MESSAGE_CHARS', async () => {
+    const zip = await zipOf([
+      ...loginEvents,
+      {
+        type: 'console',
+        time: 1150,
+        messageType: 'error',
+        text: 'x'.repeat(MAX_CONSOLE_MESSAGE_CHARS + 500),
+        location: {
+          url: 'https://app.test/app.js',
+          lineNumber: 1,
+          columnNumber: 1
+        }
+      }
+    ])
+    const { spans } = await push({
+      zips: new Map([[ZIP_PATH, zip]]),
+      consoleMessages: true
+    })
+    const message = byName(spans, 'logs in').events.find(
+      (event) => event.name === attr.EVENT_CONSOLE
+    )?.attributes?.[attr.ATTR_CONSOLE_MESSAGE]
+    expect(message).toBe(`${'x'.repeat(MAX_CONSOLE_MESSAGE_CHARS)}…`)
   })
 })
 
@@ -619,8 +688,11 @@ describe('pushRun root spans', () => {
     expect(
       byName(spans, 'logs in').attributes[attr.ATTR_ARTIFACT_URL]
     ).toBeUndefined()
-    expect(warnings).toHaveLength(1)
-    expect(warnings[0]).toContain('outside the manifest directory')
+    expect(warnings).toHaveLength(2)
+    expect(warnings).toEqual([
+      expect.stringContaining('no artifact URL'),
+      expect.stringContaining('the zip is outside the manifest directory')
+    ])
   })
 
   it('skips the trace of tests sharing a zip and warns once per manifest', async () => {
@@ -788,6 +860,7 @@ function retriedManifest(
   overrides: Partial<Manifest['tests'][number]> = {}
 ): Manifest {
   return {
+    manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 's1',
     artifacts,
     tests: [
@@ -1766,6 +1839,9 @@ describe('planPush unreadable zips', () => {
       manifests: [{ file: MANIFEST_FILE, manifest, mtimeMs: MTIME_MS }],
       runId: 'run-1',
       traceZips,
+      ignoreParentSampling: false,
+      consoleMessages: false,
+      realpath: (target) => target,
       loadZip: (zipPath) => {
         const zip = zips.get(zipPath)
         if (!zip) {
@@ -1790,6 +1866,27 @@ describe('planPush unreadable zips', () => {
       new Map([[ZIP_PATH, await zipOf(loginEvents)]])
     )
     expect(await emitAndListUnreadable(plan)).toEqual([])
+  })
+
+  it('refuses a zip outside the manifest directory without reading it', async () => {
+    const manifest = manifestOf()
+    manifest.artifacts[0].path = '../elsewhere/s1.zip'
+    const outside = path.resolve(RUN_DIR, '../elsewhere/s1.zip')
+    const reads: string[] = []
+    const plan = planPush({
+      manifests: [{ file: MANIFEST_FILE, manifest, mtimeMs: MTIME_MS }],
+      traceZips: true,
+      ignoreParentSampling: false,
+      consoleMessages: false,
+      realpath: (target) => target,
+      loadZip: (zipPath) => {
+        reads.push(zipPath)
+        return new Uint8Array([1])
+      },
+      warn: () => {}
+    })
+    expect(await emitAndListUnreadable(plan)).toEqual([outside])
+    expect(reads).toEqual([])
   })
 
   it('never reads a dropped zip, so a corrupt one does not count', async () => {
@@ -1818,9 +1915,8 @@ describe('pushRun manifest context', () => {
     })
     return byName(spans, 'logs in').attributes
   }
-  const withSpec = (specFile: string, cwd?: string): Manifest =>
+  const withSpec = (specFile: string): Manifest =>
     contextOf({
-      cwd,
       tests: [
         {
           uid: 'uid-login',
@@ -1832,10 +1928,9 @@ describe('pushRun manifest context', () => {
       ]
     })
 
-  it('stamps session, browser and uid, and a suite name relative to cwd', async () => {
+  it('stamps session, browser and uid, and the spec file as the suite name', async () => {
     const attributes = await rootAttributes(
       contextOf({
-        cwd: '/repo',
         browserName: 'chrome',
         browserVersion: '120',
         platformName: 'linux',
@@ -1855,25 +1950,27 @@ describe('pushRun manifest context', () => {
     expect(attributes[attr.ATTR_DEVTOOLS_BROWSER_NAME]).toBe('chrome')
     expect(attributes[attr.ATTR_DEVTOOLS_BROWSER_VERSION]).toBe('120')
     expect(attributes[attr.ATTR_DEVTOOLS_PLATFORM_NAME]).toBe('linux')
-    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('test/login.spec.ts')
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe(
+      '/repo/test/login.spec.ts'
+    )
   })
 
-  it('keeps the raw spec file without cwd', async () => {
+  it('keeps the spec file as recorded', async () => {
     const attributes = await rootAttributes(withSpec('/repo/test/a.spec.ts'))
     expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('/repo/test/a.spec.ts')
   })
 
-  it('relativizes a Windows manifest', async () => {
+  it('keeps a Windows spec file as recorded', async () => {
     const attributes = await rootAttributes(
-      withSpec('C:\\repo\\test\\a.spec.ts', 'C:\\repo')
+      withSpec('C:\\repo\\test\\a.spec.ts')
     )
-    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('test/a.spec.ts')
+    expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe(
+      'C:\\repo\\test\\a.spec.ts'
+    )
   })
 
-  it('keeps a spec outside cwd', async () => {
-    const attributes = await rootAttributes(
-      withSpec('/other/a.spec.ts', '/repo')
-    )
+  it('keeps a spec outside any manifest directory as recorded', async () => {
+    const attributes = await rootAttributes(withSpec('/other/a.spec.ts'))
     expect(attributes[attr.ATTR_TEST_SUITE_NAME]).toBe('/other/a.spec.ts')
   })
 
@@ -1934,5 +2031,208 @@ describe('pushRun manifest context', () => {
       message: 'first boom'
     })
     expect(final.attributes[attr.ATTR_ERROR_MESSAGE]).toBeUndefined()
+  })
+})
+
+describe('pushRun trace per test', () => {
+  const sameTrace = (): Manifest =>
+    stampedManifest([
+      attemptRecord(0, 'failed', '000000000000aaa1', TRACE_A),
+      finalRecord(1, 'passed', 'bbbbbbbbbbbbbbb2', TRACE_A)
+    ])
+
+  it('roots every attempt of a test in the trace the manifest names, with no run root span', async () => {
+    const { spans } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest: sameTrace() }],
+      traceZips: false
+    })
+    expect(spans.map((span) => span.name)).toEqual(['logs in', 'logs in'])
+    const attempts = rootsNamed(spans, 'logs in')
+    expect(attempts.map((attempt) => attempt.spanContext())).toEqual([
+      expect.objectContaining({ traceId: TRACE_A, spanId: '000000000000aaa1' }),
+      expect.objectContaining({ traceId: TRACE_A, spanId: 'bbbbbbbbbbbbbbb2' })
+    ])
+    expect(attempts.map((attempt) => attempt.parentSpanContext)).toEqual([
+      undefined,
+      undefined
+    ])
+  })
+
+  it('parents the attempts of a manifest with a TRACEPARENT under that parent and adds no run span', async () => {
+    const manifest = stampedManifest(
+      [finalRecord(0, 'passed', '000000000000aaa1', TRACE_A)],
+      { parent: { traceId: TRACE_A, spanId: PARENT_SPAN, traceFlags: 1 } }
+    )
+    const { spans } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }],
+      traceZips: false
+    })
+    expect(spans.map((span) => span.name)).toEqual(['logs in'])
+    expect(byName(spans, 'logs in').parentSpanContext?.spanId).toBe(PARENT_SPAN)
+  })
+
+  it('pushes nothing of a manifest recorded under an unsampled TRACEPARENT and warns once', async () => {
+    const manifest = stampedManifest(
+      [finalRecord(0, 'passed', '000000000000aaa1', TRACE_A)],
+      { parent: { traceId: TRACE_A, spanId: PARENT_SPAN, traceFlags: 0 } }
+    )
+    const { spans, warnings } = await push({
+      manifests: [{ file: MANIFEST_FILE, manifest }],
+      traceZips: false
+    })
+    expect(spans).toEqual([])
+    expect(warnings).toEqual([
+      `${MANIFEST_FILE} was recorded under an unsampled TRACEPARENT, so its 1 test(s) were not pushed; pass --ignore-parent-sampling to push them anyway`
+    ])
+  })
+
+  it('names each manifest run by its own runId, else its sessionId with a warning', () => {
+    const warnings: string[] = []
+    const plan = planPush({
+      manifests: [
+        {
+          file: MANIFEST_FILE,
+          manifest: manifestOf({ runId: 'run-9' }),
+          mtimeMs: MTIME_MS
+        },
+        {
+          file: path.join(RUN_DIR, 'devtools-artifacts-s2.json'),
+          manifest: manifestOf({ sessionId: 's2' }),
+          mtimeMs: MTIME_MS
+        }
+      ],
+      traceZips: false,
+      ignoreParentSampling: false,
+      consoleMessages: false,
+      realpath: (target) => target,
+      loadZip: () => new Uint8Array(),
+      warn: (message) => warnings.push(message)
+    })
+    expect(plan.runIds).toEqual(['run-9', 's2'])
+    expect(warnings).toEqual([
+      `${path.join(RUN_DIR, 'devtools-artifacts-s2.json')} has no runId, so its run is named by its sessionId s2; pass --run-id to group it with other manifests`
+    ])
+  })
+
+  it('names every manifest with the --run-id override', () => {
+    const plan = planPush({
+      manifests: [
+        {
+          file: MANIFEST_FILE,
+          manifest: manifestOf({ runId: 'run-9' }),
+          mtimeMs: MTIME_MS
+        }
+      ],
+      runId: 'ci-42',
+      traceZips: false,
+      ignoreParentSampling: false,
+      consoleMessages: false,
+      realpath: (target) => target,
+      loadZip: () => new Uint8Array(),
+      warn: () => {}
+    })
+    expect(plan.runIds).toEqual(['ci-42'])
+  })
+})
+
+describe('pushRun superseded finals across skipped manifests', () => {
+  it('lets a final skipped for an unsampled TRACEPARENT supersede the failed final it retried', async () => {
+    const failed = stampedManifest([
+      finalRecord(0, 'failed', '000000000000aaa1', TRACE_A)
+    ])
+    const retried = stampedManifest(
+      [finalRecord(1, 'passed', 'bbbbbbbbbbbbbbb2', TRACE_B)],
+      { parent: { traceId: TRACE_A, spanId: PARENT_SPAN, traceFlags: 0 } }
+    )
+    const { spans, warnings } = await push({
+      manifests: [
+        { file: MANIFEST_FILE, manifest: failed },
+        {
+          file: path.join(RUN_DIR, 'devtools-artifacts-retry.json'),
+          manifest: retried
+        }
+      ],
+      traceZips: false
+    })
+    expect(spans).toHaveLength(1)
+    expect(spans[0].attributes[attr.ATTR_TEST_FINAL_ATTEMPT]).toBe(false)
+    expect(warnings).toEqual([
+      `${path.join(RUN_DIR, 'devtools-artifacts-retry.json')} was recorded under an unsampled TRACEPARENT, so its 1 test(s) were not pushed; pass --ignore-parent-sampling to push them anyway`
+    ])
+  })
+})
+
+describe('pushRun superseded finals across runs', () => {
+  it('keeps the final of a test that shares its uid with a test in another run', async () => {
+    const failed = stampedManifest([
+      finalRecord(0, 'failed', '000000000000aaa1', TRACE_A)
+    ])
+    const passed = stampedManifest([
+      finalRecord(1, 'passed', 'bbbbbbbbbbbbbbb2', TRACE_B)
+    ])
+    const { spans } = await push({
+      runId: null,
+      manifests: [
+        {
+          file: MANIFEST_FILE,
+          manifest: { ...failed, runId: 'run-a' }
+        },
+        {
+          file: path.join(RUN_DIR, 'devtools-artifacts-s2.json'),
+          manifest: { ...passed, sessionId: 's2', runId: 'run-b' }
+        }
+      ],
+      traceZips: false
+    })
+    expect(
+      spans.map((span) => span.attributes[attr.ATTR_TEST_FINAL_ATTEMPT])
+    ).toEqual([true, true])
+  })
+})
+
+describe('pushRun unsampled parent through the telemetry sampler', () => {
+  const unsampledManifest = (): Manifest =>
+    stampedManifest([finalRecord(0, 'passed', '000000000000aaa1', TRACE_A)], {
+      parent: { traceId: TRACE_A, spanId: PARENT_SPAN, traceFlags: 0 }
+    })
+
+  async function pushThroughTelemetry(ignoreParentSampling: boolean) {
+    const exporter = new InMemorySpanExporter()
+    const telemetry = telemetryWith(
+      new SimpleSpanProcessor({ exporter }),
+      { pending: 0, exported: 0, oldestEndMs: undefined },
+      {},
+      ignoreParentSampling
+    )
+    const plan = planPush({
+      manifests: [
+        {
+          file: MANIFEST_FILE,
+          manifest: unsampledManifest(),
+          mtimeMs: MTIME_MS
+        }
+      ],
+      traceZips: false,
+      ignoreParentSampling,
+      consoleMessages: false,
+      realpath: (target) => target,
+      loadZip: () => new Uint8Array(),
+      warn: () => {}
+    })
+    await plan.emit(telemetry)
+    return exporter.getFinishedSpans()
+  }
+
+  it('emits an unsampled parent with --ignore-parent-sampling, sampled and parented to the CI span', async () => {
+    const spans = await pushThroughTelemetry(true)
+    expect(spans.map((span) => span.name)).toEqual(['logs in'])
+    expect(spans[0].spanContext().traceFlags & TraceFlags.SAMPLED).toBe(
+      TraceFlags.SAMPLED
+    )
+    expect(spans[0].parentSpanContext?.spanId).toBe(PARENT_SPAN)
+  })
+
+  it('emits nothing for an unsampled parent by default', async () => {
+    expect(await pushThroughTelemetry(false)).toEqual([])
   })
 })

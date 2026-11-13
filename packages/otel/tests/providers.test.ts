@@ -14,10 +14,11 @@ const EXPORT_FAILED = 1
 
 function telemetryOver(
   exporter: SpanExporter,
-  ci: Record<string, string> = {}
+  ci: Record<string, string> = {},
+  ignoreParentSampling = false
 ) {
   const processor = new SteppedExport(exporter)
-  return telemetryWith(processor, processor, ci)
+  return telemetryWith(processor, processor, ci, ignoreParentSampling)
 }
 
 describe('one flush per push', () => {
@@ -43,12 +44,28 @@ describe('telemetry wiring', () => {
     isRemote: true
   })
 
-  it('exports a span whose TRACEPARENT parent is not sampled', async () => {
+  it('drops a span whose TRACEPARENT parent is not sampled', async () => {
     const spans = new InMemorySpanExporter()
     const telemetry = telemetryOver(spans)
     telemetry.tracer.startSpan('child', {}, unsampledParent).end()
     await telemetry.flush()
+    expect(spans.getFinishedSpans()).toEqual([])
+  })
+
+  it('exports a span whose TRACEPARENT parent is not sampled when parent sampling is ignored', async () => {
+    const spans = new InMemorySpanExporter()
+    const telemetry = telemetryOver(spans, {}, true)
+    telemetry.tracer.startSpan('child', {}, unsampledParent).end()
+    await telemetry.flush()
     expect(spans.getFinishedSpans().map((span) => span.name)).toEqual(['child'])
+  })
+
+  it('reports the end of the oldest sampled span', () => {
+    const telemetry = telemetryOver(new InMemorySpanExporter())
+    const startTime = new Date(500)
+    telemetry.tracer.startSpan('late', { startTime }).end(new Date(2000))
+    telemetry.tracer.startSpan('early', { startTime }).end(new Date(1000))
+    expect(telemetry.oldestEndMs()).toBe(1000)
   })
 
   it('rejects the flush when the collector refused an export', async () => {

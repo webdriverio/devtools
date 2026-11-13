@@ -1,6 +1,7 @@
 import {
   AlwaysOnSampler,
   ConsoleSpanExporter,
+  ParentBasedSampler,
   SimpleSpanProcessor,
   TracerProvider,
   type ReadableSpan,
@@ -30,12 +31,17 @@ export const SPAN_LIMITS = { eventCountLimit: Number.POSITIVE_INFINITY }
 export interface ExportCount {
   readonly pending: number
   readonly exported: number
+  /** End of the oldest sampled span ended so far, in epoch milliseconds. */
+  readonly oldestEndMs: number | undefined
 }
+
+const NANOS_PER_MS = 1e6
 
 /** Holds ended spans until `forceFlush`, then exports them one batch at a time; a failed batch stays pending. */
 export class SteppedExport implements SpanProcessor, ExportCount {
   #pending: ReadableSpan[] = []
   #exported = 0
+  #oldestEndMs: number | undefined
 
   constructor(private readonly exporter: SpanExporter) {}
 
@@ -47,12 +53,18 @@ export class SteppedExport implements SpanProcessor, ExportCount {
     return this.#exported
   }
 
+  get oldestEndMs(): number | undefined {
+    return this.#oldestEndMs
+  }
+
   onStart(): void {}
 
   onEnd(span: ReadableSpan): void {
     if ((span.spanContext().traceFlags & TraceFlags.SAMPLED) === 0) {
       return
     }
+    const endMs = span.endTime[0] * 1000 + span.endTime[1] / NANOS_PER_MS
+    this.#oldestEndMs = Math.min(this.#oldestEndMs ?? endMs, endMs)
     this.#pending.push(span)
   }
 
@@ -93,22 +105,25 @@ export interface Telemetry {
   shutdown(): Promise<void>
   pendingSpans(): number
   exportedSpans(): number
+  oldestEndMs(): number | undefined
 }
 
+// A TRACEPARENT recorded unsampled drops its spans unless the caller asks for everything.
 export function telemetryWith(
   spanProcessor: SpanProcessor,
   count: ExportCount,
-  ciAttributes: Record<string, string>
+  ciAttributes: Record<string, string>,
+  ignoreParentSampling: boolean
 ): Telemetry {
   const resource = resourceFromAttributes({
     'service.name': DEFAULT_SERVICE_NAME,
     ...ciAttributes
   }).merge(detectResources({ detectors: [envDetector] }))
   const ids = new PinnedIdGenerator()
-  // A remote parent with the sampled flag unset would otherwise drop every span.
+  const root = new AlwaysOnSampler()
   const tracerProvider = new TracerProvider({
     resource,
-    sampler: new AlwaysOnSampler(),
+    sampler: ignoreParentSampling ? root : new ParentBasedSampler({ root }),
     spanLimits: SPAN_LIMITS,
     idGenerator: ids,
     spanProcessors: [spanProcessor]
@@ -121,22 +136,25 @@ export function telemetryWith(
       await tracerProvider.shutdown()
     },
     pendingSpans: () => count.pending,
-    exportedSpans: () => count.exported
+    exportedSpans: () => count.exported,
+    oldestEndMs: () => count.oldestEndMs
   }
 }
 
 export function createTelemetry(options: {
   dryRun: boolean
+  ignoreParentSampling: boolean
   env: Record<string, string | undefined>
 }): Telemetry {
   const ci = ciResourceAttributes(options.env)
   if (options.dryRun) {
     return telemetryWith(
       new SimpleSpanProcessor({ exporter: new ConsoleSpanExporter() }),
-      { pending: 0, exported: 0 },
-      ci
+      { pending: 0, exported: 0, oldestEndMs: undefined },
+      ci,
+      options.ignoreParentSampling
     )
   }
   const processor = new SteppedExport(new OTLPTraceExporter())
-  return telemetryWith(processor, processor, ci)
+  return telemetryWith(processor, processor, ci, options.ignoreParentSampling)
 }
