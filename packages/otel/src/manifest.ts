@@ -8,8 +8,10 @@ import {
   type TraceArtifact
 } from '@wdio/devtools-shared'
 
-// Narrowed to what the validators below check: `scope`/`format` are not read, `path`/`kind`/`retained` are required.
-export type ManifestArtifact = Omit<TraceArtifact, 'scope'>
+// `scope` is optional: an artifact without it takes the folder rule for its attempt. `format` is not read.
+export type ManifestArtifact = Omit<TraceArtifact, 'scope'> & {
+  scope?: TraceArtifact['scope']
+}
 
 export type ManifestAttempt = TestAttemptRecord & { error?: string }
 
