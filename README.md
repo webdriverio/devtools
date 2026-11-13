@@ -177,7 +177,9 @@ The dashboard runs in one of **three modes**, set per adapter via the shared `mo
 
 - **`live`** (default) — the interactive DevTools UI window described above.
 - **`trace`** — a headless capture path that writes a portable trace archive, opened later in the **trace player**.
-- **`telemetry`** — no backend, dashboard or per-action capture, and no trace zips: it writes only the `devtools-artifacts-<sessionId>.json` manifest, which carries each test's lifecycle, the run id and each attempt's trace and span ids. Zips stay opt-in through trace mode.
+- **`telemetry`** — no backend, dashboard or per-action capture, and no trace zips: it writes only the `devtools-artifacts-<sessionId>.json` manifest, which carries each test's lifecycle, the run id and each attempt's trace and span ids. Feed it to the `wdio-otel push` CLI (`packages/otel`) to export to OpenTelemetry. Zips stay opt-in through trace mode.
+
+To export telemetry, install [`@wdio/opentelemetry`](packages/otel/README.md) and push the manifests after the run, with `OTEL_EXPORTER_OTLP_ENDPOINT` set: `npx wdio-otel push test-results/devtools-artifacts-*.json`. Each test attempt becomes a span. Its attributes let you slice the spans by commit and branch, CI pipeline (detected on GitHub Actions and GitLab CI, or set in `OTEL_RESOURCE_ATTRIBUTES`), browser, spec and session.
 
 All three JavaScript adapters (`@wdio/devtools-service`, `@wdio/selenium-devtools`, `@wdio/nightwatch-devtools`) emit the **same normalized trace** through the shared `@wdio/devtools-core` capture library, so one archive format and one player serve every framework.
 
