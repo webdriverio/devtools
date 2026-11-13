@@ -98,6 +98,8 @@ declare module '@wdio/reporter' {
     uri?: string
     // Position among the suite's children, which the dashboard sorts by.
     order?: number
+    // Set on a row that stands for a failed hook, which the dashboard drops when its suite runs again.
+    hook?: boolean
   }
 
   interface SuiteStats {

@@ -117,6 +117,18 @@ describe('retriedTestUid', () => {
     expect(retriedTestUid(metadata, started, step, 'uid-a')).toBe('uid-a')
   })
 
+  it("never names another scenario from a Cucumber step's title", () => {
+    const feature = '/proj/features/checkout.feature'
+    const scenarios = new Map([
+      ['uid-earlier', { title: 'Then checkout succeeds', specFile: feature }],
+      ['uid-current', { title: 'Pay by card', specFile: feature }]
+    ])
+    const step = { title: 'Then checkout succeeds', parent: '1', file: feature }
+    expect(retriedTestUid(scenarios, () => true, step, 'uid-current')).toBe(
+      'uid-current'
+    )
+  })
+
   it('falls back when the title is ambiguous and no suite matches', () => {
     const test = { title: 'logs in', parent: 'c', file }
     expect(retriedTestUid(metadata, started, test, 'uid-b')).toBe('uid-b')

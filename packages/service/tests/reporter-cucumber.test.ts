@@ -403,6 +403,7 @@ describe('failed Cucumber hooks (10.2 hook:* events)', () => {
     ])
     const row = (h.reporter.suites[fid] as SuiteStats).tests[0]
     expect(row.error?.message).toBe('database down')
+    expect(row.hook).toBe(true)
     expect(row.uid).toMatch(/^stable-/)
   })
 

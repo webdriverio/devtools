@@ -196,15 +196,30 @@ function resetStaleChildrenOnRerun(
   )
 }
 
+// A retried suite resends only the new attempt's rows; a fresh run drops old hook rows, which a passing hook never replaces.
+function testsCarriedInto(
+  existing: SuiteStatsFragment,
+  incoming: SuiteStatsFragment
+): TestStatsFragment[] | undefined {
+  if ((incoming.retries ?? 0) > (existing.retries ?? 0)) {
+    return []
+  }
+  const startsAgain =
+    !!existing.start &&
+    !!incoming.start &&
+    getTimestamp(existing.start) !== getTimestamp(incoming.start)
+  return startsAgain
+    ? existing.tests?.filter((test) => !test?.hook)
+    : existing.tests
+}
+
 export function mergeSuite(
   existing: SuiteStatsFragment,
   incoming: SuiteStatsFragment,
   ctx: MergeContext
 ): SuiteStatsFragment {
-  // A suite that runs again (a retried Cucumber scenario) sends only the new attempt's rows, so the failed attempt's go.
-  const newAttempt = (incoming.retries ?? 0) > (existing.retries ?? 0)
   const mergedTests = mergeTests(
-    newAttempt ? [] : existing.tests,
+    testsCarriedInto(existing, incoming),
     incoming.tests,
     ctx
   )

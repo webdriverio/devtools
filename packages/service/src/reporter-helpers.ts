@@ -58,6 +58,7 @@ export function failedHookRow(
   row.start = hook.start
   row.fail([error], hook.end ?? new Date())
   row.retries = 0
+  row.hook = true
   return row
 }
 

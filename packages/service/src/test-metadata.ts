@@ -2,7 +2,11 @@
 // state stamp in afterTest/afterScenario lands on the entry beforeTest created.
 
 import { deterministicUid, type TestAttemptTracker } from '@wdio/devtools-core'
-import type { TestMetadataMap, TestStatus } from '@wdio/devtools-shared'
+import {
+  FEATURE_FILE_RE,
+  type TestMetadataMap,
+  type TestStatus
+} from '@wdio/devtools-shared'
 import type { RetriedTest } from './types.js'
 
 /** The subset of a WDIO afterTest/afterScenario hook result this adapter reads:
@@ -85,13 +89,17 @@ export function resolveTestAttempt(
   return Math.max(typeof attempts === 'number' ? attempts : 0, fallback)
 }
 
-/** The ledger uid of a test the reporter saw retried, matched on file and title (the reporter's uid and dotted fullTitle are its own). */
+/** The ledger uid of a test the reporter saw retried, matched on file and title (the reporter's uid and dotted fullTitle are its own); a Cucumber retry is always the current scenario's. */
 export function retriedTestUid(
   metadata: TestMetadataMap,
   started: (uid: string) => boolean,
   test: RetriedTest,
   fallback: string | undefined
 ): string | undefined {
+  // A step title can equal another scenario's name, so a feature file's retry is never matched by title.
+  if (FEATURE_FILE_RE.test(test.file ?? '')) {
+    return fallback
+  }
   const named = (suffix: string) =>
     [...metadata].filter(
       ([uid, entry]) =>

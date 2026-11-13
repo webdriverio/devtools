@@ -20,6 +20,8 @@ export type TestStatsFragment = Omit<Partial<TestStats>, 'uid' | 'state'> & {
   featureFile?: string
   featureLine?: number
   file?: string
+  /** Set on a row that stands for a failed hook rather than a test. */
+  hook?: boolean
 }
 
 export type SuiteStatsFragment = Omit<
