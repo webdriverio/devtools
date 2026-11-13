@@ -52,13 +52,13 @@ function startCollector(status: number): Promise<Collector> {
 function runCli(
   args: string[],
   env: Record<string, string>
-): Promise<{ code: number; stderr: string }> {
+): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [CLI, ...args],
       { env },
-      (error: ExecFileException | null, _stdout, stderr) => {
+      (error: ExecFileException | null, stdout, stderr) => {
         resolve({
           code:
             error === null
@@ -66,6 +66,7 @@ function runCli(
               : typeof error.code === 'number'
                 ? error.code
                 : 1,
+          stdout,
           stderr
         })
       }
@@ -76,6 +77,7 @@ function runCli(
 describe('wdio-otel push, built binary', () => {
   let dir: string
   let manifest: string
+  let unsampledManifest: string
   const collectors: Collector[] = []
   const listen = async (status: number): Promise<Collector> => {
     const collector = await startCollector(status)
@@ -85,36 +87,43 @@ describe('wdio-otel push, built binary', () => {
 
   beforeAll(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'otel-e2e-'))
+    const manifestJson = (parent?: object) => ({
+      manifestVersion: 2,
+      sessionId: 's1',
+      runId: RUN_ID,
+      ...(parent ? { parent } : {}),
+      artifacts: [],
+      tests: [
+        {
+          uid: 'uid-1',
+          title: TEST_TITLE,
+          specFile: 'specs/login.spec.ts',
+          state: 'passed',
+          attempt: 0,
+          startTime: START_MS,
+          endTime: START_MS + 1000,
+          attempts: [
+            {
+              attempt: 0,
+              state: 'passed',
+              startTime: START_MS,
+              endTime: START_MS + 1000,
+              traceId: TRACE_ID,
+              spanId: SPAN_ID,
+              final: true
+            }
+          ]
+        }
+      ]
+    })
     manifest = path.join(dir, 'manifest.json')
+    await writeFile(manifest, JSON.stringify(manifestJson()))
+    unsampledManifest = path.join(dir, 'unsampled.json')
     await writeFile(
-      manifest,
-      JSON.stringify({
-        sessionId: 's1',
-        runId: RUN_ID,
-        artifacts: [],
-        tests: [
-          {
-            uid: 'uid-1',
-            title: TEST_TITLE,
-            specFile: 'specs/login.spec.ts',
-            state: 'passed',
-            attempt: 0,
-            startTime: START_MS,
-            endTime: START_MS + 1000,
-            attempts: [
-              {
-                attempt: 0,
-                state: 'passed',
-                startTime: START_MS,
-                endTime: START_MS + 1000,
-                traceId: TRACE_ID,
-                spanId: SPAN_ID,
-                final: true
-              }
-            ]
-          }
-        ]
-      })
+      unsampledManifest,
+      JSON.stringify(
+        manifestJson({ traceId: TRACE_ID, spanId: SPAN_ID, traceFlags: 0 })
+      )
     )
   })
 
@@ -182,6 +191,39 @@ describe('wdio-otel push, built binary', () => {
 
       expect(result.code).toBe(0)
       expect(collector.bodies).toHaveLength(1)
+    }
+  )
+
+  it.skipIf(!built)(
+    'says every manifest was skipped when all are recorded under an unsampled TRACEPARENT',
+    async () => {
+      const collector = await listen(200)
+      const result = await runCli(
+        ['push', unsampledManifest],
+        envFor(collector.port)
+      )
+
+      expect(result.code).toBe(0)
+      expect(result.stdout).toContain(
+        'pushed 0 test(s): all 1 manifest(s) were recorded under an unsampled TRACEPARENT'
+      )
+      expect(collector.bodies).toHaveLength(0)
+    }
+  )
+
+  it.skipIf(!built)(
+    'reports the manifests skipped as unsampled beside the ones pushed',
+    async () => {
+      const collector = await listen(200)
+      const result = await runCli(
+        ['push', manifest, unsampledManifest],
+        envFor(collector.port)
+      )
+
+      expect(result.code).toBe(0)
+      expect(result.stdout).toContain(
+        'pushed 1 test(s) from 1 manifest(s) across 1 run(s); 1 manifest(s) skipped as unsampled'
+      )
     }
   )
 })

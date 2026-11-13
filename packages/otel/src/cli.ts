@@ -1,23 +1,34 @@
 #!/usr/bin/env node
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { DiagConsoleLogger, DiagLogLevel, diag } from '@opentelemetry/api'
 import { describe } from './artifact-sources.js'
-import { CLI_USAGE, isBrowserFetchable, parseCliArgs } from './cli-args.js'
+import {
+  CLI_USAGE,
+  isBrowserFetchable,
+  parseCliArgs,
+  type PushArgs
+} from './cli-args.js'
 import { parseManifest } from './manifest.js'
 import { createTelemetry } from './providers.js'
+import { staleSpanWarning } from './stale-span.js'
 import { planPush, type ManifestInput } from './to-telemetry.js'
-
-const RUN_ID_SEPARATOR = '+'
+import { pushSummary } from './push-summary.js'
 
 function loadManifest(file: string): ManifestInput {
   const absolute = path.resolve(file)
+  let text: string
+  try {
+    text = readFileSync(absolute, 'utf8')
+  } catch (error) {
+    throw new Error(`cannot read ${absolute}: ${describe(error)}`)
+  }
   let json: unknown
   try {
-    json = JSON.parse(readFileSync(absolute, 'utf8'))
+    json = JSON.parse(text)
   } catch (error) {
-    throw new Error(`${absolute} is not JSON: ${describe(error)}`)
+    throw new Error(`${absolute} is not valid JSON: ${describe(error)}`)
   }
   return {
     file: absolute,
@@ -71,29 +82,38 @@ async function main(argv: string[]): Promise<number> {
     reportProblems(`nothing pushed, ${problems.length} problem(s):`, problems)
     return 1
   }
-  const runIds = new Set(loaded.map(({ manifest }) => manifest.runId))
-  const manifestRunId = runIds.size === 1 ? [...runIds][0] : undefined
-  const runId =
-    args.runId ??
-    manifestRunId ??
-    loaded
-      .map(({ manifest }) => manifest.sessionId)
-      .sort()
-      .join(RUN_ID_SEPARATOR)
+  return push(args, loaded)
+}
+
+async function push(args: PushArgs, loaded: ManifestInput[]): Promise<number> {
+  if (args.consoleMessages && !args.traceZips) {
+    process.stderr.write(
+      'wdio-otel: --console-messages has no effect without --trace-zips\n'
+    )
+  }
   const plan = planPush({
     manifests: loaded,
-    runId,
+    runId: args.runId,
     artifactBaseUrl: args.artifactBaseUrl,
     traceZips: args.traceZips,
+    ignoreParentSampling: args.ignoreParentSampling,
+    consoleMessages: args.consoleMessages,
     loadZip: (zipPath) => readFileSync(zipPath),
+    realpath: (target) => realpathSync(target),
     warn: (message) => process.stderr.write(`wdio-otel: ${message}\n`)
   })
-  const telemetry = createTelemetry({ dryRun: args.dryRun, env: process.env })
+  const telemetry = createTelemetry({
+    dryRun: args.dryRun,
+    ignoreParentSampling: args.ignoreParentSampling,
+    env: process.env
+  })
   try {
     const tests = await plan.emit(telemetry)
-    process.stdout.write(
-      `wdio-otel: pushed ${tests} test(s) from ${loaded.length} manifest(s) as run ${runId}\n`
-    )
+    process.stdout.write(`wdio-otel: ${pushSummary(tests, plan)}\n`)
+    const stale = staleSpanWarning(telemetry.oldestEndMs(), Date.now)
+    if (stale) {
+      process.stderr.write(`wdio-otel: ${stale}\n`)
+    }
     const unreadable = plan.unreadable()
     if (unreadable.length > 0) {
       reportUnreadable(unreadable)

@@ -16,6 +16,7 @@ import * as attr from './attributes.js'
 import type { ManifestTest } from './manifest.js'
 import {
   actionStart,
+  capLength,
   normalizeSelector,
   STATE_FAILED,
   type ActionInfo,
@@ -31,6 +32,7 @@ import {
 const REPORTED_CONSOLE_LEVELS: ReadonlySet<string> = new Set(['warn', 'error'])
 
 export const MAX_EVENTS_PER_TEST = 100
+export const MAX_CONSOLE_MESSAGE_CHARS = 1024
 export interface TelemetrySink {
   tracer: Tracer
   ids: PinnedIdGenerator
@@ -136,20 +138,29 @@ function emitTree(
   })
 }
 
-function addTestEvents(span: Span, data: TracePlayerData): void {
-  data.trace.consoleLogs
-    .filter((log) => REPORTED_CONSOLE_LEVELS.has(log.type))
-    .slice(0, MAX_EVENTS_PER_TEST)
-    .forEach((log) =>
-      span.addEvent(
-        attr.EVENT_CONSOLE,
-        {
-          [attr.ATTR_CONSOLE_TYPE]: log.type,
-          [attr.ATTR_CONSOLE_MESSAGE]: log.args.map(stringifyArg).join(' ')
-        },
-        new Date(log.timestamp)
+function addTestEvents(
+  span: Span,
+  data: TracePlayerData,
+  consoleMessages: boolean
+): void {
+  if (consoleMessages) {
+    data.trace.consoleLogs
+      .filter((log) => REPORTED_CONSOLE_LEVELS.has(log.type))
+      .slice(0, MAX_EVENTS_PER_TEST)
+      .forEach((log) =>
+        span.addEvent(
+          attr.EVENT_CONSOLE,
+          {
+            [attr.ATTR_CONSOLE_TYPE]: log.type,
+            [attr.ATTR_CONSOLE_MESSAGE]: capLength(
+              log.args.map(stringifyArg).join(' '),
+              MAX_CONSOLE_MESSAGE_CHARS
+            )
+          },
+          new Date(log.timestamp)
+        )
       )
-    )
+  }
   data.trace.networkRequests
     .filter(isFailedRequest)
     .slice(0, MAX_EVENTS_PER_TEST)
@@ -169,7 +180,8 @@ function addTestEvents(span: Span, data: TracePlayerData): void {
 function emitRoot(
   sink: TelemetrySink,
   test: ManifestTest,
-  root: PreparedRoot
+  root: PreparedRoot,
+  consoleMessages: boolean
 ): void {
   const span = startPinned(
     sink,
@@ -195,14 +207,18 @@ function emitRoot(
       trace.setSpan(ROOT_CONTEXT, span),
       span.spanContext().spanId
     )
-    addTestEvents(span, root.trace.data)
+    addTestEvents(span, root.trace.data, consoleMessages)
   }
   span.end(new Date(root.bounds.endMs))
 }
 
-export function emitPrepared(sink: TelemetrySink, item: PreparedTest): void {
+export function emitPrepared(
+  sink: TelemetrySink,
+  item: PreparedTest,
+  consoleMessages: boolean
+): void {
   for (const root of item.roots) {
-    emitRoot(sink, item.test, root)
+    emitRoot(sink, item.test, root, consoleMessages)
   }
 }
 

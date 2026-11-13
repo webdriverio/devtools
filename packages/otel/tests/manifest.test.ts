@@ -1,3 +1,4 @@
+import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
 import { describe, expect, it } from 'vitest'
 import { parseManifest, type Manifest } from '../src/manifest.js'
 
@@ -5,6 +6,7 @@ const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
 const SPAN_ID = '00f067aa0ba902b7'
 
 const valid: Manifest = {
+  manifestVersion: ARTIFACTS_MANIFEST_VERSION,
   sessionId: 's1',
   artifacts: [
     { kind: 'trace', path: 'traces/a.zip', testUids: ['u1'], retained: true }
@@ -27,9 +29,53 @@ describe('parseManifest', () => {
 
   it('throws naming the keys it found when the shape is wrong', () => {
     expect(() =>
-      parseManifest({ sessionId: 's1', tests: [] }, 'm.json')
+      parseManifest(
+        {
+          manifestVersion: ARTIFACTS_MANIFEST_VERSION,
+          sessionId: 's1',
+          tests: []
+        },
+        'm.json'
+      )
     ).toThrow(
-      'm.json is not an artifacts manifest: expected sessionId, artifacts, tests (artifacts and tests with their fields); found sessionId, tests'
+      'm.json is not an artifacts manifest: expected sessionId, artifacts, tests (artifacts and tests with their fields); found manifestVersion, sessionId, tests'
+    )
+  })
+
+  it('drops a key it does not know rather than passing it through', () => {
+    expect(
+      parseManifest({ ...valid, cwd: '/somewhere' }, 'm.json')
+    ).not.toHaveProperty('cwd')
+  })
+
+  it('rejects an attempt that ends before it starts, naming it', () => {
+    const attempt = {
+      attempt: 0,
+      state: 'passed',
+      startTime: 5,
+      endTime: 2,
+      traceId: TRACE_ID,
+      spanId: SPAN_ID,
+      final: true
+    }
+    expect(() =>
+      parseManifest(
+        { ...valid, tests: [{ ...valid.tests[0], attempts: [attempt] }] },
+        'm.json'
+      )
+    ).toThrow(
+      'm.json is not an artifacts manifest: tests[0].attempts[0].endTime is earlier than its startTime'
+    )
+  })
+
+  it('rejects a test that ends before it starts, naming it', () => {
+    expect(() =>
+      parseManifest(
+        { ...valid, tests: [{ ...valid.tests[0], startTime: 5, endTime: 2 }] },
+        'm.json'
+      )
+    ).toThrow(
+      'm.json is not an artifacts manifest: tests[0].endTime is earlier than its startTime'
     )
   })
 
@@ -64,18 +110,6 @@ describe('parseManifest', () => {
     expect(parseManifest(media, 'm.json').artifacts).toHaveLength(2)
   })
 
-  it('still drops an old-format step whose owner is in tests', () => {
-    const cucumber = {
-      ...valid,
-      tests: [
-        valid.tests[0],
-        { uid: 'u1:step:0', title: 'Given a user', specFile: 'a.feature' },
-        { uid: 'u1:step:1', title: 'When they log in' }
-      ]
-    }
-    expect(parseManifest(cucumber, 'm.json').tests).toEqual(valid.tests)
-  })
-
   it('keeps a test with no state, with attempt 0', () => {
     const stateless = {
       ...valid,
@@ -103,7 +137,7 @@ describe('parseManifest', () => {
       ]
     }
     expect(() => parseManifest(broken, 'm.json')).toThrow(
-      'm.json is not an artifacts manifest: expected sessionId, artifacts, tests (artifacts and tests with their fields); found sessionId, artifacts, tests; tests[1] is neither a test nor a step (keys: uid, specFile, state)'
+      'm.json is not an artifacts manifest: expected sessionId, artifacts, tests (artifacts and tests with their fields); found manifestVersion, sessionId, artifacts, tests; tests[1] is not a test (keys: uid, specFile, state)'
     )
   })
 })
@@ -132,7 +166,7 @@ describe('parseManifest timing and keys', () => {
       tests: [{ ...valid.tests[0], endTime: '2025-01-01' }]
     }
     expect(() => parseManifest(broken, 'm.json')).toThrow(
-      'tests[0] is neither a test nor a step'
+      'tests[0] is not a test'
     )
   })
 })
@@ -322,10 +356,9 @@ describe('parseManifest specific reasons', () => {
 })
 
 describe('parseManifest run environment', () => {
-  it('accepts the cwd, browser and platform fields and an attempt error', () => {
+  it('accepts the browser and platform fields and an attempt error', () => {
     const environment = {
       ...valid,
-      cwd: '/repo',
       browserName: 'chrome',
       browserVersion: '120',
       platformName: 'linux',
@@ -352,6 +385,94 @@ describe('parseManifest run environment', () => {
   it('rejects a browser name that is not a string', () => {
     expect(() => parseManifest({ ...valid, browserName: 7 }, 'm.json')).toThrow(
       'is not an artifacts manifest'
+    )
+  })
+})
+
+describe('parseManifest version', () => {
+  it.each([
+    ['none', { manifestVersion: undefined }],
+    ['1', { manifestVersion: 1 }]
+  ])(
+    'rejects a manifest of version %s, naming the version it reads',
+    (found, version) => {
+      const { manifestVersion: _omitted, ...rest } = valid
+      expect(() => parseManifest({ ...rest, ...version }, 'm.json')).toThrow(
+        `m.json is not an artifacts manifest: manifest version ${found}, this wdio-otel reads version 2; record the run with a current devtools adapter`
+      )
+    }
+  )
+
+  it('reports the version before a versionless manifest whose attempts lack a final record', () => {
+    const { manifestVersion: _omitted, ...rest } = valid
+    const attempts = [
+      {
+        attempt: 0,
+        state: 'passed',
+        startTime: 1,
+        traceId: TRACE_ID,
+        spanId: SPAN_ID
+      }
+    ]
+    expect(() =>
+      parseManifest(
+        { ...rest, tests: [{ ...valid.tests[0], attempts }] },
+        'm.json'
+      )
+    ).toThrow(
+      'm.json is not an artifacts manifest: manifest version none, this wdio-otel reads version 2; record the run with a current devtools adapter'
+    )
+  })
+
+  it('reports the version before a version-1 manifest whose attempts are malformed', () => {
+    expect(() =>
+      parseManifest(
+        {
+          ...valid,
+          manifestVersion: 1,
+          tests: [{ ...valid.tests[0], attempts: [{ attempt: 0 }] }]
+        },
+        'm.json'
+      )
+    ).toThrow('manifest version 1, this wdio-otel reads version 2')
+  })
+})
+
+describe('parseManifest attempt numbers and testUids', () => {
+  const attempt = {
+    attempt: 0,
+    startTime: 1,
+    traceId: TRACE_ID,
+    spanId: SPAN_ID,
+    final: true
+  }
+
+  it.each([-1, 0.5])('rejects an attempt record numbered %s', (number) => {
+    const broken = {
+      ...valid,
+      tests: [
+        { ...valid.tests[0], attempts: [{ ...attempt, attempt: number }] }
+      ]
+    }
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      `tests[0].attempts[0].attempt must be a non-negative integer, found ${number} (number)`
+    )
+  })
+
+  it.each([-1, 1.5])('rejects a test whose attempt is %s', (number) => {
+    const broken = { ...valid, tests: [{ ...valid.tests[0], attempt: number }] }
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      `tests[0].attempt must be a non-negative integer, found ${number} (number)`
+    )
+  })
+
+  it('rejects a testUids element that is not a string', () => {
+    const broken = {
+      ...valid,
+      artifacts: [{ ...valid.artifacts[0], testUids: ['u1', 7] }]
+    }
+    expect(() => parseManifest(broken, 'm.json')).toThrow(
+      'artifacts[0].testUids must hold only strings'
     )
   })
 })

@@ -23,7 +23,25 @@ describe('parseCliArgs', () => {
       artifactBaseUrl: 'https://bucket.example/run',
       runId: 'ci-42',
       dryRun: true,
-      traceZips: true
+      traceZips: true,
+      consoleMessages: false,
+      ignoreParentSampling: false
+    })
+  })
+
+  it('reads the console and parent-sampling flags', () => {
+    expect(
+      parseCliArgs([
+        'push',
+        'm.json',
+        '--trace-zips',
+        '--console-messages',
+        '--ignore-parent-sampling'
+      ])
+    ).toMatchObject({
+      traceZips: true,
+      consoleMessages: true,
+      ignoreParentSampling: true
     })
   })
 
@@ -32,7 +50,9 @@ describe('parseCliArgs', () => {
       help: false,
       manifests: ['m.json'],
       dryRun: false,
-      traceZips: false
+      traceZips: false,
+      consoleMessages: false,
+      ignoreParentSampling: false
     })
   })
 

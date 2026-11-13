@@ -60,3 +60,7 @@ export function actionStart(command: CommandLog): number {
 export function normalizeSelector(selector: string): string {
   return selector.trim().replace(/\s+/g, ' ')
 }
+
+export function capLength(message: string, limit: number): string {
+  return message.length > limit ? `${message.slice(0, limit)}…` : message
+}
