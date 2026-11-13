@@ -236,6 +236,44 @@ describe('collectSuiteTestMetadata', () => {
     expect(map.get('t2')?.specFile).toBe('/spec/t2.ts')
   })
 
+  it('reads a suite as a feature when its featureFile is a .feature, and its scenario as a scenario', () => {
+    const root = createSuiteStats({
+      uid: 'root',
+      title: 'Cart',
+      file: '/work',
+      featureFile: '/work/cart.feature'
+    })
+    const scenario = createSuiteStats({
+      uid: 'sc',
+      title: 'checkout',
+      file: '/work/cart.feature',
+      featureFile: '/work/cart.feature',
+      parent: 'root'
+    })
+    scenario.tests = [namedTest('step', 'sc', { file: '/work/cart.feature' })]
+    root.suites = [scenario]
+
+    const map = collectSuiteTestMetadata([root])
+    expect(map.get('sc')?.title).toBe('checkout')
+    expect(map.get('step')?.ancestry?.map((a) => a.kind)).toEqual([
+      'feature',
+      'scenario'
+    ])
+  })
+
+  it('keeps a mocha-style suite tree unchanged when no suite names a feature file', () => {
+    const root = createSuiteStats({
+      uid: 'root',
+      title: 'Login',
+      file: '/spec/login.ts'
+    })
+    root.tests = [namedTest('t1', 'root')]
+
+    const map = collectSuiteTestMetadata([root])
+    expect(map.has('root')).toBe(false)
+    expect(map.get('t1')?.ancestry?.map((a) => a.kind)).toEqual(['suite'])
+  })
+
   it('walks multiple root suites from any iterable', () => {
     const a = createSuiteStats({ uid: 'a', title: 'A', file: '/a.ts' })
     const b = createSuiteStats({ uid: 'b', title: 'B', file: '/b.ts' })
@@ -243,6 +281,29 @@ describe('collectSuiteTestMetadata', () => {
     b.tests = [namedTest('t2', 'b')]
     const map = collectSuiteTestMetadata(new Set([a, b]))
     expect(map.size).toBe(2)
+  })
+
+  it('carries timing from the suite tree', () => {
+    const root = createSuiteStats({ uid: 'root', title: 'Root', file: '/a.ts' })
+    root.tests = [
+      namedTest('t1', 'root', {
+        start: new Date(1000),
+        end: new Date(1500),
+        _duration: 480,
+        error: new Error('boom')
+      }),
+      namedTest('t2', 'root', { start: new Date(2000), end: null })
+    ]
+    const map = collectSuiteTestMetadata([root])
+    expect(map.get('t1')).toMatchObject({
+      startTime: 1000,
+      endTime: 1500,
+      durationMs: 480,
+      error: 'boom'
+    })
+    expect(map.get('t2')?.startTime).toBe(2000)
+    expect(map.get('t2')).not.toHaveProperty('endTime')
+    expect(map.get('t2')).not.toHaveProperty('error')
   })
 
   it('carries state and attempt (from retries), defaulting attempt to 0', () => {

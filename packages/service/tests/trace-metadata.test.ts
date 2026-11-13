@@ -1,9 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import { deterministicUid } from '@wdio/devtools-core'
+import { HooksInFlight } from '../src/command-stack.js'
+import type { TestReporter } from '../src/reporter.js'
+import type { RunnerStats } from '@wdio/reporter'
+import type { TestMetadataEntry, TestMetadataMap } from '@wdio/devtools-shared'
 import {
   cucumberScenarioUid,
   resultToState,
+  specFileAttemptOf,
+  stampTestState,
   testMetadataUid
 } from '../src/test-metadata.js'
 
@@ -90,6 +96,67 @@ describe('test-metadata helpers', () => {
     expect(cucumberScenarioUid(uri, 'log in')).toBe(
       deterministicUid(uri, 'log in')
     )
+  })
+})
+
+describe('specFileAttemptOf', () => {
+  it('reads the attempt of a first run as 0', () => {
+    expect(specFileAttemptOf({ specFileAttempt: 0 })).toBe(0)
+  })
+
+  it('reads the attempt of a first rerun as 1', () => {
+    expect(specFileAttemptOf({ specFileAttempt: 1 })).toBe(1)
+  })
+
+  it('derives the attempt from retry when specFileAttempt is absent', () => {
+    expect(
+      specFileAttemptOf({ retry: 1, config: { specFileRetries: 2 } })
+    ).toBe(1)
+    expect(specFileAttemptOf({})).toBe(0)
+  })
+})
+
+describe('stampTestState', () => {
+  it('reassigns the error on every stamp so a passing retry leaves none', () => {
+    const metadata: TestMetadataMap = new Map([
+      ['u', { title: 't', specFile: 's' }]
+    ])
+    stampTestState(
+      metadata,
+      'u',
+      { passed: false, error: new Error('first') },
+      0,
+      10
+    )
+    stampTestState(metadata, 'u', { passed: true, duration: 5 }, 1, 20)
+    const entry = metadata.get('u')
+    expect(entry?.state).toBe('passed')
+    expect(entry?.error).toBeUndefined()
+    expect(entry?.durationMs).toBe(5)
+    expect(entry?.endTime).toBe(20)
+    expect(entry?.attempt).toBe(1)
+  })
+
+  it('records the message of a failed result and no-ops without an entry', () => {
+    const metadata: TestMetadataMap = new Map([
+      ['u', { title: 't', specFile: 's' }]
+    ])
+    stampTestState(
+      metadata,
+      'u',
+      { passed: false, error: new Error('boom') },
+      0,
+      10
+    )
+    expect(metadata.get('u')?.error).toBe('boom')
+    stampTestState(
+      metadata,
+      'missing',
+      { passed: false, error: new Error('x') },
+      0,
+      10
+    )
+    expect(metadata.has('missing')).toBe(false)
   })
 })
 
@@ -185,13 +252,10 @@ describe('DevtoolsService - afterTest state stamping', () => {
     // Two starts before a single end simulate a same-process (Mocha) retry.
     // WDIO's mocha framework reports retries.attempts:0 even on the retry, so
     // the runner field must NOT clobber the tracker's real count of 1.
+    const wdioResult = { passed: true, retries: { attempts: 0 } }
     service.beforeTest({ file, fullTitle: title })
     service.beforeTest({ file, fullTitle: title })
-    await service.afterTest(
-      { file, fullTitle: title },
-      {},
-      { passed: true, retries: { attempts: 0 } }
-    )
+    await service.afterTest({ file, fullTitle: title }, {}, wdioResult)
     await service.after()
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
       testMetadata: Map<string, { attempt?: number }>
@@ -199,24 +263,274 @@ describe('DevtoolsService - afterTest state stamping', () => {
     expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(1)
   })
 
-  it('uses the runner attempts count when it exceeds the tracker', async () => {
+  it('keeps the metadata attempt on the attempt the manifest records, even when the runner reports more', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
       tracePolicy: 'retain-on-failure-and-retries'
     })
     await service.before({} as never, [], mockBrowser)
     const title = 'checkout retries'
+    const wdioResult = { passed: true, retries: { attempts: 3 } }
     service.beforeTest({ file, fullTitle: title })
-    await service.afterTest(
-      { file, fullTitle: title },
-      {},
-      { passed: true, retries: { attempts: 3 } }
-    )
+    await service.afterTest({ file, fullTitle: title }, {}, wdioResult)
     await service.after()
     const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
       testMetadata: Map<string, { attempt?: number }>
+      outcomes: { attemptsFor(uid: string): Array<{ attempt: number }> }
     }
-    expect(ctx.testMetadata.get(deterministicUid(file, title))?.attempt).toBe(3)
+    const uid = deterministicUid(file, title)
+    expect(ctx.testMetadata.get(uid)?.attempt).toBe(0)
+    expect(ctx.outcomes.attemptsFor(uid).map((r) => r.attempt)).toEqual([0])
+  })
+
+  it('numbers a specFileRetries rerun worker from the attempt its runner reports', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    const config = { reporters: [] as unknown[] }
+    service.beforeSession(config as never, { browserName: 'chrome' } as never)
+    const DevToolsReporter = config.reporters[0] as new (options: {
+      logFile: string
+    }) => TestReporter
+    new DevToolsReporter({ logFile: '/tmp/rerun.log' }).onRunnerStart({
+      specFileAttempt: 1
+    } as RunnerStats)
+    await service.before({} as never, [], mockBrowser)
+    const title = 'rerun worker'
+    service.beforeTest({ file, fullTitle: title })
+    await service.afterTest({ file, fullTitle: title }, {}, { passed: true })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: Map<string, { attempt?: number }>
+      outcomes: {
+        attemptsFor(uid: string): Array<{ attempt: number; final?: boolean }>
+      }
+    }
+    const uid = deterministicUid(file, title)
+    expect(ctx.testMetadata.get(uid)?.attempt).toBe(1)
+    expect(ctx.outcomes.attemptsFor(uid).map((r) => r.attempt)).toEqual([1])
+  })
+
+  it('takes a Cucumber scenario duration from its own start and end', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'timed scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'timed scenario' } },
+      { passed: true, duration: 0.975347 }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(deterministicUid(uri, 'timed scenario'))
+    expect(entry?.durationMs).toBe(
+      (entry?.endTime ?? NaN) - (entry?.startTime ?? NaN)
+    )
+  })
+
+  it('ends a test before the service waits for its own command hooks', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const settle = vi
+      .spyOn(HooksInFlight.prototype, 'settled')
+      .mockImplementation(async () => {
+        vi.setSystemTime(13_000)
+        return true
+      })
+    try {
+      const service = new DevToolsHookService({
+        mode: 'trace',
+        tracePolicy: 'retain-on-failure'
+      })
+      await service.before({} as never, [], mockBrowser)
+      const uri = '/proj/features/cart.feature'
+      const file = '/proj/specs/cart.spec.ts'
+      vi.setSystemTime(1_000)
+      service.beforeScenario({ pickle: { uri, name: 'settling scenario' } })
+      service.beforeTest({ file, title: 'settling test' } as never)
+      vi.setSystemTime(3_000)
+      await service.afterScenario(
+        { pickle: { uri, name: 'settling scenario' } },
+        { passed: true }
+      )
+      vi.setSystemTime(3_000)
+      await service.afterTest({ file, title: 'settling test' }, undefined, {
+        passed: true,
+        duration: 2_000
+      })
+      await service.after()
+      const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+        testMetadata: TestMetadataMap
+      }
+      const scenario = ctx.testMetadata.get(
+        deterministicUid(uri, 'settling scenario')
+      )
+      const test = ctx.testMetadata.get(deterministicUid(file, 'settling test'))
+      expect(scenario).toMatchObject({ endTime: 3_000, durationMs: 2_000 })
+      expect(test?.endTime).toBe(3_000)
+    } finally {
+      settle.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves no failure message on a failed scenario that reported no error', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'pending scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'pending scenario' } },
+      { passed: false }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(
+      deterministicUid(uri, 'pending scenario')
+    )
+    expect(entry?.state).toBe('failed')
+    expect(entry?.error).toBeUndefined()
+  })
+
+  async function stampedError(error: string): Promise<string | undefined> {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const file = '/proj/specs/stack.spec.ts'
+    service.beforeTest({ file, title: 'fails' } as never)
+    await service.afterTest({ file, title: 'fails' }, undefined, {
+      passed: false,
+      error
+    })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    return ctx.testMetadata.get(deterministicUid(file, 'fails'))?.error
+  }
+
+  it('leaves no failure message when the error is only stack lines', async () => {
+    expect(
+      await stampedError('    at foo (a.js:1:2)\n    at bar (b.js:3:4)')
+    ).toBeUndefined()
+  })
+
+  it('cuts at a stack whose first frame has no file location', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n    at new Promise (<anonymous>)\n    at foo (a.js:1:2)'
+      )
+    ).toBe('Error: x')
+  })
+
+  it('cuts a stack that ends in a newline or holds a blank line', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n    at foo (a.js:1:2)\n\n    at bar (b.js:3:4)\n'
+      )
+    ).toBe('Error: x')
+  })
+
+  it('keeps an "at" message line that a blank line separates from the stack', async () => {
+    expect(
+      await stampedError('Expected:\n  at least 2\n\n  at foo (a.js:1:2)')
+    ).toBe('Expected:\n  at least 2\n')
+  })
+
+  it('cuts an unlocated frame above a blank line when its run holds a located frame', async () => {
+    expect(
+      await stampedError(
+        'Error: x\n  at a (x.js:1:2)\n  at native\n\n  at b (y.js:3:4)'
+      )
+    ).toBe('Error: x')
+  })
+
+  // A scan that revisits the blanks above each blank takes ~3 s here; one pass takes a few ms.
+  it(
+    'cuts a stack padded with many blank lines',
+    { timeout: 1000 },
+    async () => {
+      const blanks = '\n'.repeat(20_000)
+      expect(
+        await stampedError(
+          `Error: x\n  at a (x.js:1:2)${blanks}  at b (y.js:3:4)${blanks}`
+        )
+      ).toBe('Error: x')
+    }
+  )
+
+  it('keeps a located-looking "at" line in the middle of the message', async () => {
+    expect(
+      await stampedError(
+        'Expected:\n  at index 5:10\nReceived: 1\n    at foo (a.js:1:2)'
+      )
+    ).toBe('Expected:\n  at index 5:10\nReceived: 1')
+  })
+
+  it('keeps a trailing "at" line when no located frame follows', async () => {
+    expect(await stampedError('Expected:\n  at least 2')).toBe(
+      'Expected:\n  at least 2'
+    )
+  })
+
+  it('keeps a message line that starts with "at" but is not a stack frame', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const file = '/proj/specs/cart.spec.ts'
+    service.beforeTest({ file, title: 'counts items' } as never)
+    await service.afterTest({ file, title: 'counts items' }, undefined, {
+      passed: false,
+      error:
+        'Expected:\n  at least 2\nReceived: 1\n    at async Context.<anonymous> (cart.spec.ts:4:9)'
+    })
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    expect(
+      ctx.testMetadata.get(deterministicUid(file, 'counts items'))?.error
+    ).toBe('Expected:\n  at least 2\nReceived: 1')
+  })
+
+  it("keeps a Cucumber failure's message and drops its stack trace", async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    const uri = '/proj/features/cart.feature'
+    service.beforeScenario({ pickle: { uri, name: 'failing scenario' } })
+    await service.afterScenario(
+      { pickle: { uri, name: 'failing scenario' } },
+      {
+        passed: false,
+        error:
+          'AssertionError: expected 2\n+ actual 1\n    at World.<anonymous> (steps.ts:4:9)\n    at run (cucumber.js:1:1)\nCaused by: Error: inner\n    at x (y.ts:1:1)'
+      }
+    )
+    await service.after()
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    const entry = ctx.testMetadata.get(
+      deterministicUid(uri, 'failing scenario')
+    )
+    expect(entry?.error).toBe('AssertionError: expected 2\n+ actual 1')
   })
 
   it('stamps a Cucumber scenario state in afterScenario', async () => {
@@ -239,6 +553,61 @@ describe('DevtoolsService - afterTest state stamping', () => {
       ctx.testMetadata.get(deterministicUid(uri, 'add to cart'))?.state
     ).toBe('failed')
   })
+
+  it('records start, end, framework duration and the failure message', async () => {
+    const before = Date.now()
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    service.beforeTest({ file, fullTitle: 'timed fails' })
+    await service.afterTest(
+      { file, fullTitle: 'timed fails' },
+      {},
+      { passed: false, error: new Error('boom'), duration: 42 }
+    )
+    await service.after()
+    const after = Date.now()
+    const entry = finalizedEntry('timed fails')
+    expect(entry?.durationMs).toBe(42)
+    expect(entry?.error).toBe('boom')
+    expect(entry?.startTime).toBeGreaterThanOrEqual(before)
+    expect(entry?.endTime).toBeLessThanOrEqual(after)
+    expect(entry?.startTime).toBeLessThanOrEqual(entry?.endTime ?? NaN)
+  })
+
+  it('clears the failed attempt error when a retry passes', async () => {
+    const service = new DevToolsHookService({
+      mode: 'trace',
+      tracePolicy: 'retain-on-failure'
+    })
+    await service.before({} as never, [], mockBrowser)
+    service.beforeTest({ file, fullTitle: 'flaky' })
+    await service.afterTest(
+      { file, fullTitle: 'flaky' },
+      {},
+      { passed: false, error: new Error('first try') }
+    )
+    service.beforeTest({ file, fullTitle: 'flaky' })
+    await service.afterTest(
+      { file, fullTitle: 'flaky' },
+      {},
+      { passed: true, duration: 7 }
+    )
+    await service.after()
+    const entry = finalizedEntry('flaky')
+    expect(entry?.state).toBe('passed')
+    expect(entry?.error).toBeUndefined()
+    expect(entry?.durationMs).toBe(7)
+  })
+
+  function finalizedEntry(title: string): TestMetadataEntry | undefined {
+    const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+      testMetadata: TestMetadataMap
+    }
+    return ctx.testMetadata.get(deterministicUid(file, title))
+  }
 })
 
 /**

@@ -118,7 +118,8 @@ describe('emitTestArtifacts — produce-only per-test artifacts', () => {
         screenshotBase64: 'SCREENSHOT_B64',
         sessionId: 'session-abcdef',
         outputDir: '/out',
-        testUid: 'uid-1'
+        testUid: 'uid-1',
+        attempt: 1
       })
     )
     expect(captureAndAttachVideo).toHaveBeenCalledWith(

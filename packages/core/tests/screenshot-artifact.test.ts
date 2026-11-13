@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -39,15 +39,42 @@ describe('writeScreenshotArtifact', () => {
     const artifact = await writeScreenshotArtifact({
       outputDir: dir,
       testUid: 'suite > a test/name',
+      attempt: 0,
       sessionId: 'abcd1234ef',
       base64
     })
     expect(artifact.kind).toBe('screenshot')
     expect(artifact.scope).toBe('test')
     expect(artifact.key).toBe('suite > a test/name')
+    expect(artifact.testUids).toEqual(['suite > a test/name'])
     expect(artifact.retained).toBe(true)
     // Filename is slugged (no spaces/slashes) and session-scoped.
     expect(artifact.path).toMatch(/screenshot-suite-a-test-name-abcd1234\.png$/)
     expect(await readFile(artifact.path, 'utf8')).toBe('png-bytes')
+  })
+
+  it('keys and names a retry attempt distinctly from attempt 0', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'shot-'))
+    dirs.push(dir)
+    const base64 = Buffer.from('png-bytes').toString('base64')
+    const first = await writeScreenshotArtifact({
+      outputDir: dir,
+      testUid: 'u1',
+      attempt: 0,
+      sessionId: 'abcd1234ef',
+      base64
+    })
+    const retry = await writeScreenshotArtifact({
+      outputDir: dir,
+      testUid: 'u1',
+      attempt: 1,
+      sessionId: 'abcd1234ef',
+      base64
+    })
+    expect(retry.key).toBe('u1-retry1')
+    expect(retry.testUids).toEqual(['u1'])
+    expect(retry.path).toMatch(/screenshot-u1-retry1-abcd1234\.png$/)
+    expect(retry.path).not.toBe(first.path)
+    expect(await readdir(dir)).toHaveLength(2)
   })
 })

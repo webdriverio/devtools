@@ -3,6 +3,7 @@
 // markers. The path is the test's ancestry (feature/scenario/suite, from the
 // suite-metadata walk) + the test itself + its step, when a stepUid is set.
 
+import { retryKeyOf } from '@wdio/devtools-shared'
 import type { CommandLog, TestMetadataMap } from '@wdio/devtools-shared'
 
 export interface GroupNode {
@@ -37,7 +38,7 @@ export function buildGroupPath(
       })
     }
     path.push({
-      uid: cmd.testUid,
+      uid: retryKeyOf(cmd.testUid, cmd.attempt ?? 0),
       title: ownTitle(entry?.title ?? cmd.testUid, path[path.length - 1])
     })
   }

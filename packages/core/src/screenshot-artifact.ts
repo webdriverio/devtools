@@ -9,9 +9,9 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import type { TraceScreenshotPolicy } from '@wdio/devtools-shared'
+import { retryKeyOf, type TraceScreenshotPolicy } from '@wdio/devtools-shared'
 import { fileSlug } from './artifact-naming.js'
-import type { TraceArtifact } from './trace-finalizer.js'
+import type { TraceArtifact } from '@wdio/devtools-shared'
 
 /** Whether a per-test screenshot should be captured for this outcome. */
 export function shouldCaptureScreenshot(
@@ -35,18 +35,21 @@ export function shouldCaptureScreenshot(
 export async function writeScreenshotArtifact(input: {
   outputDir: string
   testUid: string
+  /** 0-based; a retried test's attempts share one uid, so the key carries it. */
+  attempt: number
   sessionId: string
   base64: string
 }): Promise<TraceArtifact> {
   await fs.mkdir(input.outputDir, { recursive: true })
-  const filename = `screenshot-${fileSlug(input.testUid)}-${input.sessionId.slice(0, 8)}.png`
+  const key = retryKeyOf(input.testUid, input.attempt)
+  const filename = `screenshot-${fileSlug(key)}-${input.sessionId.slice(0, 8)}.png`
   const filePath = path.join(input.outputDir, filename)
   await fs.writeFile(filePath, Buffer.from(input.base64, 'base64'))
   return {
     kind: 'screenshot',
     path: filePath,
     scope: 'test',
-    key: input.testUid,
+    key,
     testUids: [input.testUid],
     retained: true
   }

@@ -69,6 +69,7 @@ export async function emitTestArtifacts(
     sessionId: input.sessionId,
     outputDir: input.outputDir,
     testUid: input.uid,
+    attempt: input.attempt,
     attach: undefined,
     onArtifact: input.onArtifact,
     onLog: input.onLog

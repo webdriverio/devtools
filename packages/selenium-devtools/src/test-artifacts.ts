@@ -93,6 +93,7 @@ export class SeleniumTestArtifacts {
       sessionId: input.sessionId,
       outputDir,
       testUid,
+      attempt: input.endedTest?.retries,
       attach,
       onArtifact,
       onLog

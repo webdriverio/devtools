@@ -30,13 +30,6 @@ export class TestManager {
   // Retry-stable-keyed so a test's attempts group under one entry; the trace
   // finalizer reads it (attemptOutcomes) for retry-aware retention.
   #attemptTracker = new TestAttemptTracker()
-  // Retry-stable uid of the in-progress marked test, so endCurrent can stamp
-  // this attempt's outcome onto the same ledger entry recordStart opened.
-  #currentRetryStableUid: string | undefined
-  // Retry-stable uid of the most-recently-started marked test, retained past
-  // endCurrent so the per-test artifact path (which runs after the test ends)
-  // can read this test's attempts from the ledger for video retention.
-  #lastRetryStableUid: string | undefined
   /** Set true the first time the user calls startMarkedTest. Once true we
    * never auto-create the synthetic session test — orphan commands attach
    * to the most-recently-marked test instead. */
@@ -139,53 +132,83 @@ export class TestManager {
     // Scope by parent so two suites with the same test/step name don't
     // collide on signatureCounter disambiguation across rerun processes.
     const signature = `${this.suite.uid}::${name}`
+    const retriedUid = this.#retriedUid(name, file, signature, opts.attempt)
+    const uid = retriedUid ?? generateStableUid(file, signature)
+    const ledgerAttempt = this.#attemptTracker.recordStart(uid, file)
     const test = createTestStats({
-      uid: generateStableUid(file, signature),
+      uid,
       cid: DEFAULTS.CID,
       title: name,
       file,
       parent: this.suite.uid,
       callSource: opts.callSource
     })
-    // deterministicUid is retry-stable (no counter), so re-entering with the
-    // same logical test increments the heuristic. Mocha supplies an
-    // authoritative per-test retry index via opts.attempt; prefer it.
-    const retryStableUid = deterministicUid(file, signature)
-    const heuristicAttempt = this.#attemptTracker.recordStart(
-      retryStableUid,
-      file
-    )
-    this.#currentRetryStableUid = retryStableUid
-    this.#lastRetryStableUid = retryStableUid
-    test.retries = opts.attempt ?? heuristicAttempt
+    test.retries = opts.attempt ?? ledgerAttempt
     log.info(
       `Started marked test "${name}" (callSource: ${opts.callSource || 'n/a'})`
     )
-    this.suite.tests.push(test)
+    const replaced =
+      retriedUid === undefined
+        ? -1
+        : this.suite.tests.findIndex(
+            (t) => typeof t !== 'string' && t.uid === retriedUid
+          )
+    if (replaced === -1) {
+      this.suite.tests.push(test)
+    } else {
+      this.suite.tests[replaced] = test
+    }
     this.#currentTest = test
     this.#lastMarkedTest = test
     this.testReporter.onTestStart(test)
     return test
   }
 
-  endCurrent(state: TestStats['state']): void {
+  /** The uid of the attempt a re-entry retries, so one tests[] entry carries every attempt. A cucumber step is never a retry. */
+  #retriedUid(
+    name: string,
+    file: string,
+    signature: string,
+    attempt: number | undefined
+  ): string | undefined {
+    const prior = this.#lastMarkedTest
+    if (attempt !== undefined) {
+      return attempt > 0 &&
+        prior?.title === name &&
+        prior.parent === this.suite.uid
+        ? prior.uid
+        : undefined
+    }
+    const stableUid = deterministicUid(file, signature)
+    const isStep = this.suite !== this.rootSuite
+    if (isStep) {
+      return undefined
+    }
+    const earlier = this.suite.tests.find(
+      (t) => typeof t !== 'string' && t.uid === stableUid
+    )
+    // A retry only follows a failure, so a passed namesake is another test.
+    return typeof earlier === 'object' && earlier.state !== 'passed'
+      ? stableUid
+      : undefined
+  }
+
+  endCurrent(state: TestStats['state'], error?: string): void {
     const test = this.#currentTest
     if (!test) {
       return
     }
     test.state = state
     stampTestEnd(test)
-    // Stamp this attempt's real outcome onto its retry-stable ledger slot so a
-    // fail-then-pass groups under one test: retain-on-failure keys on the final
-    // (passed) attempt and stops over-retaining, retain-on-first-failure on
-    // attempt 0. Skipped for the synthetic session test (no recordStart).
-    if (this.#currentRetryStableUid !== undefined) {
-      this.#attemptTracker.recordOutcome(
-        this.#currentRetryStableUid,
-        state,
-        test.retries
-      )
-      this.#currentRetryStableUid = undefined
+    if (error !== undefined) {
+      test.error = { name: 'Error', message: error }
+    }
+    // Stamp this attempt's real outcome onto its ledger slot so a fail-then-pass
+    // groups under one test: retain-on-failure keys on the final (passed)
+    // attempt and stops over-retaining, retain-on-first-failure on attempt 0.
+    // Skipped for the synthetic session test, which never recordStart'd.
+    if (this.#lastMarkedTest === test) {
+      this.#attemptTracker.recordOutcome(test.uid, state, error)
     }
     this.testReporter.onTestEnd(test)
     this.#currentTest = null
@@ -201,15 +224,26 @@ export class TestManager {
     return this.#attemptTracker
   }
 
-  /** The just-ended marked test's attempts, keyed by its retry-stable uid (the
-   *  ledger key), for the per-test video retention decision. The artifact
-   *  filename uses the marked uid, but retention groups a test's attempts under
-   *  the retry-stable key — this bridges the two. Empty when no marked test ran. */
+  /** A Cucumber scenario is the test unit, so its attempt opens and closes here, not per step. */
+  recordScenarioStart(uid: string, specFile: string): void {
+    this.#attemptTracker.recordStart(uid, specFile)
+  }
+
+  recordScenarioOutcome(
+    uid: string,
+    state: TestStats['state'],
+    error?: string
+  ): void {
+    this.#attemptTracker.recordOutcome(uid, state, error)
+  }
+
+  /** The just-ended marked test's attempts, for the per-test video retention
+   *  decision. Empty when no marked test ran. */
   lastTestOutcomes(): TestOutcome[] {
-    if (this.#lastRetryStableUid === undefined) {
+    if (this.#lastMarkedTest === null) {
       return []
     }
-    return this.#attemptTracker.forTest(this.#lastRetryStableUid)
+    return this.#attemptTracker.forTest(this.#lastMarkedTest.uid)
   }
 
   /** A plain script's end: closes only the synthetic test; one the script started is the script's to end. */

@@ -634,6 +634,25 @@ describe('a wait whose afterCommand WDIO skipped is closed when its test ends (#
     expect(wait.error?.message).toBe(TIMEOUT.message)
   })
 
+  it('stamps a wait it closes at the step end, not after the hook settle', async () => {
+    const gated = wdioHookGate()
+    const release = heldScreenshot()
+    const { poll } = await elementWaitHeldInPoll(gated)
+    await elementWaitSettles(gated, TIMEOUT)
+    const stepEnded = Date.now()
+    const ended = service.afterStep(undefined, undefined, {
+      error: TIMEOUT.message
+    })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    const settled = Date.now()
+    release()
+    await Promise.all([ended, poll])
+
+    const wait = rows().find((r) => r.command === 'waitForExist')!
+    expect(wait.timestamp).toBeGreaterThanOrEqual(stepEnded)
+    expect(wait.timestamp).toBeLessThan(settled)
+  })
+
   it("closes it with a step's string error as the runner reported it, ANSI stripped and with no stack of the service's", async () => {
     const gated = wdioHookGate()
     const release = heldScreenshot()

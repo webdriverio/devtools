@@ -13,7 +13,7 @@ import type { ScreencastFrame } from '@wdio/devtools-shared'
 import { fileSlug } from './artifact-naming.js'
 import { encodeToVideo } from './video-encoder.js'
 import { errorMessage } from './error.js'
-import type { TraceArtifact } from './trace-finalizer.js'
+import type { TraceArtifact } from '@wdio/devtools-shared'
 
 /** Frames captured at or after `startWallTime` (ms) — one test's window, since
  *  the buffer runs continuously and the next test's frames arrive later. */

@@ -85,6 +85,40 @@ describe('captureOrReplaceCommand', () => {
     }
   })
 
+  it('stamps the retry attempt on rows captured during a retried attempt only', async () => {
+    const capturer = new SessionCapturer({})
+    const retryTracker = new RetryTracker()
+    const retried = { uid: 'test-1', retries: 1 } as TestStats
+    try {
+      const first = await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test,
+        cmd: command({ command: 'click', selector: '#go' })
+      })
+      const retry = await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test: retried,
+        cmd: command({ command: 'getText', timestamp: 2_000, startTime: 1_900 })
+      })
+      expect(first.attempt).toBeUndefined()
+      expect(retry.attempt).toBe(1)
+      expect(capturer.commandsLog[0].attempt).toBeUndefined()
+      expect(capturer.commandsLog[1].attempt).toBe(1)
+      const folded = await captureOrReplaceCommand({
+        capturer,
+        retryTracker,
+        test: retried,
+        cmd: command({ command: 'getText', timestamp: 2_100, startTime: 2_050 })
+      })
+      expect(capturer.commandsLog).toHaveLength(2)
+      expect(folded.attempt).toBe(1)
+    } finally {
+      capturer.cleanup()
+    }
+  })
+
   it('folds polls that overlap in flight into one row', async () => {
     // selenium's `wait()` polls `getCurrentUrl` every 200 ms and the patcher
     // does not await `onCommand`, so the second poll used to be captured

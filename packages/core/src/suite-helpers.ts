@@ -1,6 +1,8 @@
 import type {
+  ReporterError,
   SuiteStats,
   TestAncestor,
+  TestMetadataEntry,
   TestMetadataMap,
   TestStats,
   TestStatus
@@ -178,10 +180,38 @@ function deriveAncestorKind(
   }
   // Cucumber scenario suites carry the same .feature file as their parent —
   // only a suite not already under a feature/scenario counts as the feature.
-  if (suite.file?.endsWith('.feature') && parentKind !== 'scenario') {
+  // Selenium's root keeps `file` at cwd and names the .feature as `featureFile`.
+  const isFeatureFile =
+    suite.file?.endsWith('.feature') || suite.featureFile?.endsWith('.feature')
+  if (isFeatureFile && parentKind !== 'scenario') {
     return 'feature'
   }
   return 'suite'
+}
+
+// SuiteStats carries no retry count; a scenario's steps are stamped with the scenario's attempt.
+function scenarioAttempt(suite: SuiteStats): number {
+  let attempt = 0
+  for (const entry of suite.tests ?? []) {
+    if (typeof entry === 'object' && entry !== null) {
+      attempt = Math.max(attempt, entry.retries ?? 0)
+    }
+  }
+  return attempt
+}
+
+function timingOf(stats: {
+  start: Date
+  end?: Date | null
+  _duration: number
+  error?: ReporterError
+}): Pick<TestMetadataEntry, 'startTime' | 'endTime' | 'durationMs' | 'error'> {
+  const endTime = stats.end ? new Date(stats.end).getTime() : undefined
+  return {
+    startTime: new Date(stats.start).getTime(),
+    ...(endTime === undefined ? {} : { endTime, durationMs: stats._duration }),
+    ...(stats.error === undefined ? {} : { error: stats.error.message })
+  }
 }
 
 /**
@@ -214,7 +244,9 @@ export function collectSuiteTestMetadata(
         title: suite.title,
         specFile: suite.file,
         state: suite.state,
-        ancestry: ancestors
+        attempt: scenarioAttempt(suite),
+        ancestry: ancestors,
+        ...timingOf(suite)
       })
     }
     for (const entry of suite.tests ?? []) {
@@ -227,7 +259,8 @@ export function collectSuiteTestMetadata(
         specFile: entry.file ?? suite.file,
         state: entry.state,
         attempt: entry.retries ?? 0,
-        ancestry: chain
+        ancestry: chain,
+        ...timingOf(entry)
       })
     }
     for (const child of suite.suites ?? []) {

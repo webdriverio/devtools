@@ -1,4 +1,5 @@
 import WebdriverIOReporter, {
+  type RunnerStats,
   type SuiteStats,
   type TestStats
 } from '@wdio/reporter'
@@ -13,6 +14,7 @@ import {
   setCurrentSpecFile,
   mapSuiteToSource
 } from './utils.js'
+import { specFileAttemptOf } from './test-metadata.js'
 import { readFileSync, existsSync } from 'node:fs'
 
 // True when the stats object is a Cucumber scenario. The `type` field on
@@ -177,16 +179,25 @@ export class TestReporter extends WebdriverIOReporter {
    *  step uids. Undefined outside a scenario (Mocha/Jasmine). */
   #currentScenarioUid?: string
 
+  #onSpecFileAttempt: (attempt: number) => void
+
   constructor(
     options: Reporters.Options,
     report: (data: Record<string, SuiteStats>[]) => void,
-    loadSource: (location: string) => void = () => {}
+    loadSource: (location: string) => void = () => {},
+    onSpecFileAttempt: (attempt: number) => void = () => {}
   ) {
     super(options)
     this.#report = report
     this.#loadSource = loadSource
+    this.#onSpecFileAttempt = onSpecFileAttempt
     // Reset signature counters for each new reporter instance (new test run)
     resetSignatureCounters()
+  }
+
+  onRunnerStart(runnerStats: RunnerStats): void {
+    super.onRunnerStart(runnerStats)
+    this.#onSpecFileAttempt(specFileAttemptOf(runnerStats))
   }
 
   onSuiteStart(suiteStats: SuiteStats): void {

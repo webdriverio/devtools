@@ -29,7 +29,7 @@ export type PendingTestAction =
       suiteName?: string
       suiteCallSource?: string
     }
-  | { kind: 'end'; state: TestStats['state'] }
+  | { kind: 'end'; state: TestStats['state']; error?: string }
 
 export interface PendingScenario {
   name: string
@@ -158,13 +158,14 @@ export function startTest(
 
 export function endTest(
   ctx: TestManagementCtx,
-  state: TestStats['state'] = 'passed'
+  state: TestStats['state'] = 'passed',
+  error?: string
 ): void {
   if (!ctx.testManager) {
-    ctx.pendingTestActions.push({ kind: 'end', state })
+    ctx.pendingTestActions.push({ kind: 'end', state, error })
     return
   }
-  ctx.testManager.endCurrent(state)
+  ctx.testManager.endCurrent(state, error)
 }
 
 /** Cucumber scenario boundary — opens a sub-suite under the feature root. */
@@ -201,7 +202,15 @@ export function startScenario(
     ctx.testReporter.updateSuites()
   }
   const file = meta.file ?? root?.file ?? process.cwd()
-  ctx.suiteManager.startScenarioSuite(name, file, meta.callSource, meta.file)
+  const scenario = ctx.suiteManager.startScenarioSuite(
+    name,
+    file,
+    meta.callSource,
+    meta.file
+  )
+  if (scenario) {
+    ctx.testManager?.recordScenarioStart(scenario.uid, file)
+  }
   ctx.retryTracker.reset()
   ctx.sessionCapturer?.resetTestCapture()
   if (meta.file) {
@@ -211,13 +220,18 @@ export function startScenario(
 
 export function endScenario(
   ctx: TestManagementCtx,
-  state: TestStats['state'] = 'passed'
+  state: TestStats['state'] = 'passed',
+  error?: string
 ): void {
   if (!ctx.suiteManager) {
     return
   }
-  ctx.testManager?.endCurrent(state)
+  const scenario = ctx.suiteManager.getCurrentParent()
+  ctx.testManager?.endCurrent(state, error)
   ctx.suiteManager.endScenarioSuite(state)
+  if (scenario && scenario !== ctx.suiteManager.getRootSuite()) {
+    ctx.testManager?.recordScenarioOutcome(scenario.uid, state, error)
+  }
   ctx.retryTracker.reset()
 }
 
@@ -254,7 +268,14 @@ export function ensureSuiteAndTestManager(
     const p = ctx.pendingScenario
     ctx.pendingScenario = null
     const file = p.file ?? rootSuite.file
-    ctx.suiteManager.startScenarioSuite(p.name, file, p.callSource)
+    const scenario = ctx.suiteManager.startScenarioSuite(
+      p.name,
+      file,
+      p.callSource
+    )
+    if (scenario) {
+      ctx.testManager?.recordScenarioStart(scenario.uid, file)
+    }
     if (p.file) {
       ctx.sessionCapturer?.captureSource(p.file).catch(() => {})
     }
@@ -297,7 +318,7 @@ export function flushPendingTestActions(ctx: TestManagementCtx): void {
         ctx.sessionCapturer?.captureSource(action.meta.file).catch(() => {})
       }
     } else {
-      ctx.testManager?.endCurrent(action.state)
+      ctx.testManager?.endCurrent(action.state, action.error)
     }
   }
   ctx.pendingTestActions = []

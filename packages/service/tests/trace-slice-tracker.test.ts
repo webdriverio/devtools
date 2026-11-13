@@ -37,6 +37,7 @@ function makeTracker(
     options,
     getCapturer: () => capturer as never,
     getBrowser: () => browser,
+    getAttemptBase: () => 0,
     buildExportContext: () => exportContext,
     ...overrides
   }
@@ -65,6 +66,15 @@ describe('TraceSliceTracker.recordBoundary', () => {
     tracker.recordBoundary('a.spec.ts', 'uid-1')
     tracker.recordBoundary('a.spec.ts', 'uid-1')
     expect(tracker.ranges.map((r) => r.key)).toEqual(['uid-1', 'uid-1-retry1'])
+  })
+
+  it('keys a rerun worker slice from the attempt its runner reports', () => {
+    const tracker = makeTracker(
+      { mode: 'trace', traceGranularity: 'test' },
+      { getAttemptBase: () => 1 }
+    )
+    tracker.recordBoundary('a.spec.ts', 'uid-1')
+    expect(tracker.ranges.map((r) => r.key)).toEqual(['uid-1-retry1'])
   })
 
   it('spec granularity flushes the previous, unflushed slice when the file changes', async () => {

@@ -71,6 +71,7 @@ class CommandLog(_CommandLogRequired, total=False):
     callSource: str
     screenshot: str
     testUid: str
+    attempt: float
     performance: PerformanceData
     cookies: str
     documentInfo: DocumentInfo

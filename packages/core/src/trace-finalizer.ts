@@ -6,11 +6,14 @@
  * finalizeTraceExport — all sequencing lives here.
  */
 
+import { deepCapString } from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
+  ArtifactsManifest,
   DevToolsMode,
   ScreencastFrame,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat,
   TraceGranularity,
   TraceRetentionPolicy
@@ -21,6 +24,8 @@ import {
   buildArtifactsManifest,
   writeArtifactsManifest
 } from './artifacts-manifest.js'
+import { resolveParentTraceContext } from './trace-context.js'
+import { resolveRunId } from './run-id.js'
 import {
   filterTestMetadataBySpec,
   filterTestMetadataByUid,
@@ -37,20 +42,6 @@ import {
   writeTraceZip,
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
-
-/** One artifact produced (or, when `retained` is false, decided-against) by a
- *  trace-mode run — a trace slice, a screencast video, or a per-test
- *  screenshot. */
-export interface TraceArtifact {
-  kind: 'trace' | 'video' | 'screenshot'
-  path: string
-  scope: 'session' | 'spec' | 'test'
-  /** specFile for spec scope, testUid for test scope. */
-  key?: string
-  testUids: string[]
-  /** false = decided-not-to-write (reported, not written). Always true today. */
-  retained: boolean
-}
 
 export interface TraceExportContext {
   mode?: DevToolsMode
@@ -487,6 +478,21 @@ async function fanOutTraceWrites(
   return artifact ? [artifact] : []
 }
 
+/** Browser identity from the session's matched capabilities; unread keys stay undefined. */
+function browserIdentity(
+  capabilities: unknown
+): Pick<ArtifactsManifest, 'browserName' | 'browserVersion' | 'platformName'> {
+  if (typeof capabilities !== 'object' || capabilities === null) {
+    return {}
+  }
+  const caps = capabilities as Record<string, unknown>
+  return {
+    browserName: deepCapString(caps, 'browserName'),
+    browserVersion: deepCapString(caps, 'browserVersion'),
+    platformName: deepCapString(caps, 'platformName')
+  }
+}
+
 /** Write the artifacts manifest when enabled, preferring the adapter's full
  *  collected list (includes eager slices) over this pass's fan-out results.
  *  Never throws — a manifest failure must not abort the run. */
@@ -498,6 +504,9 @@ async function maybeWriteManifest(
     return
   }
   const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts
+  const browser = browserIdentity(
+    ctx.capabilities ?? ctx.capturer.metadata?.capabilities
+  )
   try {
     const path = await writeArtifactsManifest(
       ctx.resolveOutputDir(),
@@ -505,7 +514,13 @@ async function maybeWriteManifest(
         sessionId: ctx.sessionId,
         format: ctx.format ?? 'zip',
         artifacts,
-        testMetadata: ctx.testMetadata
+        testMetadata: ctx.testMetadata,
+        runId: resolveRunId(),
+        parent: resolveParentTraceContext(),
+        attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes),
+        specRoot: process.cwd(),
+        warn: (message) => ctx.log?.('warn', message),
+        ...browser
       })
     )
     ctx.log?.('info', `Artifacts manifest written to ${path}`)

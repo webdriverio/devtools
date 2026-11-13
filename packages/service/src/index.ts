@@ -26,7 +26,6 @@ import { AssertionTracker } from './assertion-tracker.js'
 import {
   cucumberScenarioUid,
   isFailedResult,
-  resolveTestAttempt,
   stampTestState,
   testMetadataUid,
   type TestOutcomeResult
@@ -138,6 +137,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       options: this.#options,
       getBrowser: () => this.#browser,
       getCapturer: () => this.#sessionCapturer,
+      getAttemptBase: () => this.#attemptTracker.base,
       buildExportContext: (browser) => this.#traceContext(browser)
     })
   }
@@ -159,7 +159,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentStepUid?: string
   /** Per-scenario step counter for stable, collision-free step uids. */
   #currentStepIndex = 0
-  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+  /** True when a reporter whose name contains "allure" is in the WDIO config (detected in
    *  beforeSession) — auto-enables the artifacts manifest even if the option
    *  isn't set, since session/spec-scoped Allure attach reads it. */
   #allureReporterConfigured = false
@@ -173,9 +173,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
 
-  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
-   *  fresh instance) per retry, so this only reflects same-process retries
-   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  /** Per-test attempt ledger. A specFileRetries rerun is a fresh worker, so its
+   *  numbering starts at the attempt its runner reports (see TestReporter). */
   #attemptTracker = new TestAttemptTracker()
 
   /** Every trace/video artifact seen this run (retained or not), for the
@@ -380,7 +379,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
                 self.#sessionCapturer.sendUpstream('suites', upstreamData),
               (location: string) => {
                 self.#sessionCapturer.ensureSourceLoaded(location)
-              }
+              },
+              (attempt: number) =>
+                self.#attemptTracker.startNumberingAt(attempt)
             )
             self.#testReporters.push(this)
           }
@@ -421,7 +422,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, featureFile)
       this.#testMetadata.set(uid, {
         title: scenarioName,
-        specFile: featureFile
+        specFile: featureFile,
+        startTime: Date.now()
       })
     }
   }
@@ -448,7 +450,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, test?.file)
       this.#testMetadata.set(uid, {
         title: testTitle,
-        specFile: test?.file ?? ''
+        specFile: test?.file ?? '',
+        startTime: Date.now()
       })
     }
   }
@@ -479,24 +482,24 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
-    await this.#closeOpenWaits(result?.error)
+    await this.#closeOpenWaits(result?.error, Date.now())
     this.#currentStepUid = undefined
     this.#assertionTracker.handleOutcome(result?.error)
   }
 
-  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
-   *  entry, taking the max of the tracker count and WDIO's retry field. */
-  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
-    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
-    const attempt = resolveTestAttempt(result, fallback)
-    stampTestState(this.#testMetadata, uid, result, attempt)
+  /** Stamp final state + the tracker's 0-based attempt onto the test's metadata
+   *  entry, so the entry and the manifest's attempt record name the same attempt. */
+  #stampOutcome(
+    uid: string,
+    result: TestOutcomeResult | undefined,
+    endTime: number
+  ): void {
+    const attempt = this.#attemptTracker.attemptFor(uid)
+    stampTestState(this.#testMetadata, uid, result, attempt, endTime)
     // Feed the per-attempt ledger so session/spec retention sees this attempt's
     // real outcome, not just the final state that overwrites #testMetadata.
-    this.#attemptTracker.recordOutcome(
-      uid,
-      this.#testMetadata.get(uid)?.state,
-      attempt
-    )
+    const metadata = this.#testMetadata.get(uid)
+    this.#attemptTracker.recordOutcome(uid, metadata?.state, metadata?.error)
   }
 
   async afterScenario(
@@ -505,12 +508,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     },
     result?: TestOutcomeResult
   ) {
-    await this.#closeOpenWaits(result?.error)
+    // Read before the hook settle below, which is the service's teardown, not the scenario's.
+    const endTime = Date.now()
+    await this.#closeOpenWaits(result?.error, endTime)
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     const uid =
       uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      // WDIO's cucumber result.duration is only the nanos field of the worst step's
+      // Duration (seconds dropped), not the scenario's span, so wall time stands in.
+      this.#stampOutcome(
+        uid,
+        result && { ...result, duration: undefined },
+        endTime
+      )
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
@@ -521,12 +532,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
-    await this.#closeOpenWaits(result?.error)
+    const endTime = Date.now()
+    await this.#closeOpenWaits(result?.error, endTime)
     this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      this.#stampOutcome(uid, result, endTime)
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
@@ -550,6 +562,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         await attachTraceArtifact(artifact, attach, onLog)
       }
     }
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await captureAndAttachScreenshot({
       mode: this.#options.mode,
       granularity: this.#options.traceGranularity,
@@ -562,13 +578,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       sessionId: this.#browser?.sessionId,
       outputDir: this.#outputDir,
       testUid: uid,
+      attempt,
       attach,
       onArtifact: (a) => this.#artifacts.push(a)
     })
-    // Authoritative attempt for this test (stamped into metadata by
-    // #stampOutcome, which ran just before this). Scopes retention + the video
-    // filename to this attempt so retries don't overwrite each other.
-    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await this.#screencast.attachTestVideo({
       testUid: uid,
       attempt,
@@ -698,14 +711,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   /** Before the outcome marks a row and the slice is flushed, so the wait carries the failure rather than its last poll. */
-  async #closeOpenWaits(error: unknown) {
+  async #closeOpenWaits(error: unknown, endedAt: number) {
     if (!(await this.#hooksInFlight.settled(HOOKS_SETTLE_TIMEOUT_MS))) {
       log.warn(
         `a command hook was still running ${HOOKS_SETTLE_TIMEOUT_MS} ms after its test ended`
       )
     }
     for (const id of this.#commandStack.takeOpenWaits()) {
-      this.#sessionCapturer.closeOpenWait(id, error)
+      this.#sessionCapturer.closeOpenWait(id, error, endedAt)
     }
   }
 

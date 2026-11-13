@@ -7,13 +7,14 @@
  */
 
 import path from 'node:path'
-import type {
-  ActionSnapshot,
-  CommandLog,
-  ScreencastFrame,
-  TestMetadataMap,
-  TraceFormat,
-  TraceGranularity
+import {
+  retryKeyOf,
+  type ActionSnapshot,
+  type CommandLog,
+  type ScreencastFrame,
+  type TestMetadataMap,
+  type TraceFormat,
+  type TraceGranularity
 } from '@wdio/devtools-shared'
 import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
 import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
@@ -276,6 +277,8 @@ export interface SpecBoundaryContext {
   /** The adapter's live in-flight capture list, stamped onto each range as
    *  `captureStartIdx`. Live by reference: it grows as the run does. */
   pendingCaptures?: ArrayLike<unknown>
+  /** Attempt number the first recorded attempt of a test is keyed by; see `TestAttemptTracker.startNumberingAt`. */
+  attemptBase?: number
 }
 
 /** Push a new slice range and return the previous (unflushed) range to flush.
@@ -333,9 +336,13 @@ export function recordSliceBoundary(
     const priorAttempts = ctx.specRanges.filter(
       (r) => r.testUid === testUid
     ).length
-    const key =
-      priorAttempts === 0 ? testUid : `${testUid}-retry${priorAttempts}`
-    return pushSliceRange(ctx, specFile, key, testUid, false)
+    return pushSliceRange(
+      ctx,
+      specFile,
+      retryKeyOf(testUid, (ctx.attemptBase ?? 0) + priorAttempts),
+      testUid,
+      false
+    )
   }
   return null
 }

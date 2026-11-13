@@ -1,10 +1,18 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
+  buildArtifactsManifest,
   collectSuiteTestMetadata,
+  RetryTracker,
   shouldRetainTrace
 } from '@wdio/devtools-core'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
+import {
+  endScenario,
+  ensureSuiteAndTestManager,
+  startScenario,
+  type TestManagementCtx
+} from '../src/test-management.js'
 import { TestManager } from '../src/helpers/testManager.js'
 import { SuiteManager } from '../src/helpers/suiteManager.js'
 import { TestReporter } from '../src/reporter.js'
@@ -156,6 +164,62 @@ describe('artifacts manifest gating', () => {
   })
 })
 
+describe('a Cucumber scenario is the attempt-ledger unit', () => {
+  it('records one attempt for the scenario, not one per step', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const rootSuite = suiteManager.getOrCreateRootSuite('/work', 'Cart')
+    const testManager = new TestManager(rootSuite, testReporter, suiteManager)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager,
+      testManager,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    testManager.startMarkedTest('Given a cart')
+    testManager.endCurrent('passed')
+    testManager.startMarkedTest('When I pay')
+    testManager.endCurrent('passed')
+    endScenario(ctx, 'passed')
+
+    const scenarioUid = rootSuite.suites[0]!.uid
+    expect(testManager.attemptOutcomes.forTest(scenarioUid)).toMatchObject([
+      { uid: scenarioUid, attempt: 0, state: 'passed' }
+    ])
+  })
+
+  it('records a scenario queued before the session existed', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager: undefined,
+      testManager: undefined,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    ctx.suiteManager = suiteManager
+    ensureSuiteAndTestManager(ctx, 'Cart')
+    endScenario(ctx, 'failed', 'boom')
+
+    const scenarioUid = suiteManager.getRootSuite()!.suites[0]!.uid
+    expect(ctx.testManager!.attemptOutcomes.forTest(scenarioUid)).toMatchObject(
+      [{ uid: scenarioUid, attempt: 0, state: 'failed' }]
+    )
+  })
+})
+
 describe('retry outcome ledger feeds retry-aware retention', () => {
   it('groups a fail-then-pass retry under one retry-stable uid', () => {
     const { mgr } = makeManager()
@@ -165,10 +229,10 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
     const retry = mgr.startMarkedTest('flaky')
     mgr.endCurrent('passed')
 
-    // Selenium gives each attempt its own suite-node uid…
-    expect(first.uid).not.toBe(retry.uid)
+    // Each attempt is the same suite-node tests[] entry…
+    expect(first.uid).toBe(retry.uid)
 
-    // …but the ledger records both attempts under ONE retry-stable uid.
+    // …and the ledger records both attempts under that one uid.
     const ledger = mgr.attemptOutcomes.all()
     expect(ledger).toHaveLength(2)
     expect(ledger[0]).toMatchObject({ attempt: 0, state: 'failed' })
@@ -229,5 +293,74 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
     } finally {
       capturer.cleanup()
     }
+  })
+})
+
+describe('one tests[] entry per test across retries', () => {
+  it('a Mocha retry keeps one tests[] entry whose last attempt is final', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('login', { attempt: 0 })
+    mgr.endCurrent('failed')
+    mgr.startMarkedTest('login', { attempt: 1 })
+    mgr.endCurrent('passed')
+
+    const manifest = buildArtifactsManifest({
+      sessionId: 'sess-1',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([rootSuite]),
+      attemptsFor: (uid) => mgr.attemptOutcomes.attemptsFor(uid)
+    })
+
+    expect(manifest.tests).toHaveLength(1)
+    expect(manifest.tests[0]).toMatchObject({ attempt: 1 })
+    expect(manifest.tests[0].attempts).toHaveLength(2)
+    expect(manifest.tests[0].attempts?.[0].final).toBeFalsy()
+    expect(manifest.tests[0].attempts?.[1].final).toBe(true)
+  })
+
+  it('a repeated step text is not a retry', () => {
+    const { mgr, suiteManager, rootSuite } = makeManager()
+    suiteManager.startScenarioSuite('scenario', '/spec.feature')
+
+    const first = mgr.startMarkedTest('I open the page')
+    mgr.endCurrent('passed')
+    const second = mgr.startMarkedTest('I open the page')
+    mgr.endCurrent('passed')
+
+    expect(second.uid).not.toBe(first.uid)
+    expect(second.retries).toBe(0)
+    expect(mgr.attemptOutcomes.forTest(second.uid)).toHaveLength(1)
+    expect(rootSuite.suites).toHaveLength(1)
+  })
+})
+
+describe('failure message reaches the manifest', () => {
+  it('a failed test carries its error, timing and failed attempt error', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('boom')
+    mgr.endCurrent('failed', 'expected 1 to equal 2')
+
+    const manifest = buildArtifactsManifest({
+      sessionId: 'sess-1',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([rootSuite]),
+      attemptsFor: (uid) => mgr.attemptOutcomes.attemptsFor(uid)
+    })
+
+    expect(manifest.tests[0]).toMatchObject({
+      state: 'failed',
+      error: 'expected 1 to equal 2'
+    })
+    expect(manifest.tests[0].startTime).toEqual(expect.any(Number))
+    expect(manifest.tests[0].endTime).toEqual(expect.any(Number))
+    expect(manifest.tests[0].durationMs).toEqual(expect.any(Number))
+    expect(manifest.tests[0].attempts?.[0]).toMatchObject({
+      state: 'failed',
+      error: 'expected 1 to equal 2'
+    })
   })
 })
