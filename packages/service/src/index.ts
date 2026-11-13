@@ -562,6 +562,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         await attachTraceArtifact(artifact, attach, onLog)
       }
     }
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await captureAndAttachScreenshot({
       mode: this.#options.mode,
       granularity: this.#options.traceGranularity,
@@ -574,13 +578,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       sessionId: this.#browser?.sessionId,
       outputDir: this.#outputDir,
       testUid: uid,
+      attempt,
       attach,
       onArtifact: (a) => this.#artifacts.push(a)
     })
-    // Authoritative attempt for this test (stamped into metadata by
-    // #stampOutcome, which ran just before this). Scopes retention + the video
-    // filename to this attempt so retries don't overwrite each other.
-    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await this.#screencast.attachTestVideo({
       testUid: uid,
       attempt,
