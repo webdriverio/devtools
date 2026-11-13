@@ -50,7 +50,10 @@ export interface ArtifactManifestTest extends Pick<
   attempts?: TestAttemptRecord[]
 }
 
+export const ARTIFACTS_MANIFEST_VERSION = 2
+
 export interface ArtifactsManifest {
+  manifestVersion: typeof ARTIFACTS_MANIFEST_VERSION
   sessionId: string
   format: TraceFormat
   artifacts: TraceArtifact[]
@@ -58,7 +61,6 @@ export interface ArtifactsManifest {
   runId?: string
   /** Trace context inherited from a `TRACEPARENT` set by the CI job that launched the run. */
   parent?: ParentTraceContext
-  cwd?: string
   browserName?: string
   browserVersion?: string
   platformName?: string

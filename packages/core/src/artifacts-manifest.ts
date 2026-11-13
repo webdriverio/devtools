@@ -12,6 +12,7 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
 import type {
   ArtifactManifestTest,
   ArtifactsManifest,
@@ -41,14 +42,21 @@ function isStepEntry(
   )
 }
 
-/** Stamps `final` on the attempt the test ended on, else on the last one recorded: the manifest reader rejects a list with no final record. */
+/** Stamps `final` on the attempt the test ended on; the reader rejects a list with none. */
 function markFinalAttempt(
+  uid: string,
   attempts: TestAttemptRecord[],
-  finalAttempt: number | undefined
+  finalAttempt: number | undefined,
+  warn: ((message: string) => void) | undefined
 ): TestAttemptRecord[] {
-  const final =
-    attempts.find((record) => record.attempt === finalAttempt) ??
-    attempts[attempts.length - 1]
+  const matching = attempts.find((record) => record.attempt === finalAttempt)
+  if (matching === undefined && finalAttempt !== undefined) {
+    const recorded = attempts.map((record) => record.attempt).join(', ')
+    warn?.(
+      `Test ${uid} ended on attempt ${finalAttempt}, which matches no recorded attempt (${recorded}); marking attempt ${attempts[attempts.length - 1]!.attempt} final.`
+    )
+  }
+  const final = matching ?? attempts[attempts.length - 1]
   return attempts.map((record) =>
     record === final ? { ...record, final: true } : record
   )
@@ -61,6 +69,61 @@ function presentKeys<T extends Record<string, unknown>>(values: T): Partial<T> {
   ) as Partial<T>
 }
 
+/** A path relative to `base`, `/`-separated, or undefined when none exists (another Windows drive). */
+function portableRelative(base: string, target: string): string | undefined {
+  const relative = path.relative(base, target)
+  return path.isAbsolute(relative)
+    ? undefined
+    : relative.split(path.sep).join('/')
+}
+
+/** A spec file under `specRoot` is written relative to it, anything else as is. */
+function specFileFor(specFile: string, specRoot: string | undefined): string {
+  // Metadata from adapters is not validated, so a spec file can still arrive unset.
+  if (
+    specRoot === undefined ||
+    typeof specFile !== 'string' ||
+    !path.isAbsolute(specFile)
+  ) {
+    return specFile
+  }
+  const relative = portableRelative(specRoot, specFile)
+  if (relative === undefined || relative.split('/')[0] === '..') {
+    return specFile
+  }
+  return relative
+}
+
+/** One test's manifest entry, with its attempts when any were recorded. */
+function manifestTestOf(
+  uid: string,
+  meta: TestMetadataEntry,
+  input: Pick<
+    Parameters<typeof buildArtifactsManifest>[0],
+    'attemptsFor' | 'specRoot' | 'warn'
+  >
+): ArtifactManifestTest {
+  const test: ArtifactManifestTest = {
+    uid,
+    title: meta.title,
+    specFile: specFileFor(meta.specFile, input.specRoot),
+    state: meta.state,
+    attempt: meta.attempt,
+    startTime: meta.startTime,
+    endTime: meta.endTime,
+    durationMs: meta.durationMs,
+    error: meta.error
+  }
+  const attempts = input.attemptsFor?.(uid) ?? []
+  if (attempts.length === 0) {
+    return test
+  }
+  return {
+    ...test,
+    attempts: markFinalAttempt(uid, attempts, meta.attempt, input.warn)
+  }
+}
+
 /** Assemble the manifest from the artifacts collected across the run and the
  *  test-metadata map. Pure — the write is separate so it stays unit-testable. */
 export function buildArtifactsManifest(input: {
@@ -71,34 +134,20 @@ export function buildArtifactsManifest(input: {
   runId?: string
   parent?: ArtifactsManifest['parent']
   attemptsFor?: (uid: string) => TestAttemptRecord[]
-  cwd?: string
+  specRoot?: string
+  warn?: (message: string) => void
   browserName?: string
   browserVersion?: string
   platformName?: string
 }): ArtifactsManifest {
   const tests: ArtifactManifestTest[] = []
   for (const [uid, meta] of input.testMetadata) {
-    if (isStepEntry(uid, meta, input.testMetadata)) {
-      continue
+    if (!isStepEntry(uid, meta, input.testMetadata)) {
+      tests.push(manifestTestOf(uid, meta, input))
     }
-    const test: ArtifactManifestTest = {
-      uid,
-      title: meta.title,
-      specFile: meta.specFile,
-      state: meta.state,
-      attempt: meta.attempt,
-      startTime: meta.startTime,
-      endTime: meta.endTime,
-      durationMs: meta.durationMs,
-      error: meta.error
-    }
-    const attempts = input.attemptsFor?.(uid)
-    if (attempts && attempts.length > 0) {
-      test.attempts = markFinalAttempt(attempts, meta.attempt)
-    }
-    tests.push(test)
   }
   return {
+    manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: input.sessionId,
     format: input.format,
     artifacts: [...input.artifacts],
@@ -106,7 +155,6 @@ export function buildArtifactsManifest(input: {
     runId: input.runId,
     parent: input.parent,
     ...presentKeys({
-      cwd: input.cwd,
       browserName: input.browserName,
       browserVersion: input.browserVersion,
       platformName: input.platformName
@@ -123,11 +171,8 @@ function relativizeArtifacts(
     if (artifact.path === '') {
       return artifact
     }
-    const relative = path.relative(outputDir, artifact.path)
-    if (path.isAbsolute(relative)) {
-      return artifact
-    }
-    return { ...artifact, path: relative.split(path.sep).join('/') }
+    const relative = portableRelative(outputDir, artifact.path)
+    return relative === undefined ? artifact : { ...artifact, path: relative }
   })
 }
 

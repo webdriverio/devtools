@@ -203,7 +203,7 @@ describe('TestAttemptTracker', () => {
       expect(first!.spanId).toMatch(HEX_16)
     })
 
-    it('gives each attempt its own span, and its own trace when no parent is set', async () => {
+    it('gives each attempt its own span, and the test trace when no parent is set', async () => {
       vi.stubEnv('TRACEPARENT', '')
       vi.resetModules()
       const { TestAttemptTracker: Tracker } =
@@ -213,7 +213,20 @@ describe('TestAttemptTracker', () => {
       t.recordStart('a')
       const [first, second] = t.attemptsFor('a')
       expect(first!.spanId).not.toBe(second!.spanId)
-      expect(first!.traceId).not.toBe(second!.traceId)
+      expect(first!.traceId).toBe(second!.traceId)
+    })
+
+    it('gives two different tests different traces when no parent is set', async () => {
+      vi.stubEnv('TRACEPARENT', '')
+      vi.resetModules()
+      const { TestAttemptTracker: Tracker } =
+        await import('../src/attempt-tracker.js')
+      const t = new Tracker()
+      t.recordStart('a')
+      t.recordStart('b')
+      expect(t.attemptsFor('a')[0]!.traceId).not.toBe(
+        t.attemptsFor('b')[0]!.traceId
+      )
     })
 
     it('joins the parent trace when TRACEPARENT is set', async () => {

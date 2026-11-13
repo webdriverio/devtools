@@ -518,7 +518,8 @@ async function maybeWriteManifest(
         runId: resolveRunId(),
         parent: resolveParentTraceContext(),
         attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes),
-        cwd: process.cwd(),
+        specRoot: process.cwd(),
+        warn: (message) => ctx.log?.('warn', message),
         ...browser
       })
     )

@@ -1,21 +1,33 @@
+import { createHash } from 'node:crypto'
 import {
   randomSpanId,
-  randomTraceId,
   parseTraceparent,
   TRACE_CONTEXT_ENV,
   type ParentTraceContext,
   type TestTraceContext
 } from '@wdio/devtools-shared'
+import { resolveRunId } from './run-id.js'
 
 // Sampling is the parent's to decide, and the manifest records it once on `parent`, so an attempt carries ids alone.
 export type AttemptIds = Pick<TestTraceContext, 'traceId' | 'spanId'>
 
 let parentCache: { value: ParentTraceContext | undefined } | undefined
 
-/** A new context for one test attempt; a parent contributes the trace it joins. */
-export function mintTraceContext(parent?: TestTraceContext): AttemptIds {
+/** The trace one test's attempts share, derived from the run id and the test's uid. */
+export function testTraceId(runId: string, uid: string): string {
+  return createHash('sha256')
+    .update(`${runId}\n${uid}`)
+    .digest('hex')
+    .slice(0, 32)
+}
+
+/** An attempt joins the parent's trace, else its test's, so a test's retries share a trace. */
+export function mintTraceContext(
+  uid: string,
+  parent?: TestTraceContext
+): AttemptIds {
   return {
-    traceId: parent?.traceId ?? randomTraceId(),
+    traceId: parent?.traceId ?? testTraceId(resolveRunId(), uid),
     spanId: randomSpanId()
   }
 }

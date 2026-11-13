@@ -66,7 +66,7 @@ export class TestAttemptTracker implements RetryOutcomeView {
     const slot: AttemptSlot = {
       outcome: { uid, attempt },
       startTime: Date.now(),
-      trace: mintTraceContext(resolveParentTraceContext())
+      trace: mintTraceContext(uid, resolveParentTraceContext())
     }
     if (entry) {
       entry.attempts.push(slot)

@@ -395,7 +395,7 @@ describe('finalizeTraceExport', () => {
       ])
     })
 
-    it('records cwd and browser identity', async () => {
+    it('records browser identity', async () => {
       await finalizeTraceExport(
         baseCtx({
           emitManifest: true,
@@ -408,7 +408,7 @@ describe('finalizeTraceExport', () => {
       )
       const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
       expect(manifest).toMatchObject({
-        cwd: process.cwd(),
+        manifestVersion: 2,
         browserName: 'chrome',
         browserVersion: '150.0.1',
         platformName: 'linux'

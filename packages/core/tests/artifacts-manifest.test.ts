@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { rm, readFile, mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
@@ -365,19 +365,17 @@ describe('artifacts manifest', () => {
     expect(manifest.artifacts[0]!.path).toBe(inside)
   })
 
-  it('passes cwd and browser identity through, leaving unset keys out', () => {
+  it('passes browser identity through, leaving unset keys out', () => {
     const m = buildArtifactsManifest({
       sessionId: 'sess-id',
       format: 'zip',
       artifacts: [],
       testMetadata: metadata(),
-      cwd: '/work',
       browserName: 'chrome',
       browserVersion: '150.0',
       platformName: 'linux'
     })
     expect(m).toMatchObject({
-      cwd: '/work',
       browserName: 'chrome',
       browserVersion: '150.0',
       platformName: 'linux'
@@ -388,7 +386,110 @@ describe('artifacts manifest', () => {
       artifacts: [],
       testMetadata: metadata()
     })
-    expect(bare).not.toHaveProperty('cwd')
     expect(bare).not.toHaveProperty('browserName')
+  })
+
+  it('versions the format and never carries an absolute cwd', () => {
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-v',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: metadata()
+    })
+    expect(m.manifestVersion).toBe(2)
+    expect(Object.keys(m)[0]).toBe('manifestVersion')
+    expect(m).not.toHaveProperty('cwd')
+  })
+
+  it('writes a spec file under specRoot relative to it, and keeps one outside it', () => {
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-s',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: new Map([
+        [
+          'inside',
+          {
+            title: 'in',
+            specFile: '/work/proj/tests/a.spec.ts',
+            state: 'passed',
+            attempt: 0
+          }
+        ],
+        [
+          'outside',
+          {
+            title: 'out',
+            specFile: '/elsewhere/b.spec.ts',
+            state: 'passed',
+            attempt: 0
+          }
+        ],
+        [
+          'relative',
+          { title: 'rel', specFile: 'c.spec.ts', state: 'passed', attempt: 0 }
+        ]
+      ]),
+      specRoot: '/work/proj'
+    })
+    expect(m.tests.map((t) => t.specFile)).toEqual([
+      'tests/a.spec.ts',
+      '/elsewhere/b.spec.ts',
+      'c.spec.ts'
+    ])
+  })
+
+  it('warns once when the final attempt matches no recorded attempt', () => {
+    const warn = vi.fn()
+    const attempt = (n: number) => ({
+      attempt: n,
+      state: 'failed' as const,
+      startTime: n,
+      endTime: n + 1,
+      traceId: '0af7651916cd43dd8448eb211c80319c',
+      spanId: 'b7ad6b7169203331'
+    })
+    buildArtifactsManifest({
+      sessionId: 'sess-w',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: new Map([
+        ['u9', { title: 't', specFile: '/a.js', state: 'passed', attempt: 5 }]
+      ]),
+      attemptsFor: () => [attempt(0), attempt(1)],
+      warn
+    })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]![0]).toContain('u9')
+    expect(warn.mock.calls[0]![0]).toContain('attempt 5')
+    expect(warn.mock.calls[0]![0]).toContain('0, 1')
+  })
+
+  it('does not warn when the final attempt matches a recorded attempt', () => {
+    const warn = vi.fn()
+    buildArtifactsManifest({
+      sessionId: 'sess-m',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: new Map([
+        ['u9', { title: 't', specFile: '/a.js', state: 'passed', attempt: 1 }]
+      ]),
+      attemptsFor: () => [
+        {
+          attempt: 0,
+          startTime: 0,
+          traceId: '0af7651916cd43dd8448eb211c80319c',
+          spanId: 'b7ad6b7169203331'
+        },
+        {
+          attempt: 1,
+          startTime: 1,
+          traceId: '0af7651916cd43dd8448eb211c80319c',
+          spanId: 'b7ad6b7169203331'
+        }
+      ],
+      warn
+    })
+    expect(warn).not.toHaveBeenCalled()
   })
 })
