@@ -13,6 +13,11 @@ import type {
   TraceArtifact
 } from '@wdio/devtools-shared'
 import { stepMetadataUid } from '../src/uid.js'
+import {
+  collectSuiteTestMetadata,
+  createSuiteStats,
+  createTestStats
+} from '../src/suite-helpers.js'
 
 function metadata(): TestMetadataMap {
   return new Map([
@@ -212,6 +217,40 @@ describe('artifacts manifest', () => {
       testMetadata
     })
     expect(m.tests.map((t) => t.uid)).toEqual(['stable-abc'])
+  })
+
+  it('lists a Selenium Cucumber scenario in tests[] and none of its steps', () => {
+    const root = createSuiteStats({
+      uid: 'root',
+      title: 'Cart',
+      file: '/work',
+      featureFile: '/work/cart.feature'
+    })
+    const scenario = createSuiteStats({
+      uid: 'sc',
+      title: 'checkout',
+      file: '/work/cart.feature',
+      featureFile: '/work/cart.feature',
+      parent: 'root'
+    })
+    scenario.state = 'passed'
+    scenario.tests = ['Given a cart', 'When I pay'].map((title, i) =>
+      createTestStats({
+        uid: `step-${i}`,
+        title,
+        file: '/work/cart.feature',
+        parent: 'sc'
+      })
+    )
+    root.suites = [scenario]
+
+    const m = buildArtifactsManifest({
+      sessionId: 's',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([root])
+    })
+    expect(m.tests.map((t) => t.uid)).toEqual(['sc'])
   })
 
   it('keeps a step-looking uid whose owner is not in the map', () => {

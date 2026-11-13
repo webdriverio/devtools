@@ -202,7 +202,15 @@ export function startScenario(
     ctx.testReporter.updateSuites()
   }
   const file = meta.file ?? root?.file ?? process.cwd()
-  ctx.suiteManager.startScenarioSuite(name, file, meta.callSource, meta.file)
+  const scenario = ctx.suiteManager.startScenarioSuite(
+    name,
+    file,
+    meta.callSource,
+    meta.file
+  )
+  if (scenario) {
+    ctx.testManager?.recordScenarioStart(scenario.uid, file)
+  }
   ctx.retryTracker.reset()
   ctx.sessionCapturer?.resetTestCapture()
   if (meta.file) {
@@ -218,8 +226,12 @@ export function endScenario(
   if (!ctx.suiteManager) {
     return
   }
+  const scenario = ctx.suiteManager.getCurrentParent()
   ctx.testManager?.endCurrent(state, error)
   ctx.suiteManager.endScenarioSuite(state)
+  if (scenario && scenario !== ctx.suiteManager.getRootSuite()) {
+    ctx.testManager?.recordScenarioOutcome(scenario.uid, state, error)
+  }
   ctx.retryTracker.reset()
 }
 
@@ -256,7 +268,14 @@ export function ensureSuiteAndTestManager(
     const p = ctx.pendingScenario
     ctx.pendingScenario = null
     const file = p.file ?? rootSuite.file
-    ctx.suiteManager.startScenarioSuite(p.name, file, p.callSource)
+    const scenario = ctx.suiteManager.startScenarioSuite(
+      p.name,
+      file,
+      p.callSource
+    )
+    if (scenario) {
+      ctx.testManager?.recordScenarioStart(scenario.uid, file)
+    }
     if (p.file) {
       ctx.sessionCapturer?.captureSource(p.file).catch(() => {})
     }

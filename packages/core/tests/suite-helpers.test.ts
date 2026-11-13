@@ -236,6 +236,44 @@ describe('collectSuiteTestMetadata', () => {
     expect(map.get('t2')?.specFile).toBe('/spec/t2.ts')
   })
 
+  it('reads a suite as a feature when its featureFile is a .feature, and its scenario as a scenario', () => {
+    const root = createSuiteStats({
+      uid: 'root',
+      title: 'Cart',
+      file: '/work',
+      featureFile: '/work/cart.feature'
+    })
+    const scenario = createSuiteStats({
+      uid: 'sc',
+      title: 'checkout',
+      file: '/work/cart.feature',
+      featureFile: '/work/cart.feature',
+      parent: 'root'
+    })
+    scenario.tests = [namedTest('step', 'sc', { file: '/work/cart.feature' })]
+    root.suites = [scenario]
+
+    const map = collectSuiteTestMetadata([root])
+    expect(map.get('sc')?.title).toBe('checkout')
+    expect(map.get('step')?.ancestry?.map((a) => a.kind)).toEqual([
+      'feature',
+      'scenario'
+    ])
+  })
+
+  it('keeps a mocha-style suite tree unchanged when no suite names a feature file', () => {
+    const root = createSuiteStats({
+      uid: 'root',
+      title: 'Login',
+      file: '/spec/login.ts'
+    })
+    root.tests = [namedTest('t1', 'root')]
+
+    const map = collectSuiteTestMetadata([root])
+    expect(map.has('root')).toBe(false)
+    expect(map.get('t1')?.ancestry?.map((a) => a.kind)).toEqual(['suite'])
+  })
+
   it('walks multiple root suites from any iterable', () => {
     const a = createSuiteStats({ uid: 'a', title: 'A', file: '/a.ts' })
     const b = createSuiteStats({ uid: 'b', title: 'B', file: '/b.ts' })

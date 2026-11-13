@@ -180,7 +180,10 @@ function deriveAncestorKind(
   }
   // Cucumber scenario suites carry the same .feature file as their parent —
   // only a suite not already under a feature/scenario counts as the feature.
-  if (suite.file?.endsWith('.feature') && parentKind !== 'scenario') {
+  // Selenium's root keeps `file` at cwd and names the .feature as `featureFile`.
+  const isFeatureFile =
+    suite.file?.endsWith('.feature') || suite.featureFile?.endsWith('.feature')
+  if (isFeatureFile && parentKind !== 'scenario') {
     return 'feature'
   }
   return 'suite'

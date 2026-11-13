@@ -2,10 +2,17 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   buildArtifactsManifest,
   collectSuiteTestMetadata,
+  RetryTracker,
   shouldRetainTrace
 } from '@wdio/devtools-core'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
+import {
+  endScenario,
+  ensureSuiteAndTestManager,
+  startScenario,
+  type TestManagementCtx
+} from '../src/test-management.js'
 import { TestManager } from '../src/helpers/testManager.js'
 import { SuiteManager } from '../src/helpers/suiteManager.js'
 import { TestReporter } from '../src/reporter.js'
@@ -154,6 +161,62 @@ describe('artifacts manifest gating', () => {
     } finally {
       delete g.allureTestRuntime
     }
+  })
+})
+
+describe('a Cucumber scenario is the attempt-ledger unit', () => {
+  it('records one attempt for the scenario, not one per step', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const rootSuite = suiteManager.getOrCreateRootSuite('/work', 'Cart')
+    const testManager = new TestManager(rootSuite, testReporter, suiteManager)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager,
+      testManager,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    testManager.startMarkedTest('Given a cart')
+    testManager.endCurrent('passed')
+    testManager.startMarkedTest('When I pay')
+    testManager.endCurrent('passed')
+    endScenario(ctx, 'passed')
+
+    const scenarioUid = rootSuite.suites[0]!.uid
+    expect(testManager.attemptOutcomes.forTest(scenarioUid)).toMatchObject([
+      { uid: scenarioUid, attempt: 0, state: 'passed' }
+    ])
+  })
+
+  it('records a scenario queued before the session existed', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager: undefined,
+      testManager: undefined,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    ctx.suiteManager = suiteManager
+    ensureSuiteAndTestManager(ctx, 'Cart')
+    endScenario(ctx, 'failed', 'boom')
+
+    const scenarioUid = suiteManager.getRootSuite()!.suites[0]!.uid
+    expect(ctx.testManager!.attemptOutcomes.forTest(scenarioUid)).toMatchObject(
+      [{ uid: scenarioUid, attempt: 0, state: 'failed' }]
+    )
   })
 })
 

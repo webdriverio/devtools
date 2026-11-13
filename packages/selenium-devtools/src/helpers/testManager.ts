@@ -224,6 +224,19 @@ export class TestManager {
     return this.#attemptTracker
   }
 
+  /** A Cucumber scenario is the test unit, so its attempt opens and closes here, not per step. */
+  recordScenarioStart(uid: string, specFile: string): void {
+    this.#attemptTracker.recordStart(uid, specFile)
+  }
+
+  recordScenarioOutcome(
+    uid: string,
+    state: TestStats['state'],
+    error?: string
+  ): void {
+    this.#attemptTracker.recordOutcome(uid, state, error)
+  }
+
   /** The just-ended marked test's attempts, for the per-test video retention
    *  decision. Empty when no marked test ran. */
   lastTestOutcomes(): TestOutcome[] {
