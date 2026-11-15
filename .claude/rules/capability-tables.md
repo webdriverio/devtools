@@ -2,6 +2,17 @@
 paths:
   - "packages/conformance/src/**"
   - "README.md"
+  - "packages/*/README.md"
 ---
 
-- The capability tables (the README's support, dashboard and mobile tables, the docs site's `CrossFrameworkSupport.md` and `MobileTesting.md`) are generated, never edited by hand. `packages/conformance/src/features.ts` declares every user-facing feature with a cell per adapter, typed as a complete map over the conformance suite's adapter ids, so a new adapter does not compile until each feature declares it. A partial or unsupported cell carries a required reason, which renders as the footnote. A supported cell carries its evidence: conformance rules the adapter has no known gap against, a test file in that adapter's own tests or a shared package's (`core`, `trace`, `backend`), or why it is checked by hand. The cell builders and rule groups are in `capability-helpers.ts` beside it, and the reason strings in `capability-reasons.ts`, so `features.ts` stays the list alone. Two coverage checks keep a new feature from bypassing the list: every user-facing option (`capability-options.ts`, keyed on the real option types of the shared base and each JS adapter, plus the Python `enable()` keywords, pytest options and user-facing `DEVTOOLS_*` variables read from source by a test) names a feature id, typed so a misspelt id fails to compile, or says why it is not one; and every conformance rule backs a tested cell or is listed in `INTERNAL_RULES` with a reason. A test fails when the README tables are out of date; the docs-site copy is refreshed with `pnpm docs:capabilities --website <checkout>` in the same change.
+# Capability tables and user-facing docs
+
+Scope: the generated capability tables, and the README and webpage docs that describe user-facing behaviour.
+
+## Rules
+
+- Never hand-edit the capability tables (the README tables and the docs-site `CrossFrameworkSupport.md` and `MobileTesting.md`). Regenerate with `pnpm docs:capabilities`, passing `--website <checkout>` in the same change. Why: a hand edit is overwritten on regeneration, and `capabilities.test.ts` fails when the README drifts from the declared source.
+- Declare every new feature in `packages/conformance/src/features.ts` with one cell per adapter. A partial or unsupported cell carries a reason; a supported cell carries its evidence. Why: the typed map does not compile for a new adapter until each feature declares it.
+- Every new user-facing option names a feature id in `packages/conformance/src/capability-options.ts`, or says why it is not one. Why: the coverage check otherwise never sees the option.
+- Every conformance rule backs a tested cell or is listed in `INTERNAL_RULES` with a reason. Why: an unbacked rule claims coverage it does not have.
+- A change to user-facing behaviour (an option, CLI, flag, output or workflow) updates the README here and mirrors it to the matching webpage doc in `webdriverio/webdriverio` (`website/docs/devtools/**`) in the same change. Why: a docs change that updates only one side is incomplete.

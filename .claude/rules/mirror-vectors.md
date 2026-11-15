@@ -6,7 +6,17 @@ paths:
   - "packages/selenium-devtools/tests/mirror-vectors.test.ts"
 ---
 
-### Logic implemented in both TypeScript and Python
+# Logic implemented in both TypeScript and Python
 
-The Python adapter cannot import `core`, so some pure logic exists twice. `packages/shared/mirror-vectors.json` holds input/expected-output cases for it, one section per mirrored function; `packages/selenium-devtools/tests/mirror-vectors.test.ts` runs every section against the TypeScript side under `pnpm test`, and `packages/selenium-devtools-py/tests/test_mirror_vectors.py` runs the same file against the Python side in the Python CI job (whose path filter includes the file). Both runners refuse a section they do not handle. Covered today: assertion target resolution, native-session detection, run id, output directory, command row id range, wait poll keys, nested-wait identity, wait row naming (whose negated case the TypeScript runner skips, selenium-webdriver having no negated wait), performance payload shaping, the capture timing summary, the end-of-test capture stamp, the collector's mask prelude, resource URL keys and the per-action capture gate; `notCovered` in the file says why screencast thinning is not. Add a case whenever a change touches either side of a mirrored function, and a section when new logic is mirrored, provided its output is deterministic without a driver. A deliberate difference between the two goes in the section's `notes`, not around the case.
+Scope: pure logic that the Python adapter mirrors, because it cannot import `core`.
 
+## Rules
+
+- Give mirrored logic a section in `packages/shared/mirror-vectors.json` when its output is deterministic without a driver. Why: the vectors are the only check that the TypeScript and Python copies agree; both runners refuse a section they do not handle.
+- Add a case whenever a change touches either side of a mirrored function. Why: without a new case, the other copy is never checked against the change.
+- Record a deliberate difference between the two in the section's `notes`, not around the case. Why: `notes` is where a reader looks to learn why the copies differ.
+
+## Accepted residuals
+
+- The TypeScript runner skips the negated wait-row case, because selenium-webdriver has no negated wait.
+- Screencast buffer thinning is not mirror-tested; `notCovered` in the JSON gives the reason.
