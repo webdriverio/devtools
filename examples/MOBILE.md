@@ -387,7 +387,7 @@ Not failures, and not worth chasing:
   earlier command, so each run now logs the mode it resolved.
 - **Nightwatch's `describe/it` interface collapses per-test slicing** to one
   session-scoped slice, so the config asks for `session` granularity rather
-  than pretending otherwise. See CLAUDE.md § Known debt.
+  than pretending otherwise. See `packages/nightwatch-devtools/CLAUDE.md` § Known debt.
 
 ## iOS
 

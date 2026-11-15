@@ -2,7 +2,7 @@
 // `-snapshot.txt` trace resource). The producer (core's element-snapshot
 // serializers) and the consumer (the app's A11y-tree parser) both reference
 // these, so the written and parsed grammar can't drift. Keep one canonical form
-// per concept — see CLAUDE.md § "One source of truth per concept".
+// per concept — see CLAUDE.md § Layering.
 
 /** Indent step per tree depth (the header sits at one unit; nodes at depth+1). */
 export const SNAPSHOT_INDENT_UNIT = '  '
