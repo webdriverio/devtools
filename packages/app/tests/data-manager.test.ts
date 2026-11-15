@@ -28,7 +28,10 @@ import {
 import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 
 import { RUN_ALL_UID } from '../src/components/sidebar/constants.js'
-import { CACHE_ID } from '../src/controller/constants.js'
+import {
+  CACHE_ID,
+  SCREENCAST_RESET_EVENT
+} from '../src/controller/constants.js'
 import { DataManagerController } from '../src/controller/DataManager.js'
 import type { TraceArchiveClient } from '../src/controller/trace-archive.js'
 import { rerunState } from '../src/controller/rerunState.js'
@@ -1226,6 +1229,93 @@ describe('DataManagerController', () => {
       expect(seen).toEqual([
         { sessionId: SESSION, startTime: RUN_START, duration: 4000 }
       ])
+    })
+
+    it('announces screencast reset when clearing execution data for a new run', async () => {
+      const { deliver } = await boot()
+      deliver(
+        'suites',
+        suitesFrame(suite('login-suite', { tests: [test('t-1')] }))
+      )
+      let resets = 0
+      const onReset = () => {
+        resets += 1
+      }
+      window.addEventListener(SCREENCAST_RESET_EVENT, onReset)
+      try {
+        deliver(WS_SCOPE.clearExecutionData, {
+          uid: 't-1',
+          entryType: 'test',
+          runStart: true
+        })
+        deliver(WS_SCOPE.clearExecutionData, {
+          uid: RUN_ALL_UID,
+          entryType: 'suite',
+          runStart: true
+        })
+      } finally {
+        window.removeEventListener(SCREENCAST_RESET_EVENT, onReset)
+      }
+
+      expect(resets).toBe(2)
+    })
+
+    it('skips screencast reset on mid-run child scenario clears during a feature rerun', async () => {
+      const { deliver } = await boot()
+      deliver('suites', suitesFrame(suite('feature')))
+      let resets = 0
+      const onReset = () => {
+        resets += 1
+      }
+      window.addEventListener(SCREENCAST_RESET_EVENT, onReset)
+      try {
+        deliver(WS_SCOPE.clearExecutionData, {
+          uid: 'feature',
+          entryType: 'suite',
+          runStart: true
+        })
+        deliver(WS_SCOPE.clearExecutionData, {
+          uid: 'feature/scenario-2',
+          entryType: 'suite'
+        })
+      } finally {
+        window.removeEventListener(SCREENCAST_RESET_EVENT, onReset)
+      }
+
+      expect(resets).toBe(1)
+    })
+
+    it('announces screencast reset when a finished suite starts a fresh run or loads a trace', async () => {
+      const { manager, deliver } = await boot()
+      deliver(
+        'suites',
+        suitesFrame(suite('login-suite', { end: new Date(RUN_START + 10) }))
+      )
+      let resets = 0
+      const onReset = () => {
+        resets += 1
+      }
+      window.addEventListener(SCREENCAST_RESET_EVENT, onReset)
+      try {
+        deliver(
+          'suites',
+          suitesFrame(
+            suite('login-suite', { start: new Date(RUN_START + 60_000) })
+          )
+        )
+        deliver(
+          'suites',
+          suitesFrame(
+            suite('login-suite', { start: new Date(RUN_START + 60_000) })
+          )
+        )
+        expect(resets).toBe(1)
+
+        manager.loadTraceFile(traceLog())
+        expect(resets).toBe(2)
+      } finally {
+        window.removeEventListener(SCREENCAST_RESET_EVENT, onReset)
+      }
     })
   })
 

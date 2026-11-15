@@ -33,6 +33,11 @@ import { BASELINE_WS_SCOPE, WS_SCOPE } from '@wdio/devtools-shared'
 import { HOSTED_PLAYER } from './constants.js'
 import { cacheTrace, readCachedTrace } from './trace-cache.js'
 import { archivedResources } from '../components/browser/archived-resources.js'
+import {
+  announceScreencastReady,
+  announceScreencastReset,
+  type ScreencastReadyDetail
+} from '../components/browser/screencast-recordings.js'
 import { readTraceArchive, type TraceArchiveClient } from './trace-archive.js'
 import { PlayerTraceLoads } from './player-trace.js'
 import { openLegacyTrace } from './legacy-trace.js'
@@ -332,16 +337,7 @@ export class DataManagerController implements ReactiveController {
       return true
     }
     if (scope === 'screencast') {
-      const { sessionId, startTime, duration } = data as {
-        sessionId: string
-        startTime?: number
-        duration?: number
-      }
-      window.dispatchEvent(
-        new CustomEvent('screencast-ready', {
-          detail: { sessionId, startTime, duration }
-        })
-      )
+      announceScreencastReady(data as ScreencastReadyDetail)
       return true
     }
     if (scope === WS_SCOPE.clearExecutionData) {
@@ -431,6 +427,7 @@ export class DataManagerController implements ReactiveController {
     this.logsContextProvider.setValue([])
     this.consoleLogsContextProvider.setValue([])
     this.networkRequestsContextProvider.setValue([])
+    announceScreencastReset()
 
     // Keep suitesContextProvider intact - test list stays visible
     // Keep metadata and sources - they're environment-level
@@ -557,6 +554,7 @@ export class DataManagerController implements ReactiveController {
       cacheTrace(traceFile)
     }
     archivedResources.clear()
+    announceScreencastReset()
     this.mutationsContextProvider.setValue(
       traceFile.mutations as TraceMutation[]
     )
