@@ -1313,6 +1313,24 @@ describe('wdio-devtools-browser', () => {
       expect(shadowAll(el, SCREENCAST)).toHaveLength(0)
       expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(0)
     })
+
+    it('repopulates the snapshot iframe when returning from video after a reset', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadataBySession: recordedSessionMetadata
+      })
+      await replayedPage(el)
+
+      recordingArrives()
+      await settle(el)
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(1)
+      expect(el.iframe).toBeNull()
+
+      announceScreencastReset()
+      const doc = await replayedPage(el)
+
+      expect(doc.body.textContent).toContain(LOGIN_LABEL)
+    })
   })
 
   describe('screencast view', () => {

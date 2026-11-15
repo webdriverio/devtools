@@ -427,7 +427,12 @@ export class DevtoolsBrowser extends Element {
   }
 
   #handleScreencastReset = () => {
-    if (this.#recordings.reset()) {
+    const recordingsReset = this.#recordings.reset()
+    const hadActiveState =
+      this.#activeUrl !== undefined || this.#screenshotData !== null
+    this.#activeUrl = undefined
+    this.#screenshotData = null
+    if (recordingsReset || hadActiveState) {
       this.requestUpdate()
     }
   }
