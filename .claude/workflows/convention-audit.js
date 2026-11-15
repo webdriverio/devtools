@@ -22,7 +22,7 @@ The conventions you are checking are defined in ./CLAUDE.md and ./.claude/rules/
 ${SCOPE}
 Use grep/glob/read to investigate. Report ONLY concrete violations with file + line. If you find none, return an empty array.
 Do NOT flag anything listed as KNOWN DEBT in packages/*/CLAUDE.md or .claude/rules/*.md — those are sanctioned exceptions, including:
-- replaceCommand's dual semantics; patchNodeAssert wired only in selenium; BiDi opt-in in nightwatch.
+- replaceCommand's dual semantics; BiDi opt-in in nightwatch.
 - packages/nightwatch-devtools/src/index.ts, packages/selenium-devtools/src/index.ts, packages/nightwatch-devtools/src/session.ts (accepted over the 500-line mark).
 - Declarative #getInternals / PluginInternals accessor bags exceeding the 50-line function cap (marked with eslint-disable).
 `

@@ -4,12 +4,9 @@ This file is the router. Architecture and data flow are in [ARCHITECTURE.md](./A
 
 ## What this repo is
 
-A devtools dashboard for end-to-end browser tests. Three test frameworks (WebdriverIO, Nightwatch, Selenium) push the same normalized event stream through a single backend into a single Lit-based browser UI. The adapters are deliberately thin — they translate framework hooks into calls on a shared core capture/reporting library and own only the framework-specific glue.
-
-Package map and data flow are in [ARCHITECTURE.md](./ARCHITECTURE.md). The summary: `shared` for types and contracts, `trace` for the event→zip transforms, `core` for framework-agnostic capture, four adapters (`service`, `nightwatch-devtools`, `selenium-devtools`, `selenium-devtools-py`) for framework glue, `backend` for the server, `app` for the UI, `script` for the page-injected runtime.
+A devtools dashboard for end-to-end browser tests: WebdriverIO, Nightwatch and Selenium adapters push one normalized event stream through a backend into a Lit UI.
 
 ---
-
 
 ## Commands
 
@@ -63,8 +60,10 @@ The `@core/*` name is a historical alias for app-internal helpers and predates `
 
 - `shared` owns every shared type, constant, schema and HTTP/WS contract. No package re-declares one.
 - `trace` holds the pure transforms from captured events to trace zips, and the zip reader. It imports only `shared`. `backend` may import `trace`; it may not import `core`.
-- `core` holds framework-agnostic capture, parsing and transport. Ask who else would want the code: any future adapter means `core`; one framework's API means the adapter; a zip the backend builds for a Node-less adapter means `trace`.
-- Adapters (`service`, `nightwatch-devtools`, `selenium-devtools`, `selenium-devtools-py`) are thin: framework hooks, driver patching, config. The JS adapters import `shared` and `core`; `selenium-devtools-py` imports neither (it ships no Node), so logic it shares with TS is mirrored and held equal by `packages/shared/mirror-vectors.json` (.claude/rules/mirror-vectors.md). No adapter imports another. Only examples and conformance scenarios import them at runtime; `packages/conformance/src/capability-options.ts` imports their option types with `import type` only.
+- `core` holds framework-agnostic capture, parsing and transport.
+- Adapters (`service`, `nightwatch-devtools`, `selenium-devtools`, `selenium-devtools-py`) are thin: framework hooks, driver patching, config.
+- The JS adapters import `shared` and `core`. `selenium-devtools-py` imports neither (it ships no Node); its shared logic is mirrored and held equal by `packages/shared/mirror-vectors.json` (.claude/rules/mirror-vectors.md).
+- No adapter imports another (enforced by `eslint.config.cjs`). Only examples and conformance scenarios import adapters at runtime; `packages/conformance/src/capability-options.ts` uses `import type` only.
 - `backend` and `app` import `shared` and each other over WS/HTTP. Neither imports an adapter.
 - Boundaries are typed: every `fetch` and `ws.send` has a `shared` type, and no `any` crosses a package boundary.
 - `shared`, `trace` and `core` are bundled into their consumers, never externalised: .claude/rules/bundling.md.
@@ -98,7 +97,7 @@ When CI can't run an example (no real browser), the PR description says so expli
 
 ### Skipping tests that depend on workspace-internal build artifacts
 
-A handful of tests need `@wdio/devtools-script` to be built first (the browser-injected bundle). CI test jobs sometimes run before that build step. The script-loader tests (`packages/core/tests/script-loader.test.ts`) gate on `it.skipIf(!scriptPackageAvailable)`, where availability is whether `loadInjectableScript()` resolves; the `createRequire(import.meta.url).resolve('@wdio/devtools-script')` probe it depends on is in `packages/core/src/script-loader.ts`. Locally they run normally.
+`packages/core/tests/script-loader.test.ts` is gated by `it.skipIf(!scriptPackageAvailable)` and needs `@wdio/devtools-script` built first.
 
 ---
 
@@ -120,8 +119,8 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 
 ### While editing
 
-- Boy-scout rule applies: when touching a file or section, leave it more aligned with these conventions than it was found. Touch a duplicated type, consolidate it into shared. Touch a section of a god-file, split that section out. Touch a magic-string framework check, replace it with `TestRunnerId`. The cleanup scope matches the change scope — don't rewrite the whole file, but don't leave a clear convention violation in lines just touched.
-- New code doesn't introduce violations to match existing style. Where existing style violates these conventions, that's documented debt (§ Known debt), not a template.
+- Leave touched code more aligned with these conventions than you found it; cleanup scope matches change scope.
+- New code does not copy existing violations; those are documented debt (§ Known debt).
 
 ### Before pushing
 
@@ -129,8 +128,6 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 - A changeset for a published npm package, or a `changes/` fragment for the Python adapter — see `.claude/rules/releasing.md`.
 - For UI or runtime changes: verify in `examples/<framework>/`.
 - Deeper security findings (taint flow, polynomial-redos with adjacent quantifiers) surface on the PR's CodeQL scan; review and fix those before merge.
-
-- Changesets and `changes/` fragments: .claude/rules/releasing.md.
 
 ### Commits
 
@@ -147,7 +144,7 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 
 ### Documentation
 
-README and webpage mirror rules: .claude/rules/docs-sync.md. Generated capability tables: .claude/rules/capability-tables.md.
+README and webpage mirror rules, and generated capability tables: .claude/rules/capability-tables.md.
 
 ## Package map
 
@@ -170,12 +167,11 @@ Read a package's CLAUDE.md before changing it; codegraph reads do not auto-load 
 Scoped rules in `.claude/rules/`, each loaded when a matching file is read:
 - when editing package source: `code-style.md` (file/function size, naming, TypeScript rules)
 - when editing a package manifest, bundler config or `pnpm-workspace.yaml`: `bundling.md`
-- when changing a changeset, the Python adapter or its release workflows: `releasing.md`
+- when changing a changeset, a Python-adapter fragment or pyproject, or a release workflow: `releasing.md`
 - when touching mirrored logic or `mirror-vectors.json`: `mirror-vectors.md`
 - when editing the trace-zip writer or reader: `trace-format.md`
 - when editing the hosted player or its CSP: `hosted-player.md`
-- when editing conformance sources or the README capability tables: `capability-tables.md`
-- when editing a README: `docs-sync.md`
+- when editing conformance sources, a README or the capability tables: `capability-tables.md`
 - when editing examples, smoke fixtures or expectations: `examples-smoke.md`
 - when editing capture code in core, service, the Selenium and Nightwatch adapters, script or the Python adapter: `capture-invariants.md`
 - when editing per-action capture or screencast cost paths in core: `capture-cost.md`
@@ -195,4 +191,4 @@ Debt and design history live in the owning package's CLAUDE.md, not here.
 
 ## Living document
 
-This file evolves with the repo. When a convention turns out to be wrong in practice, the right fix is to update the convention, not to silently break it. When a recurring decision point isn't covered here, it gets added.
+When a convention proves wrong in practice, update it here rather than breaking it silently.
