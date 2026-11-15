@@ -2,7 +2,7 @@
 //
 // Adapters (service, nightwatch-devtools, selenium-devtools) produce events of
 // these shapes. The backend stores and forwards them. The app consumes them.
-// See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
+// See ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 
 import type { DeviceInfo } from './device.js'
 import type {

@@ -31,7 +31,7 @@ export const KNOWN_GAPS: KnownGap[] = [
     bidi: 'off',
     rules: SCRIPT_INJECTION_RULES,
     reason:
-      'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
+      'Without BiDi the collector is appended as a <script> after a readiness poll, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. .claude/rules/doc-start-injection.md: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
   {
@@ -39,7 +39,7 @@ export const KNOWN_GAPS: KnownGap[] = [
     bidi: 'off',
     rules: SCRIPT_INJECTION_RULES,
     reason:
-      'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. CLAUDE.md Known debt: "Document-start injection is what removes the whole race class".',
+      'Without BiDi the collector is appended as a <script> and the destination is anchored by polling for the old collector to disappear, so a document the test leaves within tens of ms is never anchored and its Resource Timing buffer dies undrained with it. .claude/rules/doc-start-injection.md: "Document-start injection is what removes the whole race class".',
     timingDependent: true
   },
   ...BIDI_MODES.flatMap(serviceGaps)

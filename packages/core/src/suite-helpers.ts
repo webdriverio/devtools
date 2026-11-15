@@ -9,7 +9,7 @@ import { TEST_STATE } from '@wdio/devtools-shared'
 
 /**
  * Pure factories + state computations shared by the per-adapter SuiteManager
- * and TestManager classes. Pattern A from CLAUDE.md §the-four-patterns —
+ * and TestManager classes. Pattern A —
  * stateless helpers each adapter calls; no base class because storage
  * strategy differs (selenium uses a single root suite + optional Cucumber
  * sub-suites; nightwatch uses a Map keyed by test file).

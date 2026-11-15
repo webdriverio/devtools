@@ -256,7 +256,7 @@ export async function finalizeCucumberScenario(
  * the settled outcome). Trace capture, the slice flush, and per-test artifacts
  * all need a live WebDriver session — at finalize the session is gone and the
  * flush bails, writing no zip. Trace test-state may be pre-outcome for a
- * scenario that fails on a Nightwatch assertion (see CLAUDE.md known debt).
+ * scenario that fails on a Nightwatch assertion (see packages/nightwatch-devtools/CLAUDE.md known debt).
  */
 export async function captureCucumberScenarioBeforeQuit(
   ctx: CucumberLifecycleCtx,

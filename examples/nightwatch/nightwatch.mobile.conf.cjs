@@ -105,7 +105,7 @@ module.exports = {
           mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
           // The BDD describe/it interface fires the plugin's beforeEach once per
           // MODULE, so per-test slicing collapses to one session-scoped slice
-          // here regardless — see CLAUDE.md § Known debt.
+          // here regardless — see packages/nightwatch-devtools/CLAUDE.md § Known debt.
           traceGranularity: 'session',
           // Appium serves no BiDi, so leave it off rather than have the attach
           // fail once per run; the perf-log fallback covers a mobile-web session.

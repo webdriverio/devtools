@@ -18,10 +18,10 @@ You are auditing the "devtools" monorepo (root = the current working directory).
 Packages under packages/: shared (types/contracts, private), core (framework-agnostic capture, private),
 service + nightwatch-devtools + selenium-devtools (thin framework ADAPTERS), backend (server), app (UI),
 script (page-injected runtime), elements (a UI-elements package, NOT documented in CLAUDE.md).
-The conventions you are checking are defined in ./CLAUDE.md — read it if a rule below is ambiguous.
+The conventions you are checking are defined in ./CLAUDE.md and ./.claude/rules/*.md — read them if a rule below is ambiguous.
 ${SCOPE}
 Use grep/glob/read to investigate. Report ONLY concrete violations with file + line. If you find none, return an empty array.
-Do NOT flag anything listed as KNOWN DEBT in CLAUDE.md (§ Known debt) — those are sanctioned exceptions, including:
+Do NOT flag anything listed as KNOWN DEBT in packages/*/CLAUDE.md or .claude/rules/*.md — those are sanctioned exceptions, including:
 - replaceCommand's dual semantics; patchNodeAssert wired only in selenium; BiDi opt-in in nightwatch.
 - packages/nightwatch-devtools/src/index.ts, packages/selenium-devtools/src/index.ts, packages/nightwatch-devtools/src/session.ts (accepted over the 500-line mark).
 - Declarative #getInternals / PluginInternals accessor bags exceeding the 50-line function cap (marked with eslint-disable).
@@ -101,7 +101,7 @@ Look for type/interface/const declarations in adapters, backend, or app that dup
   },
   {
     key: 'file-size',
-    prompt: `Rule: soft cap 500 LOGIC lines per file (blanks + comment-only lines excluded). Find packages/**/src files whose raw line count exceeds ~520, then confirm by running the repo's own eslint (max-lines with skipBlankLines/skipComments) on the candidate. Report only files NOT in the CLAUDE.md known-debt list that eslint actually reports as over 500. Severity low.`,
+    prompt: `Rule: soft cap 500 LOGIC lines per file (blanks + comment-only lines excluded). Find packages/**/src files whose raw line count exceeds ~520, then confirm by running the repo's own eslint (max-lines with skipBlankLines/skipComments) on the candidate. Report only files NOT in the known-debt list (packages/*/CLAUDE.md, .claude/rules/*.md) that eslint actually reports as over 500. Severity low.`,
   },
 ]
 

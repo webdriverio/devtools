@@ -1,5 +1,5 @@
 // Framework-agnostic capture/reporter logic shared by @wdio/devtools-*
-// adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
+// adapters. See ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 
 // `action-mapping` and `console` moved to `shared` — the trace transforms need
 // them and must not depend on adapter logic. Re-exported here, and only these

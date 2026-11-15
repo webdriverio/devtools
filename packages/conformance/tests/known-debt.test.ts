@@ -6,7 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { KNOWN_GAPS } from '../src/allowlist.js'
 import { KNOWN_DEBT, REPO_ROOT } from '../src/constants.js'
 
-const claudeMd = readFileSync(path.join(REPO_ROOT, 'CLAUDE.md'), 'utf8')
+const claudeMd = readFileSync(
+  path.join(REPO_ROOT, 'packages/conformance/CLAUDE.md'),
+  'utf8'
+)
 
 describe('known gap reasons', () => {
   // A reason pointing at an entry that was renamed or removed sends the reader nowhere.
