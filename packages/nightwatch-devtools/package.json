@@ -70,7 +70,7 @@
     "@wdio/devtools-core": "workspace:^",
     "@wdio/devtools-shared": "workspace:^",
     "nightwatch": "^3.16.0",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^6.0.3"
   },
   "peerDependencies": {
