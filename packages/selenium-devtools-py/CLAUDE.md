@@ -27,11 +27,11 @@ Mirrored TypeScript logic and its vectors: `.claude/rules/mirror-vectors.md`.
 - **Performance timings ride on the command row** (`CommandLog.performance`), re-sent via `send_replace_command` keyed on the row `timestamp`. Don't sleep before reading: that delays the user's test. Discard a read that has no `navigation` entry.
   Read through `_guarded_execute_script`, or the read logs a fake `executeScript` row beside every navigation.
 - **Per-command screenshots stop feeding the video while a stream is live.** The pushed frames already cover the timeline; interleaving would duplicate one of them a few milliseconds off.
-- **A wait is one row, and its condition's commands nest under it.** `wait_tracking.py` sends the wait's row from the patched `WebDriverWait.until`/`until_not` before the first poll, and replaces it by `id` when the wait returns or raises.
+- `wait_tracking.py` sends the wait's row from the patched `WebDriverWait.until`/`until_not` before the first poll, and replaces it by `id` when the wait returns or raises.
   Rows executed inside the condition take its id as `parentId` (`parent_of`).
   `wait_row_name` names presence and visibility expected conditions `waitForElementLocated`/`waitForElementVisible`, and everything else `wait`. Naming never raises (`_safe_label`, `_safe_row_name`).
 
 ## File size
 
-- `packages/selenium-devtools-py/src/selenium_devtools/instrumentation.py` is over the cap. The module-level `_state` bag is read by the snapshot capture, its accessors and the element-scripts handoff, so extraction moves state ownership.
+- `packages/selenium-devtools-py/src/selenium_devtools/instrumentation.py` is 1377 lines. The module-level `_state` bag is read by the snapshot capture, its accessors and the element-scripts handoff, so extraction moves state ownership.
   Per-test frame state already moved to `per_test_capture.py` (`PerTestCapture`); the next change that touches `_state` should split another concern the same way.

@@ -3,6 +3,7 @@ paths:
   - "packages/core/src/{bidi-preload,script-loader}.ts"
   - "packages/script/src/{utils,collector}.ts"
   - "packages/selenium-devtools/src/{session-lifecycle,driverPatcher}.ts"
+  - "packages/selenium-devtools/src/helpers/commandPostActions.ts"
   - "packages/nightwatch-devtools/src/{session,session-init}.ts"
   - "packages/nightwatch-devtools/src/helpers/{navigationWrap,webdriverHttp}.ts"
 ---
@@ -21,7 +22,7 @@ Document-start injection is what removes the whole race class; everything else i
 - `waitForBody` (`script/src/utils.ts`) checks for the body synchronously before waiting for a frame. Why: on desktop Safari a collector that waited for a frame never anchored; with per-command screenshots off it captured 0 of 8 keystrokes.
 - Fallback navigations resolve only once the collector is in the destination: `driverPatcher.ts` `gateNavigation` awaits `afterNavigation`, which injects only when `preloadRegistered` is false. Why: on desktop Safari without a preload, typing finished before the collector landed and the replay showed empty fields.
 - The collector's anchor records each form control's live `value` and `checked` (`script/src/utils.ts` `recordFieldState`). Why: `parseNode` reads attributes, which never hold typed text.
-- Drain Selenium's navigation before `capturePerformance`'s settle, not after. Why: the drain moves a short-lived destination's anchor out of the page; after the settle the page was gone.
+- Drain Selenium's navigation before the `capturePerformance` settle (`selenium-devtools/src/helpers/commandPostActions.ts`), not after. Why: the settle is 500 ms, and the page can be gone when it ends.
 
 ## Accepted residuals (not regressions)
 

@@ -6,6 +6,8 @@ paths:
   - "packages/trace/src/{trace-network,trace-har}.ts"
   - "packages/nightwatch-devtools/src/{session,session-init}.ts"
   - "packages/nightwatch-devtools/src/helpers/perfLogs.ts"
+  - "packages/shared/src/types.ts"
+  - "packages/shared/src/browser-schemes.ts"
 ---
 
 # Network capture
@@ -17,9 +19,9 @@ Three sources: driver-side (BiDi, Nightwatch's Chrome performance log), the coll
 - Do not gate Resource Timing collection (`script/src/collectors/resourceTiming.ts`) on browser or capability. Why: it is the only network source without BiDi (Safari, every Appium session).
 - Do not record a failed patched fetch/XHR as a failed row. Why: tried and reverted; beside BiDi's row each blocked beacon was listed twice (Nightwatch example, 35 to 67 failure rows). Drop the call's held Resource Timing entry instead; it is the request's only record.
 - Hold a Resource Timing entry that arrives before its patched call answers until the call records it or drops it (`collectors/networkRequests.ts` `consumeClaim`). Why: the request keeps one record.
-- Do not gate on Nightwatch's performance log. Why: a capability can name a log the driver never serves (XCUITest). Overlay each log entry onto the page's row for that load (`perfLogs.ts` `upgradeResourceTimingRows`), keeping the row's id, clock and phases. Why for the overlay: the log's monotonic clock only diffs within a session, so log rows are dated from CDP `wallTime`.
+- Do not treat a requested performance-log capability as proof the log is served. Why: a capability can name a log the driver never serves (XCUITest). Overlay each log entry onto the page's row for that load (`perfLogs.ts` `upgradeResourceTimingRows`), keeping the row's id, clock and phases. Why for the overlay: the log's monotonic clock only diffs within a session, so log rows are dated from CDP `wallTime`.
 - Pair a log-listed load through `loadsListedByLog`, spent per load by `withoutLoadsTheLogListed`, and clear it at the next driver drain and in `armReplacedSession`. Why: a scan of the session's rows dropped a second request to the same URL (a 204 after a JSON response lost its only row); a load kept longer takes the row of the next request to that URL.
-- Keep the first collector: `collector.ts` `alreadyInstalled` makes a second bundle evaluation a no-op. Why: a replacement dropped buffered loads; Nightwatch injecting twice on Android Chrome via Appium gave 0 network rows.
+- Keep the first collector: a second bundle evaluation reuses `window.wdioTraceCollector` (`script/src/collector.ts`) and skips the setup gated on `alreadyInstalled` (`script/src/index.ts`: body wait, initial DOM capture, observer). Why: a replacement dropped buffered loads; Nightwatch injecting twice on Android Chrome via Appium gave 0 network rows.
 - Make each `core/bidi.ts` request and response handler ignore the other's events by shape (`response` present or absent; the fetch-error handler by `errorText`). Why: `NetworkInspector` hands every event to every subscriber; unguarded, every request in a Selenium Chrome trace was listed twice.
 - Key rows by request id (`MAX_TRACKED_REQUESTS`); a request for a known id reopens its row under the first hop's clock. Why: a redirect hop re-sends under the same id.
 - Close a failed BiDi fetch as status 0 with the browser's `errorText`, through the inspector's `fetchError` hook (`subscribeFetchErrors`). Why: otherwise every blocked beacon stays pending for the session.

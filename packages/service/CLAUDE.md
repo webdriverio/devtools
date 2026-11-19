@@ -15,7 +15,7 @@ Accepted residual: a navigation that has not committed when the anchor is read s
 ### Command hooks and wait rows
 
 - Hook methods are deliberately not `async`. WDIO keeps one module-global `inCommandHook` flag and skips every command's hooks while any hook runs, so a hook that settles later drops a concurrent command's hooks (the submit click lost its row).
-- `command-stack.ts` `CommandStack` opens a level under a wait; its direct children become rows with `parentId`. `wait-rows.ts` `WaitRows` replaces the wait by id at completion and moves it to the end of `commandsLog`, which keeps the log in completion order.
+- `command-stack.ts` `CommandStack` opens a level under a wait; its direct children become rows with `parentId`. `wait-rows.ts` `WaitRows` moves a completed wait to the end of `commandsLog`, which keeps the log in completion order.
 - An element wait's first hook fires with no arguments, before the wait has issued anything. It is skipped by argument, not by stack.
 - Commands the service issues from its own hooks are told apart by `AsyncLocalStorage` (`runAsServiceWork`), not by stack, because a wait's polls carry no spec frame.
 
@@ -29,7 +29,10 @@ Accepted residual: a navigation that has not committed when the anchor is read s
 
 ## File size
 
+Caps are eslint `warn`, not a CI gate.
+
 - `packages/service/src/index.ts` is over the cap. The command-hook family (`beforeCommand`/`afterCommand`/`#commandStack`/`#drainAfterLiveCommand`) is the next extraction; `before()` is also over the function cap.
+- `packages/service/src/session.ts` is over the cap (~603 logic lines).
 
 ## Test coverage gaps
 

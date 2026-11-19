@@ -16,11 +16,13 @@ Run from repo root unless noted.
 |---|---|
 | `pnpm install` | Install workspace dependencies. |
 | `pnpm build` | Build all packages (`pnpm -r build`). |
+| `pnpm typecheck` | Type-check all packages (four `tsc --noEmit` programs). CI `build` job gate. |
 | `pnpm test` | Run the vitest suite once (no coverage). |
 | `pnpm test:watch` | Run vitest in watch mode. |
 | `pnpm test:coverage` | Run vitest with v8 coverage. Not a CI gate; see Known debt. |
+| `pnpm test:ui` | Component tests (`wdio run packages/app/wdio.conf.ts`). CI `component-tests` job. |
 | `pnpm lint` | Lint all packages in parallel, including `eslint-plugin-security`. |
-| `pnpm demo:wdio` / `:nightwatch` / `:selenium` / `:python:pytest` | Run the per-framework examples. `demo:wdio` and `demo:selenium` (Selenium cucumber) default to live, `demo:nightwatch` defaults to trace; `DEVTOOLS_MODE=live` or `trace` flips each. The pytest example traces only with `DEVTOOLS_MODE=trace`. Details: examples/CLAUDE.md |
+| `pnpm demo:wdio` / `:nightwatch` / `:selenium` / `:python:pytest` | Run the per-framework examples. Default modes and `DEVTOOLS_MODE` behaviour: examples/CLAUDE.md |
 | `pnpm demo:wdio:mobile` / `:selenium:mobile` / `:nightwatch:mobile` / `:python:mobile` | The same against Appium. Details: examples/CLAUDE.md, examples/MOBILE.md |
 | `pnpm dev` | Run all packages in parallel dev mode. |
 | `pnpm smoke:fixtures [--port N]` | Serve the local fixture site the desktop examples drive (default `http://127.0.0.1:4567`). Details: .claude/rules/examples-smoke.md |
@@ -43,6 +45,7 @@ Defined in root `tsconfig.json`:
 | `@core/*` | `packages/app/src/core/*` (app-internal — not the framework-agnostic `packages/core`) |
 | `@wdio/devtools-backend` / `*` | `packages/backend/src/...` |
 | `@wdio/devtools-script` / `*` | `packages/script/src/...` |
+| `@wdio/devtools-script/types` | `packages/script/types.d.ts` |
 | `@wdio/devtools-service` / `*` | `packages/service/src/...` |
 | `@wdio/selenium-devtools` / `*` | `packages/selenium-devtools/src/...` |
 | `@wdio/nightwatch-devtools/*` | `packages/nightwatch-devtools/src/*` (subpaths only, for type imports such as the option types) |
@@ -64,10 +67,10 @@ The `@core/*` name is a historical alias for app-internal helpers and predates `
 - Adapters (`service`, `nightwatch-devtools`, `selenium-devtools`, `selenium-devtools-py`) are thin: framework hooks, driver patching, config.
 - The JS adapters import `shared` and `core`. `selenium-devtools-py` imports neither (it ships no Node); its shared logic is mirrored and held equal by `packages/shared/mirror-vectors.json` (.claude/rules/mirror-vectors.md).
 - No adapter imports another (enforced by `eslint.config.cjs`). Only examples and conformance scenarios import adapters at runtime; `packages/conformance/src/capability-options.ts` uses `import type` only.
-- `backend` and `app` import `shared` and each other over WS/HTTP. Neither imports an adapter.
+- `backend` and `app` import `shared` and each other over WS/HTTP. Neither imports an adapter. `app` may also import `@wdio/devtools-trace/trace-reader`, the reader the hosted player runs in the browser; no other trace module.
 - Boundaries are typed: every `fetch` and `ws.send` has a `shared` type, and no `any` crosses a package boundary.
 - `shared`, `trace` and `core` are bundled into their consumers, never externalised: .claude/rules/bundling.md.
-- Files own one concern. Size caps and style: .claude/rules/code-style.md.
+- Files own one concern. Size caps and style: .claude/rules/code-style.md. `max-lines` (500), `max-lines-per-function` (50) and `no-explicit-any` are `warn` in `eslint.config.cjs`, so `pnpm lint` passes with violations; size caps are not a CI gate.
 - A helper that is framework-agnostic but used by one adapter stays in that adapter until a second consumer appears, then moves to `core`.
 - A duplicate is consolidated into `shared` by the next change that touches either copy; adapters re-export shared definitions when a local name must stay stable (e.g. nightwatch's `TEST_FILE_PATTERN`).
 - `SocketMessage<T extends WsMessageScope>` is the canonical WS wire format; receivers narrow on `scope`.
@@ -124,7 +127,7 @@ When the right place is ambiguous (something between `shared` and `core`, or bet
 
 ### Before pushing
 
-- CI (`.github/workflows/ci.yml`) runs: the `build` job (`pnpm lint`, `pnpm -r build`, `pnpm typecheck`, `pnpm test`); `component-tests` (`pnpm test:ui`); `hosted-player` (`pnpm player:e2e`); `examples-smoke` (the four desktop examples against the fixture site); and `wdio-peer` (type-checks against a matrix of WebdriverIO versions). Don't push red.
+- CI jobs are defined in `.github/workflows/ci.yml` (`build`, `component-tests`, `hosted-player`, `examples-smoke`, `wdio-peer`). Don't push red.
 - A changeset for a published npm package, or a `changes/` fragment for the Python adapter — see `.claude/rules/releasing.md`.
 - For UI or runtime changes: verify in `examples/<framework>/`.
 - Deeper security findings (taint flow, polynomial-redos with adjacent quantifiers) surface on the PR's CodeQL scan; review and fix those before merge.
@@ -164,28 +167,13 @@ Read a package's CLAUDE.md before changing it; codegraph reads do not auto-load 
 - `elements`: `@wdio/elements`, element detection scripts for WebdriverIO. No CLAUDE.md.
 - `examples/`: runnable demos per framework, fixture site, mobile. Notes: examples/CLAUDE.md
 
-Scoped rules in `.claude/rules/`, each loaded when a matching file is read:
-- when editing package source: `code-style.md` (file/function size, naming, TypeScript rules)
-- when editing a package manifest, bundler config or `pnpm-workspace.yaml`: `bundling.md`
-- when changing a changeset, a Python-adapter fragment or pyproject, or a release workflow: `releasing.md`
-- when touching mirrored logic or `mirror-vectors.json`: `mirror-vectors.md`
-- when editing the trace-zip writer or reader: `trace-format.md`
-- when editing the hosted player or its CSP: `hosted-player.md`
-- when editing conformance sources, a README or the capability tables: `capability-tables.md`
-- when editing examples, smoke fixtures or expectations: `examples-smoke.md`
-- when editing capture code in core, service, the Selenium and Nightwatch adapters, script or the Python adapter: `capture-invariants.md`
-- when editing per-action capture or screencast cost paths in core: `capture-cost.md`
-- when editing network capture: `network-capture.md`
-- when editing the document-start preload or session bringup: `doc-start-injection.md`
-- when editing assert capture: `assert-capture.md`
-
 ## Known debt
 
 Debt and design history live in the owning package's CLAUDE.md, not here.
 
 - Architecture and capture debt: the CLAUDE.md of the package whose files an entry names; a cross-adapter entry sits in `core`, `shared` or `trace`.
-- File-size overruns: packages/service, nightwatch-devtools, selenium-devtools, app and selenium-devtools-py CLAUDE.md.
-- Coverage gaps (worst first): packages/service, nightwatch-devtools, selenium-devtools and backend CLAUDE.md.
+- File-size overruns: packages/service, nightwatch-devtools, selenium-devtools and selenium-devtools-py CLAUDE.md.
+- Coverage gaps (worst first): packages/service and nightwatch-devtools CLAUDE.md.
 - The coverage thresholds in `vitest.config.ts` (85/77/86/85) are not a CI gate: CI's `pnpm test` collects no coverage.
 
 

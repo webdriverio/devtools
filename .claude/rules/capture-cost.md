@@ -6,6 +6,7 @@ paths:
   - "packages/selenium-devtools/src/{driverPatcher,screencast}.ts"
   - "packages/selenium-devtools/src/helpers/actions-patcher.ts"
   - "packages/nightwatch-devtools/src/helpers/{browserProxy,commandWindow}.ts"
+  - "packages/shared/src/action-mapping.ts"
 ---
 
 # Capture cost
