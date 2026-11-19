@@ -893,7 +893,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#userCommandsSinceFinal = 0
   }
 
-  /** The page is unchanged since the previous test's end frame, so re-probing it is redundant. */
+  /** No command has changed the page since the previous test's end frame, so re-probing it is redundant. */
   async #preActionSnapshot(
     browser: WebdriverIO.Browser,
     command: string,
