@@ -107,4 +107,6 @@ export interface GenerateLocatorsOptions {
   isNative?: boolean
   /** Only return elements whose bounds intersect the viewport (default true). */
   inViewportOnly?: boolean
+  /** Pre-parsed `xmlToJSON(sourceXML)`; stamped with each element's `_selector` for the snapshot serializer. */
+  tree?: JSONElement
 }

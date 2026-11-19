@@ -208,8 +208,7 @@ function processElement(element: JSONElement, ctx: ProcessingContext): void {
       return
     }
 
-    // Stash the best locator on the tree node so serializeMobileSnapshot
-    // can reuse the full locator pipeline instead of recomputing.
+    // Stamped on the node so serializeMobileSnapshot reuses it instead of recomputing.
     element.attributes._selector = locators[0][1]
 
     const transformed = transformElement(element, locators, ctx)
@@ -251,7 +250,7 @@ export function generateAllElementLocators(
   sourceXML: string,
   options: GenerateLocatorsOptions
 ): ElementWithLocators[] {
-  const sourceJSON = xmlToJSON(sourceXML)
+  const sourceJSON = options.tree ?? xmlToJSON(sourceXML)
 
   if (!sourceJSON) {
     // Core is logger-free; console.error is the only signal that XML

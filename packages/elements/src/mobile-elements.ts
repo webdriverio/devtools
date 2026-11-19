@@ -171,7 +171,8 @@ export async function getMobileVisibleElementsWithTree(
     platform,
     viewportSize,
     filters,
-    inViewportOnly
+    inViewportOnly,
+    tree: tree ?? undefined
   })
 
   const elements = elementLocators.map((el) =>

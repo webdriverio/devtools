@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
   captureActionSnapshot,
-  SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS
+  SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
+  upsertRichestSnapshot
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
 
@@ -51,6 +52,7 @@ const capturer = {
   metadata: {},
   setBrowser: vi.fn(),
   openWait: vi.fn(() => 0),
+  resetScriptInjection: vi.fn(),
   /** Set by a test to stand in for the drain having brought a document the
    *  session had not anchored before. */
   replacedDocumentInLastDrain: false
@@ -68,6 +70,7 @@ vi.mock('../src/screencast.js', () => ({
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       setStartMarker: vi.fn(),
+      handleReload: vi.fn().mockResolvedValue(undefined),
       frames: []
     }
   })
@@ -78,6 +81,7 @@ vi.mock('@wdio/devtools-core', async (importOriginal) => {
   return {
     ...actual,
     captureActionSnapshot: vi.fn(actual.captureActionSnapshot),
+    upsertRichestSnapshot: vi.fn(actual.upsertRichestSnapshot),
     encodeToVideo: vi.fn().mockResolvedValue(undefined)
   }
 })
@@ -548,6 +552,7 @@ describe('trace mode: one capture per action, taken before it', () => {
     await service.beforeCommand('click' as never, [])
     await service.afterCommand('click' as never, [], undefined)
     await service.afterTest(first as never, {} as never, {} as never)
+    await service.onReload('old-session', 'new-session')
 
     const lastOfFirst = commandsLog[0]!.timestamp
     vi.mocked(captureActionSnapshot).mockClear()
@@ -563,6 +568,166 @@ describe('trace mode: one capture per action, taken before it', () => {
     // row then shows the post-reload page instead of that test's last state.
     expect(stampedAt(0)).not.toBe(lastOfFirst)
     expect(stampedAt(0)).toBeGreaterThanOrEqual(secondTestStart)
+  })
+
+  it('reuses the previous test end frame when no command ran in between', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+    const endFrame = vi.mocked(upsertRichestSnapshot).mock.calls.at(-1)![1]
+    expect(endFrame.timestamp).toBe(commandsLog[0]!.timestamp)
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    const secondTestStart = Date.now()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    await service.beforeCommand('setValue' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).not.toHaveBeenCalled()
+    const reused = vi.mocked(upsertRichestSnapshot).mock.calls.at(-1)![1]
+    expect(reused.command).toBe('setValue')
+    expect(reused).toEqual({
+      ...endFrame,
+      command: 'setValue',
+      timestamp: expect.any(Number)
+    })
+    expect(reused.timestamp).toBeGreaterThanOrEqual(secondTestStart)
+  })
+
+  it('reuses the previous test end frame across lookups and reads that cannot change the page', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    for (const read of ['findElement', 'getElementText']) {
+      await service.beforeCommand(read as never, [])
+      await service.afterCommand(read as never, [], undefined)
+    }
+    await service.beforeCommand('click' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).not.toHaveBeenCalled()
+  })
+
+  it('probes the first action of a test when a wait ran between the tests', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+    await service.beforeCommand('waitForDisplayed' as never, [])
+    await service.afterCommand('waitForDisplayed' as never, [], undefined)
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    await service.beforeCommand('click' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+  })
+
+  it('probes the first action of a test when an internal command ran between the tests', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+    await service.beforeCommand('execute' as never, [])
+    await service.afterCommand('execute' as never, [], undefined)
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    const secondTestStart = Date.now()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    await service.beforeCommand('click' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+    expect(stampedAt(0)).toBeGreaterThanOrEqual(secondTestStart)
+  })
+
+  it('probes the first action of a test when the previous end frame has no screenshot', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    vi.mocked(captureActionSnapshot).mockImplementationOnce(
+      async ({ command, timestamp }) =>
+        ({ command, timestamp, screenshot: undefined }) as never
+    )
+    await service.afterTest(first as never, {} as never, {} as never)
+    const endFrame = vi.mocked(upsertRichestSnapshot).mock.calls.at(-1)![1]
+    expect(endFrame.screenshot).toBeUndefined()
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    await service.beforeCommand('click' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+  })
+
+  it('probes the first action of a test after a reload with no command in between', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { file: '/spec/a.ts', title: 'first' }
+    service.beforeTest(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterTest(first as never, {} as never, {} as never)
+    await service.onReload('old-session', 'new-session')
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    const secondTestStart = Date.now()
+    service.beforeTest({ file: '/spec/a.ts', title: 'second' } as never)
+    await service.beforeCommand('click' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).toHaveBeenCalledTimes(1)
+    expect(stampedAt(0)).toBeGreaterThanOrEqual(secondTestStart)
+  })
+
+  it('reuses the previous scenario end frame when no command ran in between', async () => {
+    const browser = nativeBrowser()
+    const service = new DevToolsHookService({ mode: 'trace' })
+    await service.before({} as never, [], browser)
+    const first = { pickle: { uri: '/spec/a.feature', name: 'first' } }
+    service.beforeScenario(first as never)
+    await service.beforeCommand('click' as never, [])
+    await service.afterCommand('click' as never, [], undefined)
+    await service.afterScenario(first as never)
+    const endFrame = vi.mocked(upsertRichestSnapshot).mock.calls.at(-1)![1]
+
+    vi.mocked(captureActionSnapshot).mockClear()
+    const secondScenarioStart = Date.now()
+    service.beforeScenario({
+      pickle: { uri: '/spec/a.feature', name: 'second' }
+    } as never)
+    await service.beforeCommand('setValue' as never, [])
+
+    expect(vi.mocked(captureActionSnapshot)).not.toHaveBeenCalled()
+    const reused = vi.mocked(upsertRichestSnapshot).mock.calls.at(-1)![1]
+    expect(reused).toEqual({
+      ...endFrame,
+      command: 'setValue',
+      timestamp: expect.any(Number)
+    })
+    expect(reused.timestamp).toBeGreaterThanOrEqual(secondScenarioStart)
   })
 
   it('still lets the paint land when the wait for a load times out', async () => {
