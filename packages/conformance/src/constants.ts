@@ -231,7 +231,7 @@ export const REPORT_INDEX = 'index.html'
 export const TARGET_MAX_CHARS = 120
 
 const debt = (entry: string, issue?: string) =>
-  `CLAUDE.md Known debt: "${entry}"${issue ? ` (${issue})` : ''}.`
+  `packages/conformance/CLAUDE.md Known debt: "${entry}"${issue ? ` (${issue})` : ''}.`
 
 /** Why each scenario gap exists: the limitation, and the Known debt entry that describes it. */
 export const KNOWN_DEBT = {

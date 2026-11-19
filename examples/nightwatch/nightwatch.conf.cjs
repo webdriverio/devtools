@@ -33,7 +33,7 @@ module.exports = {
             // Chrome's password-leak check silently stops delivering ALL
             // WebDriver-synthesized input to the tab ~1s after a breached
             // credential is submitted (tomsmith/SuperSecretPassword! is in the
-            // corpus). Blocking only that host prevents it; see CLAUDE.md.
+            // corpus). Blocking only that host prevents it; see examples/CLAUDE.md.
             '--host-resolver-rules=MAP passwordsleakcheck-pa.googleapis.com 127.0.0.1',
             '--no-sandbox',
             '--disable-dev-shm-usage',
@@ -56,7 +56,7 @@ module.exports = {
         //             (rung 5 needs retries → run `pnpm demo:nightwatch:retry`)
         // NOTE: the BDD describe/it interface fires the plugin's beforeEach once
         // per module (no per-`it` hook), so traceGranularity:'test' collapses to
-        // a single session-scoped slice here. See CLAUDE.md § Known debt.
+        // a single session-scoped slice here. See packages/nightwatch-devtools/CLAUDE.md § Known debt.
         // Trace by default (regen/demo); DEVTOOLS_MODE=live flips to live for live-parity recording.
         mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
         traceGranularity: 'session',

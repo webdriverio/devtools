@@ -1,5 +1,5 @@
 // Single source of truth for types, constants, and HTTP/WS contracts shared
-// across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
+// across @wdio/devtools-* packages. See ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 
 export * from './action-mapping.js'
 export * from './baseline.js'

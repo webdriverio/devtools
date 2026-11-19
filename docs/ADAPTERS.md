@@ -44,7 +44,7 @@ A wait the test wrote (an element wait, or a wait on any other condition) is one
 
 To enrich a row after the fact (navigation timings, for example), send `replaceCommand` with `{oldTimestamp, command}`. Preserve the original row's `id`: the backend and app match a numeric `id` first, then fall back to the last row with `oldTimestamp`. If neither matches, they append the replacement as a new row.
 
-**Pitfall already hit.** Two JS adapters stamped `timestamp` with the invocation clock while the page's mutation stream runs on real time, so a fill row replayed an empty field and a navigation row replayed the page it had just left (CLAUDE.md Known debt: "A command row is stamped at COMPLETION").
+**Pitfall already hit.** Two JS adapters stamped `timestamp` with the invocation clock while the page's mutation stream runs on real time, so a fill row replayed an empty field and a navigation row replayed the page it had just left (`packages/core/CLAUDE.md` Design notes: "Stamp a row's `timestamp` at COMPLETION and keep invocation as `startTime`.").
 
 **Python.** `instrumentation.py` `install()` patches `WebDriver.execute`, the single chokepoint every driver and element command flows through (`patched_execute`). It records `start = now_ms()` before calling through, and `SessionCapturer.capture_command` in `capturer.py` stamps `timestamp=now_ms()` after the call returns. `frames.command_log` in `frames.py` builds the row and omits unset fields. Internal scripts run through `_guarded_execute_script`, which sets a flag that `patched_execute` checks so they bypass capture. `SKIP_COMMANDS` and `NAVIGATION_COMMANDS` live in `constants.py`; `_attach_performance` sends the enriched navigation row via `send_replace_command`.
 

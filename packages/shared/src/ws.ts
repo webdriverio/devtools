@@ -1,5 +1,5 @@
 // Wire format for the WebSocket bridge between backend (sender) and app
-// (receiver). Single source of truth — see CLAUDE.md §2.1 + §2.5.
+// (receiver). Single source of truth — see CLAUDE.md § Layering.
 //
 // Every payload the backend pushes via `sendUpstream` has a matching scope
 // here, and the generic discriminated-union maps scope → payload shape so
