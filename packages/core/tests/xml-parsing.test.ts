@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { xmlToJSON } from '../src/locators/xml-parsing.js'
+import {
+  countAttributeOccurrences,
+  xmlToJSON
+} from '../src/locators/xml-parsing.js'
 
 describe('xmlToJSON', () => {
   it('parses valid Android XML', () => {
@@ -101,5 +104,24 @@ describe('xmlToJSON', () => {
     // <container> should have 4 element children
     const container = result!.children[0]
     expect(container!.children).toHaveLength(4)
+  })
+})
+
+describe('countAttributeOccurrences', () => {
+  it('matches a value whose XML escapes appear in the source', () => {
+    const xml = '<A name="Tom &amp; Jerry"/><B name="a &lt; b &quot;c&quot;"/>'
+    expect(countAttributeOccurrences(xml, 'name', 'Tom & Jerry')).toBe(1)
+    expect(countAttributeOccurrences(xml, 'name', 'a < b "c"')).toBe(1)
+  })
+
+  it('matches a literal > or quote the source leaves unescaped', () => {
+    const xml = '<A name="x > y"/><B name=\'It&apos;s\'/><C name="It\'s"/>'
+    expect(countAttributeOccurrences(xml, 'name', 'x > y')).toBe(1)
+    expect(countAttributeOccurrences(xml, 'name', "It's")).toBe(2)
+  })
+
+  it('matches a bare ampersand a WebView source leaves unescaped', () => {
+    const xml = '<A href="?a=1&b=2"/>'
+    expect(countAttributeOccurrences(xml, 'href', '?a=1&b=2')).toBe(1)
   })
 })
