@@ -4,8 +4,15 @@ Per-framework demo projects under `examples/`: the desktop and mobile runs they 
 
 ## Rules
 
-- **No package pins a browser driver.** A pinned `chromedriver` on `PATH` (pnpm puts `node_modules/.bin` there) wins over Selenium Manager's resolution and fails on a major mismatch. Nightwatch's Chrome service builder sets `requiresDriverBinary: false`, and `chromedriver` is an optional peer.
+- **No package pins a browser driver.** A pinned `chromedriver` on `PATH` (pnpm puts `node_modules/.bin` there) wins over Selenium Manager's resolution and fails on a major mismatch.
 - **The iOS simulator is chosen by udid; an unmatched `IOS_DEVICE_NAME` is refused.** A missing name makes XCUITest create and boot a device every run. The refusal and booted-simulator preflight are local-only, so `IOS_UDID` and a non-local `APPIUM_HOST` bypass them. Prerequisites are in `examples/MOBILE.md`.
+
+## Default modes
+
+- WDIO cucumber (`examples/wdio/cucumber/wdio.conf.ts`): live. `DEVTOOLS_MODE=trace` traces.
+- Nightwatch (`examples/nightwatch/nightwatch.conf.cjs`): trace. `DEVTOOLS_MODE=live` records live.
+- Selenium cucumber (`examples/selenium-js/cucumber/features/support/setup.js`): live. The mocha example (`examples/selenium-js/mocha/example.js`) traces by default. The package default is live (`packages/selenium-devtools/src/index.ts`).
+- pytest (`examples/selenium-py/pytest/conftest.py`): traces only with `DEVTOOLS_MODE=trace`.
 
 ## Known debt
 

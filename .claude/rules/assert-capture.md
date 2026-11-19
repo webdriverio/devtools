@@ -4,6 +4,8 @@ paths:
   - "packages/service/src/{assert-capture,command-selectors,action-snapshot}.ts"
   - "packages/selenium-devtools/src/{assertPatcher,driverPatcher}.ts"
   - "packages/selenium-devtools/src/helpers/element-locators.ts"
+  - "packages/selenium-devtools/src/test-management.ts"
+  - "packages/service/src/index.ts"
   - "packages/nightwatch-devtools/src/helpers/{assertCapture,assertTarget,browserProxy}.ts"
   - "packages/selenium-devtools-py/src/selenium_devtools/read_value_locators.py"
   - "packages/trace/src/trace-action-events.ts"
@@ -19,7 +21,7 @@ How an assertion row finds the element it names, and the error text it shows.
 - Record every non-element read as a null producer: service `command-selectors.ts` `isElementCommand` is false for `getTitle`/`getUrl`, and Nightwatch `assertTarget.ts` `commandTargetSelector` allows only element-read commands. Why: a title assertion borrowed the box of an `h1` reading the same text; Nightwatch node:assert rows with a locator went 0/7 to 4/7.
 - Pass the raw args to `resolveAssertTargetFromArgs` through `patchNodeAssert`'s `resolveAssertTarget` hook. Why: sanitizing destroys the handle identity the lookup keys on.
 - Derive the Nightwatch allowlist from its own per-command list, never from shared `ACTION_MAP`. Why: `ACTION_MAP` says how a command renders (WDIO handle commands carry no selector argument), not whether arg 0 names an element.
-- Clear the value registry (`clearReadValues`) at each test or scenario start: service `resetStack`, Selenium `startTest`/`startScenario`, Nightwatch `resetTestTracking`, Python `pytest_runtest_logstart`. Why: a later `assert.ok(true)` boxed an element an earlier test read `true` from.
+- Clear the value registry (`clearReadValues`) at each test or scenario start: service `resetStack`, Selenium `startTest`/`startScenario` (`selenium-devtools/src/test-management.ts`), Nightwatch `resetTestTracking`, Python `pytest_runtest_logstart`. Why: a later `assert.ok(true)` boxed an element an earlier test read `true` from.
 - On Nightwatch, also clear when the running `it` (`rowTestUid`) changes, via `scopeReadValuesToRowTest`. Why: the plugin hook fires once per module on the BDD interface, so a `beforeEach` read still carries the previous `it`'s scope.
 - Let the first operand with a known producer decide, in core and in Python (`read_value_locators.py`); end the lookup at a subject owned by no element. Why: otherwise the expected value borrows the box of an element that read the same text.
 - Name no locator for a node:assert row with no known producer; do not fall back to the last element a locator resolved. Why: that boxed `h2` for `assert.notEqual(await browser.getTitle(), …)`.

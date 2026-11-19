@@ -12,9 +12,9 @@ Nightwatch adapter (`packages/nightwatch-devtools/src`): plugin hooks, the queue
   `metadata` stays single-valued (last session). Don't freeze it at the first session: that changes the sessionId in every per-test slice.
 - **Nav injection must not ride on a queued `perform()`.** Nightwatch aborts the remaining queue when a test fails, discarding the callback. Hang injection off the command's own thenable, and return `result` unchanged so `browser.url(…).waitFor…()` chaining still works.
 - **The page-side drain and probes go over `helpers/webdriverHttp.ts`, never through `browser.*`.** Those are queued commands. The immediate drain captures the outgoing page's edits.
-  A second drain, `session.ts` `anchorAfterNavigation`, polls for the collector to disappear and then anchors the destination with a forced drain, because a click resolves before its navigation commits. It is tracked in `snapshotCaptures`.
+  A second drain, `session.ts` `anchorAfterNavigation`, polls for the collector to disappear and then anchors the destination with a forced drain, because a click resolves before its navigation commits. It is tracked in `snapshotCaptures`. Residual: a submit click can still show the pre-navigation page; every heuristic tried regressed another row, so don't add one.
 - **A failing wait needs a row.** `waitForElement*` is normalized onto the WDIO wait methods in `ACTION_MAP`. A wait whose result is `false` is a timeout; that reading is scoped to waits because `false` is legitimate for `isDisplayed`. Derivation: shared `commandFailure` (`packages/shared/src/command-failure.ts`).
-- **Wait rows are sent at invocation, and parenting is an `AsyncLocalStorage` scope, not a stack.** `waitUntil` and `waitForElement*` open rows through `SessionCapturer.openCommand` and close them by `id`. `helpers/waitRows.ts` scopes each poll, so anything that merely ran while a wait was open is not parented to it.
+- **Wait parenting is an `AsyncLocalStorage` scope, not a stack.** `waitUntil` and `waitForElement*` open rows through `SessionCapturer.openCommand`. `helpers/waitRows.ts` scopes each poll, so anything that merely ran while a wait was open is not parented to it.
   `waitForElement*` polls through Nightwatch's element transport, so it has no children. Residual: an un-awaited `waitUntil` chained behind queued commands shows as running early.
   A `waitUntil` condition is never taken for a result callback.
 - **`browser.url()` with no argument is a getter, not a navigation.** The nav proxy gates on a string first argument.
@@ -33,8 +33,10 @@ Nightwatch adapter (`packages/nightwatch-devtools/src`): plugin hooks, the queue
 
 ## File size
 
+Caps are eslint `warn`, not a CI gate.
+
 - `packages/nightwatch-devtools/src/index.ts` is over the cap. The remainder is the declarative `PluginInternals` accessor bag plus delegators and the factory; accepted as is.
-- `packages/nightwatch-devtools/src/session.ts` is under the logic cap. `captureNetworkFromPerformanceLogs` and `drainCollector` are coupled to Nightwatch browser state; extracting them means rewriting that coupling.
+- `packages/nightwatch-devtools/src/session.ts` is over the cap (~547 logic lines). `captureNetworkFromPerformanceLogs` and `drainCollector` are coupled to Nightwatch browser state; extracting them means rewriting that coupling.
 
 ## Test coverage gaps
 

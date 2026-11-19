@@ -12,7 +12,7 @@ Scope: the private workspace packages `shared`, `trace` and `core`, which consum
 
 ## Rules
 
-- List `shared`, `trace` and `core` in `devDependencies` as `workspace:^`, never in `dependencies`. Why: vite and tsup externalise `dependencies`, so a private package left external is an unresolvable import in the published dist.
+- List each bundled workspace package a consumer imports (`shared`, `trace`, `core`) in that consumer's `devDependencies` as `workspace:^`, never in `dependencies`. Why: vite and tsup externalise `dependencies`, so a private package left external is an unresolvable import in the published dist.
 - Do not add a private package to a bundler's `external`. Why: vite's callback receives both the bare name and the absolute path, and checking only one form externalises the other.
 - Add a fourth private package to `PRIVATE_WORKSPACE_PACKAGES` in `packages/service/vite.config.ts` and to the explicit `packages:` list in `pnpm-workspace.yaml`. Why: a package missing from the array is externalised silently, and the dist dies at install with `ERR_MODULE_NOT_FOUND`.
 - Make a vite `external` callback treat `./` and `../` relative imports alike. Why: a check that allows only `./` externalises subfolder imports such as `../constants.js`, which crash the same way.
