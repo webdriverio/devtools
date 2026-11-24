@@ -128,6 +128,18 @@ export interface RetriedTest {
   file?: string
 }
 
+/** An outline example: its 1-based row line and the name Cucumber gives its scenario. */
+export interface ExampleRow {
+  line: number
+  name: string
+}
+
+/** A scenario of a feature file: its 1-based line and, for an outline, its examples in order. */
+export interface FeatureScenario {
+  line: number
+  examples: ExampleRow[]
+}
+
 export type StepDef = {
   kind: 'regex' | 'string' | 'expression'
   keyword?: string

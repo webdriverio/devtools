@@ -359,6 +359,75 @@ describe('Cucumber suite tree on WebdriverIO 9.x and 10.2', () => {
   })
 })
 
+describe('Cucumber scenario lines read from the feature file', () => {
+  // A plain scenario whose title contains the first outline's, then an outline and a template.
+  const MIXED = `Feature: Outline numbering
+
+  Scenario: As a user, I can log into the secure area twice
+    Given I am on the login page
+
+  Scenario Outline: As a user, I can log into the secure area
+    Given I am on the login page
+    When I login with <username>
+
+    Examples:
+      | username |
+      | tomsmith |
+      | foobar   |
+      | admin    |
+
+  Scenario Template: Login as <username>
+    Given I am on the login page
+    When I login with <username>
+
+    Examples:
+      | username |
+      | alice    |
+      | bob      |
+`
+  const PLAIN_TITLE = 'As a user, I can log into the secure area twice'
+  const OUTLINE_TITLE = 'As a user, I can log into the secure area'
+  let mixed: string
+
+  beforeAll(() => {
+    mixed = path.join(rootDir, 'features', 'mixed.feature')
+    fs.writeFileSync(mixed, MIXED)
+  })
+
+  function runScenarios(titles: string[]): TreeNode[] {
+    const feature: FeatureSpec = {
+      uri: mixed,
+      title: 'Outline numbering',
+      scenarios: titles.map((title, i) => ({
+        title,
+        steps: [{ id: `${title}-${i}`, title: 'Given I am on the login page' }]
+      }))
+    }
+    return sentFeatures(runFeatures('10.2', rootDir, [feature]).report)[0]
+      .suites
+  }
+
+  it('numbers each example within its own outline', () => {
+    const suites = runScenarios([
+      PLAIN_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      'Login as alice',
+      'Login as bob'
+    ])
+    expect(suites.slice(1).map((s) => s.featureLine)).toEqual([
+      12, 13, 14, 22, 23
+    ])
+    expect(new Set(suites.map((s) => s.uid)).size).toBe(6)
+  })
+
+  it('gives an example run alone the line it has in a full run', () => {
+    const [bob] = runScenarios(['Login as bob'])
+    expect(bob.featureLine).toBe(23)
+  })
+})
+
 describe('failed Cucumber hooks (10.2 hook:* events)', () => {
   // CucumberFormatter's testRunHookStart / testRunHookEnd.
   function runHook(

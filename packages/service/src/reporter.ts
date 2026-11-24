@@ -15,14 +15,16 @@ import {
   setCurrentSpecFile,
   mapSuiteToSource
 } from './utils.js'
-import { readFileSync, existsSync } from 'node:fs'
 import {
   attemptKey,
   descendants,
+  exampleLine,
   failedHookRow,
   isCucumberSuite,
-  orderLast
+  orderLast,
+  readFeatureScenario
 } from './reporter-helpers.js'
+import type { FeatureScenario } from './types.js'
 
 // True when the stats object is a Cucumber scenario. The `type` field on
 // @wdio/reporter's SuiteStats/TestStats is a literal union ('suite' | 'test'),
@@ -91,88 +93,6 @@ function generateStableUid(
   return generateStableUidByFileName(stepFile, String(name))
 }
 
-/**
- * Parse a Cucumber feature file to extract line numbers for scenario outline examples
- * Returns a map of example index -> line number
- */
-function findScenarioLineIndex(lines: string[], scenarioTitle: string): number {
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (
-      (line.startsWith('Scenario Outline:') || line.startsWith('Scenario:')) &&
-      line.includes(scenarioTitle)
-    ) {
-      return i
-    }
-  }
-  return -1
-}
-
-function findExamplesSectionStart(lines: string[], fromIndex: number): number {
-  for (let i = fromIndex; i < lines.length; i++) {
-    if (lines[i].trim().startsWith('Examples:')) {
-      return i
-    }
-  }
-  return -1
-}
-
-function collectExampleDataRowLines(
-  lines: string[],
-  examplesStartIndex: number
-): Map<number, number> {
-  const exampleLines = new Map<number, number>()
-  let exampleIndex = 0
-  let foundHeader = false
-  for (let i = examplesStartIndex + 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (
-      line.startsWith('Scenario') ||
-      line.startsWith('Feature:') ||
-      (!line && exampleIndex > 0)
-    ) {
-      break
-    }
-    if (line.startsWith('|')) {
-      if (!foundHeader) {
-        foundHeader = true
-      } else {
-        exampleLines.set(exampleIndex, i + 1)
-        exampleIndex++
-      }
-    }
-  }
-  return exampleLines
-}
-
-function parseFeatureFileForExampleLines(
-  filePath: string,
-  scenarioTitle: string
-): Map<number, number> | null {
-  try {
-    if (!existsSync(filePath)) {
-      return null
-    }
-    const lines = readFileSync(filePath, 'utf-8').split('\n')
-    const scenarioLineIndex = findScenarioLineIndex(lines, scenarioTitle)
-    if (scenarioLineIndex === -1) {
-      return null
-    }
-    const examplesStartIndex = findExamplesSectionStart(
-      lines,
-      scenarioLineIndex
-    )
-    if (examplesStartIndex === -1) {
-      return null
-    }
-    const exampleLines = collectExampleDataRowLines(lines, examplesStartIndex)
-    return exampleLines.size > 0 ? exampleLines : null
-  } catch (error) {
-    console.error('[Reporter] Failed to parse feature file:', error)
-    return null
-  }
-}
-
 export class TestReporter extends WebdriverIOReporter {
   #report: (data: Record<string, SuiteStats>[]) => void
   #loadSource: (location: string) => void
@@ -184,6 +104,8 @@ export class TestReporter extends WebdriverIOReporter {
   /** Stable uid of the Cucumber scenario currently open, used to scope its
    *  step uids. Undefined outside a scenario (Mocha/Jasmine). */
   #currentScenarioUid?: string
+  /** Pickle index of the first example seen of each outline, keyed by file and outline line. */
+  #outlineStarts = new Map<string, number>()
 
   constructor(
     options: Reporters.Options,
@@ -218,18 +140,7 @@ export class TestReporter extends WebdriverIOReporter {
         suiteStats.featureFile = pickleUri
         suiteStats.featureLine = pickleLine
       } else {
-        const exampleIndex = parseInt(suiteStats.uid, 10)
-        if (!isNaN(exampleIndex)) {
-          const exampleLines = parseFeatureFileForExampleLines(
-            suiteStats.file,
-            suiteStats.title
-          )
-          if (exampleLines?.has(exampleIndex)) {
-            const lineNumber = exampleLines.get(exampleIndex)!
-            suiteStats.featureFile = suiteStats.file
-            suiteStats.featureLine = lineNumber
-          }
-        }
+        this.#resolveExampleLine(suiteStats, suiteStats.file)
       }
     }
 
@@ -263,6 +174,37 @@ export class TestReporter extends WebdriverIOReporter {
     }
 
     this.#sendUpstream()
+  }
+
+  // WDIO's scenario uid is its position among every pickle of the run, so an example is numbered from its outline's first.
+  #resolveExampleLine(suiteStats: SuiteStats, file: string): void {
+    const pickleIndex = parseInt(suiteStats.uid, 10)
+    const scenario = isNaN(pickleIndex)
+      ? null
+      : readFeatureScenario(file, suiteStats.title)
+    if (!scenario) {
+      return
+    }
+    const line = exampleLine(
+      scenario,
+      suiteStats.title,
+      pickleIndex - this.#outlineStart(file, scenario, pickleIndex)
+    )
+    if (line !== undefined) {
+      suiteStats.featureFile = file
+      suiteStats.featureLine = line
+    }
+  }
+
+  #outlineStart(
+    file: string,
+    scenario: FeatureScenario,
+    pickleIndex: number
+  ): number {
+    const key = `${file}:${scenario.line}`
+    const start = this.#outlineStarts.get(key) ?? pickleIndex
+    this.#outlineStarts.set(key, start)
+    return start
   }
 
   onTestStart(testStats: TestStats): void {
