@@ -3,7 +3,10 @@
 import { MIN_SECRET_LENGTH } from './redaction-walk.js'
 
 /** WebDriver's special keys (Enter, Tab, ...) live in the Private Use Area; they are keys pressed, not text typed. */
-const SPECIAL_KEY = /[\uE000-\uF8FF]/g
+export const SPECIAL_KEY_CLASS = '[\\uE000-\\uF8FF]'
+
+// eslint-disable-next-line security/detect-non-literal-regexp -- a constant character class
+const SPECIAL_KEY = new RegExp(SPECIAL_KEY_CLASS, 'g')
 
 /** The text a key-sending command typed: its string and number parts joined, special keys removed. */
 export function typedText(parts: unknown): string {

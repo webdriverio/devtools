@@ -1,0 +1,76 @@
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { createSecretRedactor, MASKED_VALUE } from '@wdio/devtools-shared'
+import { unzipSync, zipSync } from 'fflate'
+
+import { redactTraceArtifact } from '../src/trace-artifact-redaction.js'
+
+const SECRET = 'SuperSecretPassword!'
+const redactor = createSecretRedactor([SECRET])!
+const encode = (text: string) => new TextEncoder().encode(text)
+const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes)
+// A PNG signature: not UTF-8, so the entry is never read as text.
+const IMAGE = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const SCREENSHOT = `${'A'.repeat(300)}${SECRET}`
+
+describe('redactTraceArtifact', () => {
+  let dir = ''
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trace-artifact-'))
+  })
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true })
+  })
+
+  it('redacts every text entry of a zip and keeps binary entries and base64 fields as they are', async () => {
+    const zipPath = path.join(dir, 'trace.zip')
+    const trace = [
+      JSON.stringify({ type: 'source', text: `setValue('${SECRET}')` }),
+      JSON.stringify({ type: 'frame', screenshot: SCREENSHOT })
+    ].join('\n')
+    await fs.writeFile(
+      zipPath,
+      zipSync({
+        'trace.trace': encode(trace),
+        'transcript.md': encode(`typed ${SECRET}\nnext line`),
+        'resources/shot.png': IMAGE
+      })
+    )
+
+    expect(await redactTraceArtifact(zipPath, redactor)).toBe(true)
+    const entries = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const [source, frame] = decode(entries['trace.trace']).split('\n')
+    expect(JSON.parse(source).text).toBe(`setValue('${MASKED_VALUE}')`)
+    expect(JSON.parse(frame).screenshot).toBe(SCREENSHOT)
+    expect(decode(entries['transcript.md'])).toBe(
+      `typed ${MASKED_VALUE}\nnext line`
+    )
+    expect(entries['resources/shot.png']).toEqual(IMAGE)
+  })
+
+  it('leaves an archive with nothing to redact untouched', async () => {
+    const zipPath = path.join(dir, 'trace.zip')
+    const bytes = zipSync({ 'trace.trace': encode('{"type":"x"}') })
+    await fs.writeFile(zipPath, bytes)
+    expect(await redactTraceArtifact(zipPath, redactor)).toBe(false)
+    expect(new Uint8Array(await fs.readFile(zipPath))).toEqual(bytes)
+  })
+
+  it('redacts the files of an ndjson directory, nested ones included', async () => {
+    await fs.mkdir(path.join(dir, 'resources'))
+    await fs.writeFile(path.join(dir, 'resources', 'src.txt'), `pw ${SECRET}`)
+    expect(await redactTraceArtifact(dir, redactor)).toBe(true)
+    expect(
+      await fs.readFile(path.join(dir, 'resources', 'src.txt'), 'utf8')
+    ).toBe(`pw ${MASKED_VALUE}`)
+  })
+
+  it('does nothing for an artifact that is gone', async () => {
+    expect(
+      await redactTraceArtifact(path.join(dir, 'missing.zip'), redactor)
+    ).toBe(false)
+  })
+})

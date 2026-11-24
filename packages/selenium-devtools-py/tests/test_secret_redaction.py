@@ -248,3 +248,19 @@ class TestPytestOptions(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpecialKeysBetweenParts(unittest.TestCase):
+    def test_redacts_a_typed_password_with_a_key_between_its_parts(self) -> None:
+        redactor = secret_redaction.create_secret_redactor([], typed=["SuperSecret"])
+        shift = ""
+        row = redactor.redact({"args": ["#password", f"Super{shift}Secret"]})
+        self.assertEqual(row["args"], ["#password", secret_redaction.REDACTED_SECRET])
+        self.assertEqual(redactor.redact_string(f"Super{shift}"), f"Super{shift}")
+
+    def test_matches_in_linear_time(self) -> None:
+        redactor = secret_redaction.create_secret_redactor([], typed=["abcdefgh"])
+        text = "abcdefg" + "" * 100_000 + "x"
+        started = time.perf_counter()
+        self.assertEqual(redactor.redact_string(text), text)
+        self.assertLess(time.perf_counter() - started, 1.0)

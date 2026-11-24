@@ -110,7 +110,13 @@ def _is_binary_like(text: str) -> bool:
     )
 
 
-_SPECIAL_KEY = re.compile("[\ue000-\uf8ff]")
+_SPECIAL_KEY_CLASS = "[\ue000-\uf8ff]"
+_SPECIAL_KEY = re.compile(_SPECIAL_KEY_CLASS)
+
+
+def _with_keys_between(secret: str) -> str:
+    """A typing row keeps the special keys pressed between its parts, so a secret typed with one inside still reads as the secret."""
+    return (_SPECIAL_KEY_CLASS + "*").join(re.escape(char) for char in secret)
 
 
 def typed_text(parts: Any) -> str:
@@ -151,8 +157,16 @@ class SecretRedactor:
         self.secrets = list(dict.fromkeys([*secrets, *self.typed]))
         self.auth_headers = auth_headers
         self._variants = _longest_first([v for s in self.secrets for v in secret_variants(s)])
+        typed_forms = set(self.secrets)
         self._pattern: Optional[Pattern[str]] = (
-            re.compile("|".join(re.escape(v) for v in self._variants)) if self._variants else None
+            re.compile(
+                "|".join(
+                    _with_keys_between(v) if v in typed_forms else re.escape(v)
+                    for v in self._variants
+                )
+            )
+            if self._variants
+            else None
         )
         self._rules = Rules(self.redact_string, auth_headers, bool(self.secrets))
 

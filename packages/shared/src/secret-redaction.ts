@@ -2,6 +2,7 @@
 
 import { MASKED_VALUE } from './input-mask.js'
 import { MIN_SECRET_LENGTH, walkRedaction } from './redaction-walk.js'
+import { SPECIAL_KEY_CLASS } from './typed-secrets.js'
 import type { SecretFromEnv } from './types.js'
 
 /** What a redacted secret reads as: the page mask's placeholder, so its length never leaks. */
@@ -140,6 +141,11 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&')
 }
 
+/** A typing row keeps the special keys pressed between its parts, so a secret typed with one inside still reads as the secret. */
+function withKeysBetween(secret: string): string {
+  return [...secret].map(escapeRegExp).join(`${SPECIAL_KEY_CLASS}*`)
+}
+
 /** A redactor for the given secrets, or undefined when it would change nothing, so callers pay nothing. */
 export function createSecretRedactor(
   secrets: readonly string[],
@@ -169,8 +175,12 @@ function stringRedactor(secrets: readonly string[]): (text: string) => string {
   const variants = [...new Set(secrets.flatMap(secretVariants))].sort(
     longestFirst
   )
+  const typedForms = new Set(secrets)
+  const sources = variants.map((form) =>
+    typedForms.has(form) ? withKeysBetween(form) : escapeRegExp(form)
+  )
   // eslint-disable-next-line security/detect-non-literal-regexp -- every alternative is escaped
-  const pattern = new RegExp(variants.map(escapeRegExp).join('|'), 'g')
+  const pattern = new RegExp(sources.join('|'), 'g')
   return (text) => {
     if (isBinaryLike(text)) {
       return variants.includes(text) ? REDACTED_SECRET : text

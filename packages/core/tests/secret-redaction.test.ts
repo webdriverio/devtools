@@ -18,6 +18,7 @@ import {
   type TraceExportContext
 } from '../src/trace-finalizer.js'
 import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
+import { writeTestSliceTrace } from '../src/spec-trace-helpers.js'
 
 const SECRET = 'SuperSecretPassword!'
 
@@ -247,6 +248,37 @@ describe('finalizeTraceExport', () => {
     await noteTypedInput(SECRET, async () => 'password')
     await finalizeTraceExport(ctx({}))
     expect(await filesCarrying(SECRET)).toEqual([])
+  })
+
+  it('redacts a password a later test typed from a test archive written before it', async () => {
+    configureSecretRedaction()
+    const range = {
+      specFile: '/spec.js',
+      key: 'u1',
+      testUid: 'u1',
+      commandStartIdx: 0,
+      consoleStartIdx: 0,
+      networkStartIdx: 0,
+      mutationStartIdx: 0,
+      traceLogStartIdx: 0
+    }
+    await writeTestSliceTrace({
+      range,
+      capturer: capturer(),
+      actionSnapshots: [],
+      sessionId: 'abcd1234',
+      outputDir,
+      format: 'ndjson-directory',
+      testMetadata
+    })
+    expect(await filesCarrying(SECRET)).not.toEqual([])
+
+    await noteTypedInput(SECRET, async () => 'password')
+    await finalizeTraceExport(
+      ctx({ granularity: 'test', ranges: [range], flushed: new Set(['u1']) })
+    )
+    expect(await filesCarrying(SECRET)).toEqual([])
+    expect(await filesCarrying(MASKED_VALUE)).not.toEqual([])
   })
 
   it.each(['session', 'spec'] as const)(

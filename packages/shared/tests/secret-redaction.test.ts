@@ -141,6 +141,24 @@ describe('createSecretRedactor', () => {
     expect(performance.now() - started).toBeLessThan(1000)
   })
 
+  it('redacts a typed password with special keys pressed between its parts', () => {
+    const typed = createSecretRedactor([], { typed: ['SuperSecret'] })!
+    const shift = '\uE008'
+    expect(
+      typed.redact({ args: ['#password', `Super${shift}Secret`] }).args
+    ).toEqual(['#password', MASKED_VALUE])
+    expect(typed.redact([...`Su${shift}perSecret`])).toEqual([...MASKED_VALUE])
+    expect(typed.redactString(`Super${shift}`)).toBe(`Super${shift}`)
+  })
+
+  it('matches a secret with keys between it in linear time', () => {
+    const typed = createSecretRedactor([], { typed: ['abcdefgh'] })!
+    const text = `abcdefg${'\uE000'.repeat(100_000)}x`
+    const started = performance.now()
+    expect(typed.redactString(text)).toBe(text)
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
+
   it('survives a cycle', () => {
     const value: Record<string, unknown> = { text: SECRET }
     value.self = value

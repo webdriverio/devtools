@@ -9,6 +9,7 @@ import {
   type BaseDevToolsOptions,
   type SecretRedactor
 } from '@wdio/devtools-shared'
+import { redactTraceArtifact } from '@wdio/devtools-trace'
 
 import { withTimeout } from './with-timeout.js'
 
@@ -19,12 +20,16 @@ let configured: string[] = []
 let typed: string[] = []
 let automatic = true
 let redactor: SecretRedactor | undefined
+let generation = 0
+/** Each trace artifact written, with the redactor generation it was written under. */
+const written = new Map<string, number>()
 
 function rebuild(): void {
   redactor = createSecretRedactor(configured, {
     authHeaders: automatic,
     typed
   })
+  generation++
 }
 rebuild()
 
@@ -93,4 +98,31 @@ export async function noteTypedInput(
     typed.push(text)
     rebuild()
   }
+}
+
+/** Records an artifact just written, so a password learned after it can still be redacted from it. */
+export function noteWrittenTrace(artifactPath: string): void {
+  written.set(artifactPath, generation)
+}
+
+/** Rewrites every artifact written before the redactor last grew, returning the paths that changed; one that cannot be read is reported through `onError` and skipped. */
+export async function redactEarlierTraces(
+  onError: (artifactPath: string, error: unknown) => void = () => {}
+): Promise<string[]> {
+  const current = redactor
+  const changed: string[] = []
+  for (const [artifactPath, writtenAt] of written) {
+    if (!current || writtenAt === generation) {
+      continue
+    }
+    try {
+      if (await redactTraceArtifact(artifactPath, current)) {
+        changed.push(artifactPath)
+      }
+      written.set(artifactPath, generation)
+    } catch (error) {
+      onError(artifactPath, error)
+    }
+  }
+  return changed
 }
