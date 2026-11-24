@@ -457,6 +457,7 @@ describe('selenium SessionCapturer on a native session', () => {
           })
       } as never,
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
     const cap = makeCapturer({})

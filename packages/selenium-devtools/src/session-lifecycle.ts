@@ -210,7 +210,8 @@ async function initPerDriverCapture(
     detectedRunner: ctx.detectedRunner,
     rerunCommand: ctx.options.rerunCommand,
     rerunTemplate: ctx.rerunTemplate,
-    launchCommand: ctx.launchCommand
+    launchCommand: ctx.launchCommand,
+    observePage: observesPage(ctx.options.mode)
   })
   ctx.sessionId = sessionId
   if (metadata) {
