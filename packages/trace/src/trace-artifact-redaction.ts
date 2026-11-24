@@ -19,6 +19,9 @@ function decodeText(bytes: Uint8Array): string | undefined {
 
 const RESOURCES_PREFIX = 'resources/'
 
+/** Keys the writer stores an archive entry's name under: a screenshot or frame's `sha1`, a HAR body's `_sha1`. */
+const REFERENCE_KEYS: ReadonlySet<string> = new Set(['sha1', '_sha1'])
+
 /** Every name an entry can be referenced by: its archive path, and under `resources/` its bare name. */
 function referenceNames(entryNames: Iterable<string>): Set<string> {
   const names = new Set<string>()
@@ -35,17 +38,20 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** `redacted` with every string of `original` that names an archive entry put back, since its file keeps its name. */
+/** `redacted` with each reference field that names an archive entry put back, since its file keeps its name; captured text is never put back. */
 function keepReferences(
   original: unknown,
   redacted: unknown,
-  references: ReadonlySet<string>
+  references: ReadonlySet<string>,
+  key?: string
 ): unknown {
   if (original === redacted) {
     return redacted
   }
   if (typeof original === 'string') {
-    return references.has(original) ? original : redacted
+    const isReference =
+      key !== undefined && REFERENCE_KEYS.has(key) && references.has(original)
+    return isReference ? original : redacted
   }
   if (Array.isArray(original) && Array.isArray(redacted)) {
     if (original.length !== redacted.length) {
@@ -57,8 +63,13 @@ function keepReferences(
   }
   if (isPlainRecord(original) && isPlainRecord(redacted)) {
     const out: Record<string, unknown> = { ...redacted }
-    for (const key of Object.keys(redacted)) {
-      out[key] = keepReferences(original[key], redacted[key], references)
+    for (const field of Object.keys(redacted)) {
+      out[field] = keepReferences(
+        original[field],
+        redacted[field],
+        references,
+        field
+      )
     }
     return out
   }

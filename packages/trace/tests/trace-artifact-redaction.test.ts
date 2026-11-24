@@ -91,6 +91,27 @@ describe('redactTraceArtifact', () => {
     expect(decode(entries[`resources/${body}`])).toBe(`body ${MASKED_VALUE}`)
   })
 
+  it('redacts captured text that happens to equal an entry name', async () => {
+    const entryRedactor = createSecretRedactor(['trace.trace'])!
+    const zipPath = path.join(dir, 'trace.zip')
+    const consoleEvent = {
+      type: 'console',
+      text: 'trace.trace',
+      args: [{ preview: 'trace.trace', value: 'trace.trace' }]
+    }
+    await fs.writeFile(
+      zipPath,
+      zipSync({ 'trace.trace': encode(JSON.stringify(consoleEvent)) })
+    )
+    expect(await redactTraceArtifact(zipPath, entryRedactor)).toBe(true)
+    const entries = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    expect(JSON.parse(decode(entries['trace.trace']))).toEqual({
+      type: 'console',
+      text: MASKED_VALUE,
+      args: [{ preview: MASKED_VALUE, value: MASKED_VALUE }]
+    })
+  })
+
   it('keeps entry references in an ndjson directory too', async () => {
     const hex = '1234abcd'
     const hexRedactor = createSecretRedactor([hex])!
