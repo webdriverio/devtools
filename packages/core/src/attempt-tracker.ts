@@ -83,14 +83,15 @@ export class TestAttemptTracker implements RetryOutcomeView {
   recordOutcome(
     uid: string,
     state: TestStatus | undefined,
-    error?: string
+    error?: string,
+    endTime: number = Date.now()
   ): void {
     const slot = this.#ledger.get(uid)?.attempts.at(-1)
     if (!slot) {
       return
     }
     slot.outcome.state = state
-    slot.endTime = Date.now()
+    slot.endTime = endTime
     if (error !== undefined) {
       slot.error = error
     }
