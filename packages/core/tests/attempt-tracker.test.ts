@@ -170,6 +170,13 @@ describe('TestAttemptTracker', () => {
     })
   })
   describe('attempt records', () => {
+    it('stores an explicit end time instead of the clock', () => {
+      const t = new TestAttemptTracker()
+      t.recordStart('a')
+      t.recordOutcome('a', 'passed', undefined, 42)
+      expect(t.attemptsFor('a')[0]?.endTime).toBe(42)
+    })
+
     afterEach(() => {
       vi.useRealTimers()
       vi.unstubAllEnvs()

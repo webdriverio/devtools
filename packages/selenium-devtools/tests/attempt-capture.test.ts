@@ -218,6 +218,36 @@ describe('a Cucumber scenario is the attempt-ledger unit', () => {
       [{ uid: scenarioUid, attempt: 0, state: 'failed' }]
     )
   })
+
+  it('stamps the .feature file on a scenario queued before the session existed', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager: undefined,
+      testManager: undefined,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    ctx.suiteManager = suiteManager
+    ensureSuiteAndTestManager(ctx, 'Cart')
+    endScenario(ctx, 'passed')
+
+    const root = suiteManager.getRootSuite()!
+    const scenarioUid = root.suites[0]!.uid
+    const metadata = collectSuiteTestMetadata([root])
+    expect(root.featureFile).toBe('/work/cart.feature')
+    expect(metadata.get(scenarioUid)).toMatchObject({
+      title: 'checkout',
+      specFile: '/work/cart.feature'
+    })
+    expect(metadata.size).toBe(1)
+  })
 })
 
 describe('retry outcome ledger feeds retry-aware retention', () => {
