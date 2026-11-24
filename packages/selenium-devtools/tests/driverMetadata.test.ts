@@ -218,7 +218,6 @@ describe('buildDriverMetadata viewport', () => {
   })
 })
 
-// Telemetry mode reads no page, and each read is a driver round-trip the manifest never uses.
 describe('buildDriverMetadata without a page to observe', () => {
   it('reads no viewport and sends no page command', async () => {
     const executeScript = vi.fn().mockResolvedValue({ width: 1, height: 1 })

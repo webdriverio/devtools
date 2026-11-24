@@ -10,7 +10,7 @@ const log = logger('@wdio/selenium-devtools:driverMetadata')
 export interface DriverMetadataInput {
   driver: SeleniumDriverLike
   driverReadyTs: number
-  /** Telemetry mode reads no page, so the viewport probe is skipped there. */
+  /** Telemetry mode reads no page; skipping the viewport saves a driver round-trip the manifest never uses. */
   observePage: boolean
   /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
    *  from `Metadata.runner`, which names this adapter for every one of them. */
