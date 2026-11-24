@@ -51,6 +51,62 @@ describe('redactTraceArtifact', () => {
     expect(entries['resources/shot.png']).toEqual(IMAGE)
   })
 
+  it('keeps a reference to an archive entry whose name holds a secret, so the entry still resolves', async () => {
+    const hex = '1234abcd'
+    const hexRedactor = createSecretRedactor([hex])!
+    const zipPath = path.join(dir, 'trace.zip')
+    const shot = `page@1-${hex}.png`
+    const body = `ff${hex}00`
+    const trace = [
+      JSON.stringify({ type: 'screencast-frame', sha1: shot, title: hex }),
+      JSON.stringify({
+        type: 'resource-snapshot',
+        snapshot: { response: { content: { _sha1: body, text: hex } } }
+      })
+    ].join('\n')
+    await fs.writeFile(
+      zipPath,
+      zipSync({
+        'trace.trace': encode(trace),
+        [`resources/${shot}`]: IMAGE,
+        [`resources/${body}`]: encode(`body ${hex}`)
+      })
+    )
+
+    expect(await redactTraceArtifact(zipPath, hexRedactor)).toBe(true)
+    const entries = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const [frame, resource] = decode(entries['trace.trace'])
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(frame).toEqual({
+      type: 'screencast-frame',
+      sha1: shot,
+      title: MASKED_VALUE
+    })
+    expect(resource.snapshot.response.content).toEqual({
+      _sha1: body,
+      text: MASKED_VALUE
+    })
+    expect(entries[`resources/${shot}`]).toEqual(IMAGE)
+    expect(decode(entries[`resources/${body}`])).toBe(`body ${MASKED_VALUE}`)
+  })
+
+  it('keeps entry references in an ndjson directory too', async () => {
+    const hex = '1234abcd'
+    const hexRedactor = createSecretRedactor([hex])!
+    const shot = `page@1-${hex}.png`
+    await fs.mkdir(path.join(dir, 'resources'))
+    await fs.writeFile(path.join(dir, 'resources', shot), IMAGE)
+    await fs.writeFile(
+      path.join(dir, 'trace.trace'),
+      JSON.stringify({ sha1: shot, title: hex })
+    )
+    expect(await redactTraceArtifact(dir, hexRedactor)).toBe(true)
+    expect(
+      JSON.parse(await fs.readFile(path.join(dir, 'trace.trace'), 'utf8'))
+    ).toEqual({ sha1: shot, title: MASKED_VALUE })
+  })
+
   it('leaves an archive with nothing to redact untouched', async () => {
     const zipPath = path.join(dir, 'trace.zip')
     const bytes = zipSync({ 'trace.trace': encode('{"type":"x"}') })

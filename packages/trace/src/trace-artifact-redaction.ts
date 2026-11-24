@@ -17,22 +17,76 @@ function decodeText(bytes: Uint8Array): string | undefined {
   }
 }
 
-/** A JSON line is walked as a value, so a screenshot or other base64 field keeps its bytes; any other line is redacted as text. */
-function redactLine(line: string, redactor: SecretRedactor): string {
+const RESOURCES_PREFIX = 'resources/'
+
+/** Every name an entry can be referenced by: its archive path, and under `resources/` its bare name. */
+function referenceNames(entryNames: Iterable<string>): Set<string> {
+  const names = new Set<string>()
+  for (const name of entryNames) {
+    names.add(name)
+    if (name.startsWith(RESOURCES_PREFIX)) {
+      names.add(name.slice(RESOURCES_PREFIX.length))
+    }
+  }
+  return names
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** `redacted` with every string of `original` that names an archive entry put back, since its file keeps its name. */
+function keepReferences(
+  original: unknown,
+  redacted: unknown,
+  references: ReadonlySet<string>
+): unknown {
+  if (original === redacted) {
+    return redacted
+  }
+  if (typeof original === 'string') {
+    return references.has(original) ? original : redacted
+  }
+  if (Array.isArray(original) && Array.isArray(redacted)) {
+    if (original.length !== redacted.length) {
+      return redacted
+    }
+    return redacted.map((item, i) =>
+      keepReferences(original[i], item, references)
+    )
+  }
+  if (isPlainRecord(original) && isPlainRecord(redacted)) {
+    const out: Record<string, unknown> = { ...redacted }
+    for (const key of Object.keys(redacted)) {
+      out[key] = keepReferences(original[key], redacted[key], references)
+    }
+    return out
+  }
+  return redacted
+}
+
+/** A JSON line is walked as a value, so a screenshot or other base64 field and an entry reference keep their bytes; any other line is redacted as text. */
+function redactLine(
+  line: string,
+  redactor: SecretRedactor,
+  references: ReadonlySet<string>
+): string {
   let parsed: unknown
   try {
     parsed = JSON.parse(line)
   } catch {
     return redactor.redactString(line)
   }
-  const redacted = redactor.redact(parsed)
-  return redacted === parsed ? line : JSON.stringify(redacted)
+  const redacted = keepReferences(parsed, redactor.redact(parsed), references)
+  const text = JSON.stringify(redacted)
+  return text === JSON.stringify(parsed) ? line : text
 }
 
 /** The entry's redacted bytes, or undefined when nothing in it changed. */
-export function redactEntry(
+function redactEntry(
   bytes: Uint8Array,
-  redactor: SecretRedactor
+  redactor: SecretRedactor,
+  references: ReadonlySet<string>
 ): Uint8Array | undefined {
   const text = decodeText(bytes)
   if (text === undefined) {
@@ -40,7 +94,7 @@ export function redactEntry(
   }
   const redacted = text
     .split('\n')
-    .map((line) => redactLine(line, redactor))
+    .map((line) => redactLine(line, redactor, references))
     .join('\n')
   return redacted === text ? undefined : new TextEncoder().encode(redacted)
 }
@@ -50,10 +104,11 @@ async function redactZip(
   redactor: SecretRedactor
 ): Promise<boolean> {
   const entries = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+  const references = referenceNames(Object.keys(entries))
   let changed = false
   const out: Zippable = {}
   for (const [name, bytes] of Object.entries(entries)) {
-    const redacted = redactEntry(bytes, redactor)
+    const redacted = redactEntry(bytes, redactor, references)
     changed ||= redacted !== undefined
     out[name] = redacted ?? bytes
   }
@@ -63,24 +118,36 @@ async function redactZip(
   return changed
 }
 
+async function listFiles(dir: string, root = dir): Promise<string[]> {
+  const files: string[] = []
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...(await listFiles(file, root)))
+    } else if (entry.isFile()) {
+      files.push(path.relative(root, file).split(path.sep).join('/'))
+    }
+  }
+  return files
+}
+
 async function redactDirectory(
   dir: string,
   redactor: SecretRedactor
 ): Promise<boolean> {
+  const files = await listFiles(dir)
+  const references = referenceNames(files)
   let changed = false
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    const file = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      changed = (await redactDirectory(file, redactor)) || changed
-    } else if (entry.isFile()) {
-      const redacted = redactEntry(
-        new Uint8Array(await fs.readFile(file)),
-        redactor
-      )
-      if (redacted) {
-        await fs.writeFile(file, redacted)
-        changed = true
-      }
+  for (const name of files) {
+    const file = path.join(dir, name)
+    const redacted = redactEntry(
+      new Uint8Array(await fs.readFile(file)),
+      redactor,
+      references
+    )
+    if (redacted) {
+      await fs.writeFile(file, redacted)
+      changed = true
     }
   }
   return changed
