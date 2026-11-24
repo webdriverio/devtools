@@ -93,6 +93,13 @@ export function descendants(suite: SuiteStats | undefined): SuiteStats[] {
 const OUTLINE_KEYWORDS = ['Scenario Outline:', 'Scenario Template:']
 const SCENARIO_KEYWORDS = ['Scenario:', 'Example:']
 const EXAMPLES_KEYWORDS = ['Examples:', 'Scenarios:']
+const BLOCK_KEYWORDS = [
+  ...OUTLINE_KEYWORDS,
+  ...SCENARIO_KEYWORDS,
+  'Background:',
+  'Rule:',
+  'Feature:'
+]
 
 function keywordName(line: string, keywords: string[]): string | undefined {
   const keyword = keywords.find((k) => line.startsWith(k))
@@ -132,10 +139,22 @@ function exampleName(template: string, header: string[], cells: string[]) {
   )
 }
 
-function findExamplesSectionStart(lines: string[], fromIndex: number): number {
-  for (let i = fromIndex; i < lines.length; i++) {
-    if (keywordName(lines[i].trim(), EXAMPLES_KEYWORDS) !== undefined) {
+function startsBlock(line: string): boolean {
+  return keywordName(line, BLOCK_KEYWORDS) !== undefined
+}
+
+// Stops at the next block: past it, an Examples table belongs to another scenario.
+function findExamplesSectionStart(
+  lines: string[],
+  outlineIndex: number
+): number {
+  for (let i = outlineIndex + 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (keywordName(line, EXAMPLES_KEYWORDS) !== undefined) {
       return i
+    }
+    if (startsBlock(line)) {
+      return -1
     }
   }
   return -1
@@ -153,7 +172,7 @@ function collectExampleRows(
     const line = lines[i].trim()
     if (keywordName(line, EXAMPLES_KEYWORDS) !== undefined) {
       header = undefined
-    } else if (line.startsWith('Scenario') || line.startsWith('Feature:')) {
+    } else if (startsBlock(line)) {
       break
     } else if (line.startsWith('|')) {
       const cells = tableCells(line)
@@ -169,10 +188,10 @@ function collectExampleRows(
 
 function outlineExamples(
   lines: string[],
-  scenarioIndex: number,
+  outlineIndex: number,
   template: string
 ): ExampleRow[] {
-  const start = findExamplesSectionStart(lines, scenarioIndex)
+  const start = findExamplesSectionStart(lines, outlineIndex)
   return start === -1 ? [] : collectExampleRows(lines, start, template)
 }
 
@@ -190,7 +209,8 @@ function findScenario(
         return { line: i + 1, examples }
       }
     } else if (keywordName(line, SCENARIO_KEYWORDS) === title) {
-      return { line: i + 1, examples: outlineExamples(lines, i, title) }
+      // A plain scenario has no examples, so it never takes a row line.
+      return { line: i + 1, examples: [] }
     }
   }
   return undefined

@@ -422,6 +422,16 @@ describe('Cucumber scenario lines read from the feature file', () => {
     expect(new Set(suites.map((s) => s.uid)).size).toBe(6)
   })
 
+  it('gives a plain scenario before an outline no example line', () => {
+    const suites = runScenarios([
+      PLAIN_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE
+    ])
+    expect(suites.map((s) => s.featureLine)).toEqual([undefined, 12, 13, 14])
+  })
+
   it('gives an example run alone the line it has in a full run', () => {
     const [bob] = runScenarios(['Login as bob'])
     expect(bob.featureLine).toBe(23)
