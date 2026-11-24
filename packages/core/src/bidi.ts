@@ -9,6 +9,11 @@ import {
   chromeLogLevelToLogLevel,
   type LogSource
 } from '@wdio/devtools-shared'
+import {
+  BIDI_SETUP_TIMEOUT_MS,
+  NEVER_ABORTED,
+  type CaptureCallGuard
+} from './capture-call-guard.js'
 import { errorMessage } from './error.js'
 import { getRequestType } from './net.js'
 
@@ -150,18 +155,42 @@ export function handleBidiJsException(
   }
 }
 
+/** `handler` as a listener that does nothing once `signal` aborts, so a subscription answered after its ceiling stays inert. */
+function unlessAborted<E>(
+  signal: AbortSignal,
+  handler: (event: E) => void
+): (event: E) => void {
+  return (event) => {
+    if (!signal.aborted) {
+      handler(event)
+    }
+  }
+}
+
 async function attachLogInspector(
   driver: unknown,
   factory: InspectorFactory,
   sinks: BidiHandlerSinks,
-  log: BidiLogger
+  log: BidiLogger,
+  signal: AbortSignal
 ): Promise<boolean> {
   try {
     const inspector = (await factory(driver)) as LogInspector
-    await inspector.onConsoleEntry((e) => handleBidiConsoleEntry(e, sinks, log))
-    await inspector.onJavascriptException((e) =>
-      handleBidiJsException(e, sinks, log)
+    if (signal.aborted) {
+      return false
+    }
+    await inspector.onConsoleEntry(
+      unlessAborted(signal, (e) => handleBidiConsoleEntry(e, sinks, log))
     )
+    if (signal.aborted) {
+      return false
+    }
+    await inspector.onJavascriptException(
+      unlessAborted(signal, (e) => handleBidiJsException(e, sinks, log))
+    )
+    if (signal.aborted) {
+      return false
+    }
     log('info', '✓ BiDi LogInspector attached (console + JS exceptions)')
     return true
   } catch (err) {
@@ -415,19 +444,38 @@ export async function attachNetworkInspector(
   driver: unknown,
   factory: InspectorFactory,
   sinks: BidiHandlerSinks,
-  log: BidiLogger
+  log: BidiLogger,
+  signal: AbortSignal = NEVER_ABORTED
 ): Promise<boolean> {
   try {
     const inspector = (await factory(driver)) as NetworkInspector
     const rows = new Map<string, NetworkRequest>()
+    const guarded: BidiHandlerSinks = {
+      pushConsoleLog: unlessAborted(signal, sinks.pushConsoleLog),
+      pushNetworkRequest: unlessAborted(signal, sinks.pushNetworkRequest),
+      replaceNetworkRequest: (id, entry) => {
+        if (!signal.aborted) {
+          sinks.replaceNetworkRequest(id, entry)
+        }
+      }
+    }
+    if (signal.aborted) {
+      return false
+    }
     await inspector.beforeRequestSent((e) =>
-      handleBidiRequestSent(e, rows, sinks, log)
+      handleBidiRequestSent(e, rows, guarded, log)
     )
+    if (signal.aborted) {
+      return false
+    }
     await inspector.responseCompleted((e) =>
-      handleBidiResponseCompleted(e, rows, sinks, log)
+      handleBidiResponseCompleted(e, rows, guarded, log)
     )
+    if (signal.aborted) {
+      return false
+    }
     try {
-      await subscribeFetchErrors(inspector, rows, sinks, log)
+      await subscribeFetchErrors(inspector, rows, guarded, log)
     } catch (err) {
       // The inspector is attached either way; only failed requests stay pending.
       log('warn', `BiDi network.fetchError unavailable: ${errorMessage(err)}`)
@@ -458,7 +506,8 @@ export async function attachNetworkInspector(
 export async function attachBidiHandlers(
   driver: unknown,
   sinks: BidiHandlerSinks,
-  onLog?: (level: 'info' | 'warn', message: string) => void
+  onLog: ((level: 'info' | 'warn', message: string) => void) | undefined,
+  guard: CaptureCallGuard
 ): Promise<boolean> {
   const log: BidiLogger = (level, message) => onLog?.(level, message)
   const logFactory =
@@ -469,14 +518,29 @@ export async function attachBidiHandlers(
 
   let attached = 0
   if (typeof logFactory === 'function') {
-    if (await attachLogInspector(driver, logFactory, sinks, log)) {
+    if (
+      await guard.setup(
+        (signal) => attachLogInspector(driver, logFactory, sinks, log, signal),
+        BIDI_SETUP_TIMEOUT_MS,
+        false,
+        'BiDi console subscription'
+      )
+    ) {
       attached++
     }
   } else {
     log('info', 'selenium-webdriver/bidi/logInspector not available — skipping')
   }
   if (typeof networkFactory === 'function') {
-    if (await attachNetworkInspector(driver, networkFactory, sinks, log)) {
+    if (
+      await guard.setup(
+        (signal) =>
+          attachNetworkInspector(driver, networkFactory, sinks, log, signal),
+        BIDI_SETUP_TIMEOUT_MS,
+        false,
+        'BiDi network subscription'
+      )
+    ) {
       attached++
     }
   } else {
