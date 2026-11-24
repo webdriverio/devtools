@@ -44,19 +44,47 @@ function defaultStrategy(browser: NightwatchBrowser): Strategy {
   )
 }
 
+/** Where a typing call's text sits: third after `(using, selector)`, else second. */
+function textIndex(logArgs: unknown[]): number {
+  const [first, second] = logArgs
+  return typeof first === 'string' &&
+    typeof second === 'string' &&
+    logArgs.length >= 3
+    ? 2
+    : 1
+}
+
+/** A typing call's row records its text parts joined, as the field receives them, so a password split across parts is redacted whole. */
+export function recordedTypingArgs(
+  methodName: string,
+  logArgs: unknown[]
+): unknown[] {
+  const index = textIndex(logArgs)
+  const text = logArgs[index]
+  const parts =
+    TYPING_COMMANDS.has(methodName) &&
+    Array.isArray(text) &&
+    text.length > 1 &&
+    text.every((part) => typeof part === 'string' || typeof part === 'number')
+  if (!parts) {
+    return logArgs
+  }
+  const recorded = [...logArgs]
+  recorded[index] = text.join('')
+  return recorded
+}
+
 /** The field, strategy and text a typing call names, or undefined when the script cannot resolve its field. */
 function typingTarget(
   browser: NightwatchBrowser,
   logArgs: unknown[]
 ): { selector: string; using: Strategy; text: unknown } | undefined {
   const [first, second, third] = logArgs
-  if (
-    typeof first === 'string' &&
-    typeof second === 'string' &&
-    logArgs.length >= 3
-  ) {
-    const using = SCRIPT_STRATEGIES[first]
-    return using ? { selector: second, using, text: third } : undefined
+  if (textIndex(logArgs) === 2) {
+    const using = SCRIPT_STRATEGIES[first as string]
+    return using
+      ? { selector: second as string, using, text: third }
+      : undefined
   }
   const selector = definitionSelector(first)
   if (!selector) {

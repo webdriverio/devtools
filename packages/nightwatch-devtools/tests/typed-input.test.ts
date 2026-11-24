@@ -11,7 +11,8 @@ vi.mock('../src/helpers/webdriverHttp.js', () => ({ webdriverExecute }))
 
 import {
   observeTyping,
-  readFieldBeforeTyping
+  readFieldBeforeTyping,
+  recordedTypingArgs
 } from '../src/helpers/typed-input.js'
 
 const SECRET = 'SuperSecretPassword!'
@@ -121,5 +122,39 @@ describe('readFieldBeforeTyping', () => {
     configureSecretRedaction({ maskInputs: false })
     readFieldBeforeTyping(browser, 'setValue', ['#password', SECRET], false)
     expect(browser.perform).not.toHaveBeenCalled()
+  })
+})
+
+describe('recordedTypingArgs', () => {
+  afterEach(() => {
+    webdriverExecute.mockReset()
+    configureSecretRedaction({ maskInputs: false })
+    configureSecretRedaction()
+  })
+
+  it('records a password typed in chunks joined, so its row is redacted whole while Nightwatch keeps the parts', async () => {
+    webdriverExecute.mockResolvedValue('password')
+    const { browser, run } = queuedBrowser()
+    const logArgs = ['#password', ['SuperSecret', 'Password!']]
+    readFieldBeforeTyping(browser, 'setValue', logArgs, false)
+    let row: unknown
+    await run(() => {
+      row = redactSecrets({
+        command: 'setValue',
+        args: recordedTypingArgs('setValue', logArgs)
+      })
+    })
+    expect(row).toEqual({ command: 'setValue', args: ['#password', '••••'] })
+    expect(logArgs).toEqual(['#password', ['SuperSecret', 'Password!']])
+  })
+
+  it('joins the text of the (using, selector, value) form and leaves other commands alone', () => {
+    expect(
+      recordedTypingArgs('sendKeys', ['css selector', '#pin', ['ab', 'cd']])
+    ).toEqual(['css selector', '#pin', 'abcd'])
+    expect(recordedTypingArgs('execute', ['fn', ['ab', 'cd']])).toEqual([
+      'fn',
+      ['ab', 'cd']
+    ])
   })
 })
