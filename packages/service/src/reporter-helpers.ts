@@ -251,9 +251,26 @@ export function readFeatureScenarios(
   }
 }
 
-/** How many pickles titled `title` a scenario compiles to. */
-export function picklesTitled(scenario: FeatureScenario, title: string) {
+// How many pickles titled `title` a scenario compiles to.
+function picklesTitled(scenario: FeatureScenario, title: string) {
   return scenario.examples.filter((e) => e.name === title).length || 1
+}
+
+/** The nth pickle titled `title` belongs to the declaration that compiles it, counting in file order. */
+export function declarationAt(
+  scenarios: FeatureScenario[],
+  title: string,
+  ordinal: number
+): FeatureScenario | undefined {
+  let remaining = ordinal
+  for (const scenario of scenarios) {
+    const count = picklesTitled(scenario, title)
+    if (remaining < count) {
+      return scenario
+    }
+    remaining -= count
+  }
+  return scenarios.at(-1)
 }
 
 /** An example's row line: the one row Cucumber gives its title, else its position among its outline's pickles. */

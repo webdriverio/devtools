@@ -458,6 +458,41 @@ describe('Cucumber scenario lines read from the feature file', () => {
     expect(full[0].uid).not.toBe(full[6].uid)
   })
 
+  it('keeps same-titled examples apart when the parser cannot read the file', () => {
+    const french = path.join(rootDir, 'features', 'french.feature')
+    fs.writeFileSync(
+      french,
+      `# language: fr
+Fonctionnalité: Connexion
+
+  Plan du scénario: Se connecter
+    Soit je suis sur la page de connexion
+
+    Exemples:
+      | utilisateur |
+      | tomsmith    |
+      | foobar      |
+`
+    )
+    const run = () =>
+      sentFeatures(
+        runFeatures('10.2', rootDir, [
+          {
+            uri: french,
+            title: 'Connexion',
+            scenarios: [0, 1].map((i) => ({
+              title: 'Se connecter',
+              steps: [{ id: `s-${i}`, title: 'Soit je suis sur la page' }]
+            }))
+          }
+        ]).report
+      )[0].suites
+    const suites = run()
+    expect(suites).toHaveLength(2)
+    expect(new Set(suites.map((s) => s.uid)).size).toBe(2)
+    expect(run().map((s) => s.uid)).toEqual(suites.map((s) => s.uid))
+  })
+
   it('gives an example run alone the line it has in a full run', () => {
     const [bob] = runScenarios(['Login as bob'])
     expect(bob.featureLine).toBe(23)
