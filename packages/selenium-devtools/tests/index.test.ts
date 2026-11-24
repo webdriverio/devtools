@@ -693,6 +693,37 @@ describe('driverPatcher', () => {
     }
   })
 
+  it('redacts a password sendKeys types in parts, joined as the driver types it', async () => {
+    const driverArgs: unknown[] = []
+    const realSendKeys = stash.elementFns.sendKeys
+    ;(elementProto as any).sendKeys = function (...args: unknown[]) {
+      driverArgs.push(args)
+      return Promise.resolve()
+    }
+    stash.elementFns.sendKeys = (elementProto as any).sendKeys
+    const sentArgs: unknown[] = []
+    try {
+      configureSecretRedaction()
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: (cmd) => sentArgs.push(redactSecrets(cmd.args)),
+        beforeTyping: (element, args) =>
+          noteTypedIntoElement(element, args, false)
+      })
+      const el = Object.create(elementProto as object) as any
+      el.getProperty = async () => 'password'
+      await el.sendKeys('SuperSecret', 'Password!')
+      await new Promise((r) => setImmediate(r))
+      expect(sentArgs).toEqual([['••••']])
+      expect(driverArgs).toEqual([['SuperSecret', 'Password!']])
+    } finally {
+      configureSecretRedaction({ maskInputs: false })
+      configureSecretRedaction()
+      ;(elementProto as any).sendKeys = realSendKeys
+      stash.elementFns.sendKeys = realSendKeys
+    }
+  })
+
   it('marks only the commands a driver.wait() condition issues', async () => {
     const realWait = (driverProto as any).wait
     ;(driverProto as any).wait = async function (condition: any) {

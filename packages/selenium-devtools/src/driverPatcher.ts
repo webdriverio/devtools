@@ -159,6 +159,20 @@ function makeSettle(
   }
 }
 
+/** An element's `sendKeys('Super', 'Secret')` is recorded as the text it types, as the W3C payload carries it, so a password split across parts is redacted whole. */
+function recordedArgs(
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean
+): unknown[] {
+  const typesText =
+    fromElement &&
+    methodName === 'sendKeys' &&
+    args.length > 1 &&
+    args.every((arg) => typeof arg === 'string' || typeof arg === 'number')
+  return typesText ? [args.join('')] : args
+}
+
 /** What a command's row says about the call, read at invocation, where a wait condition's call order is still the issue order. */
 function describeCall(
   methodName: string,
@@ -167,7 +181,9 @@ function describeCall(
   target: unknown,
   startTime: number
 ): Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'> {
-  const serializedArgs = args.map(safeSerialize)
+  const serializedArgs = recordedArgs(methodName, args, fromElement).map(
+    safeSerialize
+  )
   // `this` is the only trace of which element the command targets — the
   // locator was consumed by the findElement that produced it.
   const selector = fromElement ? selectorForElement(target) : undefined
