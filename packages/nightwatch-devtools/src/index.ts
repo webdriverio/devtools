@@ -14,6 +14,7 @@ import {
   TestAttemptTracker,
   tracePolicyModeWarning,
   configureInputMasking,
+  configureSecretRedaction,
   type SpecRange,
   type TraceArtifact,
   type TraceExportContext
@@ -173,9 +174,13 @@ class NightwatchDevToolsPlugin {
       // off by default, opt-in via the option.
       emitArtifactsManifest: options.emitArtifactsManifest ?? false,
       maskInputs: options.maskInputs ?? true,
-      maskSelectors: options.maskSelectors ?? []
+      maskSelectors: options.maskSelectors ?? [],
+      secrets: options.secrets ?? []
     }
     configureInputMasking(this.options)
+    for (const warning of configureSecretRedaction(this.options)) {
+      log.warn(warning)
+    }
     const policyWarning = tracePolicyModeWarning(options.tracePolicy, mode)
     if (policyWarning) {
       log.warn(policyWarning)

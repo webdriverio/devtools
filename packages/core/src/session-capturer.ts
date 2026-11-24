@@ -26,6 +26,7 @@ import {
   sessionHasDocument
 } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
+import { redactSecrets } from './secret-redaction.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import { TestCapture } from './test-capture.js'
 import { nativeAppOf, type NativeApp } from './action-snapshot.js'
@@ -237,7 +238,7 @@ export abstract class SessionCapturerBase {
       return
     }
     try {
-      this.ws.send(JSON.stringify({ scope: event, data }))
+      this.ws.send(JSON.stringify({ scope: event, data: redactSecrets(data) }))
     } catch (err) {
       this.notifyDrop(event, 'send-error', err)
     }

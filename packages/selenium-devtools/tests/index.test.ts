@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
+  configureSecretRedaction,
   DRIVER_ACTIVITY_MAX_HOLD_MS,
   RetryTracker,
-  isDriverBusy
+  isDriverBusy,
+  redactSecrets
 } from '@wdio/devtools-core'
+import { noteTypedIntoElement } from '../src/helpers/typed-input.js'
 import { createRequire } from 'node:module'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
@@ -652,6 +655,41 @@ describe('driverPatcher', () => {
       ;(elementProto as any).getText = realGetText
       stash.elementFns.click = realClick
       stash.elementFns.getText = realGetText
+    }
+  })
+
+  it('reads a sendKeys field type before typing, so its row leaves already redacted', async () => {
+    const secret = 'SuperSecretPassword!'
+    const order: string[] = []
+    const realSendKeys = stash.elementFns.sendKeys
+    ;(elementProto as any).sendKeys = function () {
+      order.push('sendKeys')
+      return Promise.resolve()
+    }
+    stash.elementFns.sendKeys = (elementProto as any).sendKeys
+    const sentArgs: unknown[] = []
+    try {
+      configureSecretRedaction()
+      patchSelenium({
+        onDriverCreated: vi.fn(),
+        onCommand: (cmd) => sentArgs.push(redactSecrets(cmd.args)),
+        beforeTyping: (element, args) =>
+          noteTypedIntoElement(element, args, false)
+      })
+      const el = Object.create(elementProto as object) as any
+      el.getProperty = async (name: string) => {
+        order.push(`getProperty:${name}`)
+        return 'password'
+      }
+      await el.sendKeys(secret)
+      await new Promise((r) => setImmediate(r))
+      expect(order).toEqual(['getProperty:type', 'sendKeys'])
+      expect(sentArgs).toEqual([['••••']])
+    } finally {
+      configureSecretRedaction({ maskInputs: false })
+      configureSecretRedaction()
+      ;(elementProto as any).sendKeys = realSendKeys
+      stash.elementFns.sendKeys = realSendKeys
     }
   })
 

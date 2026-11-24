@@ -29,6 +29,7 @@ from selenium_devtools import (
     performance,
     read_value_locators,
     run_id,
+    secret_redaction,
     wait_tracking,
 )
 
@@ -59,6 +60,9 @@ RUNNERS = {
     "collectorMaskPrelude",
     "resourceUrlKey",
     "captureGate",
+    "secretResolution",
+    "secretRedaction",
+    "typedSecret",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -400,6 +404,36 @@ class TestCollectorMaskPrelude(unittest.TestCase):
             with self.subTest(case["name"]):
                 _fresh_mask(case["options"])
                 self.assertEqual(input_masking.capture_mask_prelude(), case["expect"])
+
+
+class TestSecretResolution(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("secretResolution"):
+            with self.subTest(case["name"]):
+                secrets, warnings = secret_redaction.resolve_secrets(case["entries"], case["env"])
+                self.assertEqual({"secrets": secrets, "warnings": warnings}, case["expect"])
+
+
+class TestSecretRedaction(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("secretRedaction"):
+            with self.subTest(case["name"]):
+                redactor = secret_redaction.create_secret_redactor(
+                    case["secrets"], auth_headers=case["authHeaders"], typed=case["typed"]
+                )
+                value = case["value"] if redactor is None else redactor.redact(case["value"])
+                self.assertEqual(value, case["expect"])
+
+
+class TestTypedSecret(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("typedSecret"):
+            with self.subTest(case["name"]):
+                text = secret_redaction.typed_text(case["parts"])
+                redacts = secret_redaction.is_redactable_value(text) and secret_redaction.is_password_field_type(
+                    case["fieldType"]
+                )
+                self.assertEqual({"text": text, "redacts": redacts}, case["expect"])
 
 
 class TestResourceUrlKey(unittest.TestCase):

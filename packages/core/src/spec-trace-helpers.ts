@@ -19,6 +19,7 @@ import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
 import { writeTraceZip } from '@wdio/devtools-trace/trace-exporter'
 import { deterministicUid, isStepUidOf } from './uid.js'
 import { trimChar } from './artifact-naming.js'
+import { secretRedactor } from './secret-redaction.js'
 
 // ─── SpecRange ────────────────────────────────────────────────────────────────
 
@@ -464,7 +465,8 @@ async function writeSliceTrace(
     actionSnapshots: sliceSnapshots.length > 0 ? sliceSnapshots : undefined,
     screencastFrames: sliceFrames?.length ? sliceFrames : undefined,
     format: input.format,
-    testMetadata
+    testMetadata,
+    redactor: secretRedactor()
   })
 }
 

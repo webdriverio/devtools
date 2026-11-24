@@ -13,6 +13,7 @@ import type {
   NetworkRequest,
   PageResource,
   ResourceReRead,
+  SecretRedactor,
   ScreencastFrame,
   TestMetadataMap,
   TestRunnerId,
@@ -434,6 +435,8 @@ export interface WriteTraceZipOptions {
   /** Base name for the artifact (zip file stem / directory name). Defaults to
    *  `trace-<sessionId>`; per-test slices pass `'trace'` inside a named folder. */
   fileStem?: string
+  /** The run's secrets, replaced in everything the archive holds before it is built. */
+  redactor?: SecretRedactor
 }
 
 /**
@@ -444,6 +447,31 @@ export async function writeTraceZip(
   capturer: TraceCapturer,
   opts: WriteTraceZipOptions
 ): Promise<string> {
+  const traceLog = traceLogFrom(capturer, opts)
+  await fs.mkdir(opts.outputDir, { recursive: true })
+  const exportOpts = {
+    sessionId: opts.sessionId,
+    wallTimeOverride: capturer.startWallTime,
+    testMetadata: opts.redactor?.redact(opts.testMetadata) ?? opts.testMetadata
+  }
+  const stem = opts.fileStem ?? `trace-${opts.sessionId}`
+  if (opts.format === 'ndjson-directory') {
+    const dir = path.join(opts.outputDir, stem)
+    await fs.mkdir(dir, { recursive: true })
+    await exportTraceDirectory(traceLog, dir, exportOpts)
+    return dir
+  }
+  const zip = await exportTraceZip(traceLog, exportOpts)
+  const zipPath = path.join(opts.outputDir, `${stem}.zip`)
+  await fs.writeFile(zipPath, zip)
+  return zipPath
+}
+
+/** The TraceLog a capturer-shaped source describes, with the run's secrets replaced before anything is built from it. */
+function traceLogFrom(
+  capturer: TraceCapturer,
+  opts: WriteTraceZipOptions
+): TraceLog {
   const baseMetadata = capturer.metadata ?? ({} as Metadata)
   const actionSnapshots =
     opts.actionSnapshots ??
@@ -472,23 +500,7 @@ export async function writeTraceZip(
       ? { resourceReReads: [...capturer.resourceReReads] }
       : {})
   }
-  await fs.mkdir(opts.outputDir, { recursive: true })
-  const exportOpts = {
-    sessionId: opts.sessionId,
-    wallTimeOverride: capturer.startWallTime,
-    testMetadata: opts.testMetadata
-  }
-  const stem = opts.fileStem ?? `trace-${opts.sessionId}`
-  if (opts.format === 'ndjson-directory') {
-    const dir = path.join(opts.outputDir, stem)
-    await fs.mkdir(dir, { recursive: true })
-    await exportTraceDirectory(traceLog, dir, exportOpts)
-    return dir
-  }
-  const zip = await exportTraceZip(traceLog, exportOpts)
-  const zipPath = path.join(opts.outputDir, `${stem}.zip`)
-  await fs.writeFile(zipPath, zip)
-  return zipPath
+  return opts.redactor?.redact(traceLog) ?? traceLog
 }
 
 function synthesizeSnapshotsFromCommands(

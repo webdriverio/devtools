@@ -18,6 +18,7 @@ import {
   selectorForElement
 } from './helpers/element-locators.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
+import { inputGate } from './helpers/input-gate.js'
 import type {
   CapturedCommand,
   DriverOriginals,
@@ -134,9 +135,6 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
   }
 }
 
-/** Element commands that dispatch input to the page. */
-const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
-
 /** Reports the command once it settles — see `CapturedCommand.timestamp` for why
  *  the row is stamped at completion rather than at invocation. */
 function makeSettle(
@@ -208,15 +206,12 @@ function makeWrappedMethod(
 
     let result: unknown
     try {
-      const { beforeInput } = hooks
-      result =
-        fromElement && beforeInput && INPUT_ELEMENT_METHODS.has(methodName)
-          ? beforeInput()
-              .catch((err: unknown) =>
-                log.warn(`beforeInput hook threw: ${errorMessage(err)}`)
-              )
-              .then(() => original.apply(this, args))
-          : original.apply(this, args)
+      const gate = fromElement
+        ? inputGate(hooks, methodName, this, args)
+        : undefined
+      result = gate
+        ? gate.then(() => original.apply(this, args))
+        : original.apply(this, args)
     } catch (err) {
       settle(undefined, err as Error)
       throw err

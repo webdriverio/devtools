@@ -870,6 +870,808 @@
         {"name": "an unmapped lookup as the test's first command still takes none", "command": "findElement", "awaitingInitialFrame": true, "expect": {"command": "findElement", "capture": false}},
         {"name": "a displayed atom as the test's first command captures", "command": "w3cExecuteScript", "script": "/* isDisplayed */return (function(){}).apply(null, arguments);", "awaitingInitialFrame": true, "expect": {"command": "isDisplayed", "capture": true}}
       ]
+    },
+    "secretResolution": {
+      "mirrors": {
+        "ts": "shared/secret-redaction.ts resolveSecrets",
+        "py": "secret_redaction.py resolve_secrets"
+      },
+      "notes": "Each entry is a literal value or {\"env\": NAME}, read from the given environment. A value shorter than 4 characters after trimming is ignored, as is an entry of any other shape; a warning names a variable at most, never a value. Duplicates are kept once, in first-seen order.",
+      "cases": [
+        {
+          "name": "literal values are kept once each, in order",
+          "entries": [
+            "SuperSecretPassword!",
+            "tomsmith",
+            "SuperSecretPassword!"
+          ],
+          "env": {},
+          "expect": {
+            "secrets": [
+              "SuperSecretPassword!",
+              "tomsmith"
+            ],
+            "warnings": []
+          }
+        },
+        {
+          "name": "a value shorter than four characters is ignored, even padded",
+          "entries": [
+            "abc",
+            "  ab  ",
+            "",
+            "abcd"
+          ],
+          "env": {},
+          "expect": {
+            "secrets": [
+              "abcd"
+            ],
+            "warnings": [
+              "secrets: a secret is shorter than 4 characters, so it is not redacted (that would rewrite unrelated text)",
+              "secrets: a secret is shorter than 4 characters, so it is not redacted (that would rewrite unrelated text)",
+              "secrets: a secret is shorter than 4 characters, so it is not redacted (that would rewrite unrelated text)"
+            ]
+          }
+        },
+        {
+          "name": "an env entry is read from the environment",
+          "entries": [
+            {
+              "env": "LOGIN_PASSWORD"
+            }
+          ],
+          "env": {
+            "LOGIN_PASSWORD": "hunter22"
+          },
+          "expect": {
+            "secrets": [
+              "hunter22"
+            ],
+            "warnings": []
+          }
+        },
+        {
+          "name": "an unset variable is named in the warning, never a value",
+          "entries": [
+            {
+              "env": "MISSING_SECRET"
+            }
+          ],
+          "env": {},
+          "expect": {
+            "secrets": [],
+            "warnings": [
+              "secrets: MISSING_SECRET is not set, so nothing is redacted for it"
+            ]
+          }
+        },
+        {
+          "name": "a short value from the environment is named by its variable",
+          "entries": [
+            {
+              "env": "PIN"
+            }
+          ],
+          "env": {
+            "PIN": "123"
+          },
+          "expect": {
+            "secrets": [],
+            "warnings": [
+              "secrets: the secret in PIN is shorter than 4 characters, so it is not redacted (that would rewrite unrelated text)"
+            ]
+          }
+        },
+        {
+          "name": "an entry of another shape is ignored",
+          "entries": [
+            42,
+            null,
+            {
+              "env": ""
+            },
+            {
+              "name": "X"
+            },
+            "valid-one"
+          ],
+          "env": {},
+          "expect": {
+            "secrets": [
+              "valid-one"
+            ],
+            "warnings": [
+              "secrets: ignoring an entry that is neither a string nor { env: string }",
+              "secrets: ignoring an entry that is neither a string nor { env: string }",
+              "secrets: ignoring an entry that is neither a string nor { env: string }",
+              "secrets: ignoring an entry that is neither a string nor { env: string }"
+            ]
+          }
+        },
+        {
+          "name": "no entries",
+          "entries": [],
+          "env": {},
+          "expect": {
+            "secrets": [],
+            "warnings": []
+          }
+        }
+      ]
+    },
+    "secretRedaction": {
+      "mirrors": {
+        "ts": "shared/secret-redaction.ts createSecretRedactor(...).redact (walk: shared/redaction-walk.ts)",
+        "py": "secret_redaction.py create_secret_redactor(...).redact (walk: redaction_walk.py)"
+      },
+      "notes": "Every string in a JSON-shaped value has each secret (listed or typed) replaced by the fixed placeholder, in four forms: as typed, JSON-escaped, encodeURIComponent and form-encoded (space as +, only alphanumerics and *-._ kept). Typed passwords are redacted exactly like listed secrets; a keystroke prefix of either is never replaced, since the page collector already masks a password field's own value keystroke by keystroke. An array of 4 or more one-character strings (a W3C Send Keys value) is redacted as the text it spells and split back into characters, so it takes the placeholder's length. A data: URI or a base64 run of 256+ characters is left alone unless it equals a form of a secret, and so is any string under `screenshot`, or under `data` beside a `mimeType`. With `authHeaders` (on whenever input masking is), the values of Authorization, Proxy-Authorization, Cookie and Set-Cookie in any object under `headers`, `requestHeaders` or `responseHeaders` are replaced, a string under `cookies` has each cookie's value replaced, and a cookie object (string name and value plus a W3C cookie field) has its value replaced. Keys are kept. A value that changes nothing is returned as it is.",
+      "cases": [
+        {
+          "name": "a secret inside a longer string is replaced",
+          "secrets": [
+            "SuperSecretPassword!"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "command": "setValue",
+            "args": [
+              "#password",
+              "SuperSecretPassword!"
+            ],
+            "result": "typed SuperSecretPassword! into #password"
+          },
+          "expect": {
+            "command": "setValue",
+            "args": [
+              "#password",
+              "\u2022\u2022\u2022\u2022"
+            ],
+            "result": "typed \u2022\u2022\u2022\u2022 into #password"
+          }
+        },
+        {
+          "name": "every secret and every occurrence",
+          "secrets": [
+            "tomsmith",
+            "SuperSecretPassword!"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": "Enter tomsmith for the username and SuperSecretPassword! for the password. tomsmith again.",
+          "expect": "Enter \u2022\u2022\u2022\u2022 for the username and \u2022\u2022\u2022\u2022 for the password. \u2022\u2022\u2022\u2022 again."
+        },
+        {
+          "name": "the placeholder does not reveal the length",
+          "secrets": [
+            "abcd",
+            "a-much-longer-secret-value"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": [
+            "abcd",
+            "a-much-longer-secret-value"
+          ],
+          "expect": [
+            "\u2022\u2022\u2022\u2022",
+            "\u2022\u2022\u2022\u2022"
+          ]
+        },
+        {
+          "name": "a secret carrying a quote is found inside a JSON body string",
+          "secrets": [
+            "pa\"ss\\word"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "requestBody": "{\"password\": \"pa\\\"ss\\\\word\"}"
+          },
+          "expect": {
+            "requestBody": "{\"password\": \"\u2022\u2022\u2022\u2022\"}"
+          }
+        },
+        {
+          "name": "a URL query and a form body carry the encoded forms",
+          "secrets": [
+            "Super Secret!"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "url": "https://example.test/login?p=Super%20Secret!",
+            "requestBody": "user=tom&password=Super+Secret%21"
+          },
+          "expect": {
+            "url": "https://example.test/login?p=\u2022\u2022\u2022\u2022",
+            "requestBody": "user=tom&password=\u2022\u2022\u2022\u2022"
+          }
+        },
+        {
+          "name": "a non-ASCII secret is found percent-encoded",
+          "secrets": [
+            "p\u00e4ssw\u00f6rd"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": [
+            "https://example.test/?q=p%C3%A4ssw%C3%B6rd",
+            "p\u00e4ssw\u00f6rd"
+          ],
+          "expect": [
+            "https://example.test/?q=\u2022\u2022\u2022\u2022",
+            "\u2022\u2022\u2022\u2022"
+          ]
+        },
+        {
+          "name": "the longer of two overlapping secrets is replaced whole",
+          "secrets": [
+            "secret",
+            "secret-token"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": "my secret-token and my secret",
+          "expect": "my \u2022\u2022\u2022\u2022 and my \u2022\u2022\u2022\u2022"
+        },
+        {
+          "name": "a listed secret's prefix is never replaced, in a field value or anywhere else",
+          "secrets": [
+            "admin123"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "username": "admin",
+            "type": "attributes",
+            "attributeName": "value",
+            "attributeValue": "admin"
+          },
+          "expect": {
+            "username": "admin",
+            "type": "attributes",
+            "attributeName": "value",
+            "attributeValue": "admin"
+          }
+        },
+        {
+          "name": "a typed password's keystroke prefixes are kept: the page masks the password field's own value",
+          "secrets": [],
+          "typed": [
+            "SuperSecret"
+          ],
+          "authHeaders": false,
+          "value": [
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "S"
+            },
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "Supe"
+            },
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "SuperSecre",
+              "oldValue": "SuperSecr"
+            },
+            {
+              "type": "input",
+              "props": {
+                "type": "password",
+                "value": "SuperSecr"
+              }
+            }
+          ],
+          "expect": [
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "S"
+            },
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "Supe"
+            },
+            {
+              "type": "attributes",
+              "attributeName": "value",
+              "attributeValue": "SuperSecre",
+              "oldValue": "SuperSecr"
+            },
+            {
+              "type": "input",
+              "props": {
+                "type": "password",
+                "value": "SuperSecr"
+              }
+            }
+          ]
+        },
+        {
+          "name": "a typed password's prefix is kept anywhere: type, id, name, a username, a URL scheme",
+          "secrets": [],
+          "typed": [
+            "password1",
+            "admin123",
+            "https://user:pw@example.test"
+          ],
+          "authHeaders": false,
+          "value": {
+            "type": "input",
+            "props": {
+              "type": "password",
+              "id": "password",
+              "name": "password",
+              "value": "x"
+            },
+            "username": "admin",
+            "url": "http",
+            "attributeName": "id",
+            "attributeValue": "password"
+          },
+          "expect": {
+            "type": "input",
+            "props": {
+              "type": "password",
+              "id": "password",
+              "name": "password",
+              "value": "x"
+            },
+            "username": "admin",
+            "url": "http",
+            "attributeName": "id",
+            "attributeValue": "password"
+          }
+        },
+        {
+          "name": "object keys are kept",
+          "secrets": [
+            "tomsmith"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "tomsmith": "tomsmith",
+            "nested": {
+              "tomsmith": [
+                "x tomsmith"
+              ]
+            }
+          },
+          "expect": {
+            "tomsmith": "\u2022\u2022\u2022\u2022",
+            "nested": {
+              "tomsmith": [
+                "x \u2022\u2022\u2022\u2022"
+              ]
+            }
+          }
+        },
+        {
+          "name": "numbers, booleans and null pass through",
+          "secrets": [
+            "tomsmith"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": [
+            1,
+            true,
+            null,
+            2.5
+          ],
+          "expect": [
+            1,
+            true,
+            null,
+            2.5
+          ]
+        },
+        {
+          "name": "a base64 image is left alone unless it is the secret",
+          "secrets": [
+            "abcd1234"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "screenshot": "QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDabcd1234QUJDQUJD",
+            "dataUri": "data:image/png;base64,abcd1234",
+            "secretItself": "abcd1234",
+            "short": "xxabcd1234"
+          },
+          "expect": {
+            "screenshot": "QUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDQUJDabcd1234QUJDQUJD",
+            "dataUri": "data:image/png;base64,abcd1234",
+            "secretItself": "\u2022\u2022\u2022\u2022",
+            "short": "xx\u2022\u2022\u2022\u2022"
+          }
+        },
+        {
+          "name": "a base64 body named by its key is left alone, however short",
+          "secrets": [
+            "abcd1234"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "screenshot": "QUJDabcd1234",
+            "resource": {
+              "url": "https://example.test/app.css",
+              "mimeType": "text/css",
+              "data": "QUJDabcd1234"
+            },
+            "frame": {
+              "data": "abcd1234"
+            }
+          },
+          "expect": {
+            "screenshot": "QUJDabcd1234",
+            "resource": {
+              "url": "https://example.test/app.css",
+              "mimeType": "text/css",
+              "data": "QUJDabcd1234"
+            },
+            "frame": {
+              "data": "\u2022\u2022\u2022\u2022"
+            }
+          }
+        },
+        {
+          "name": "a W3C Send Keys payload spelled one character per item is redacted joined",
+          "secrets": [
+            "hunter22"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": [
+            {
+              "text": "hunter22",
+              "value": [
+                "h",
+                "u",
+                "n",
+                "t",
+                "e",
+                "r",
+                "2",
+                "2",
+                "\ue007"
+              ]
+            },
+            {
+              "value": [
+                "t",
+                "o",
+                "m",
+                "s",
+                "m",
+                "i",
+                "t",
+                "h"
+              ]
+            },
+            [
+              "a",
+              "b",
+              "c"
+            ]
+          ],
+          "expect": [
+            {
+              "text": "\u2022\u2022\u2022\u2022",
+              "value": [
+                "\u2022",
+                "\u2022",
+                "\u2022",
+                "\u2022",
+                "\ue007"
+              ]
+            },
+            {
+              "value": [
+                "t",
+                "o",
+                "m",
+                "s",
+                "m",
+                "i",
+                "t",
+                "h"
+              ]
+            },
+            [
+              "a",
+              "b",
+              "c"
+            ]
+          ]
+        },
+        {
+          "name": "no secrets leave the value as it is",
+          "secrets": [],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "args": [
+              "#password",
+              "SuperSecretPassword!"
+            ]
+          },
+          "expect": {
+            "args": [
+              "#password",
+              "SuperSecretPassword!"
+            ]
+          }
+        },
+        {
+          "name": "credential headers are replaced by name, in any case, under every header key",
+          "secrets": [],
+          "typed": [],
+          "authHeaders": true,
+          "value": {
+            "requestHeaders": {
+              "Authorization": "Bearer t0ken",
+              "accept": "*/*",
+              "COOKIE": "sid=1"
+            },
+            "responseHeaders": {
+              "set-cookie": [
+                "a=1",
+                "b=2"
+              ],
+              "content-type": "text/html"
+            },
+            "headers": {
+              "Proxy-Authorization": "Basic eA=="
+            },
+            "response": {
+              "headers": {
+                "Set-Cookie": "c=3"
+              }
+            }
+          },
+          "expect": {
+            "requestHeaders": {
+              "Authorization": "\u2022\u2022\u2022\u2022",
+              "accept": "*/*",
+              "COOKIE": "\u2022\u2022\u2022\u2022"
+            },
+            "responseHeaders": {
+              "set-cookie": [
+                "\u2022\u2022\u2022\u2022",
+                "\u2022\u2022\u2022\u2022"
+              ],
+              "content-type": "text/html"
+            },
+            "headers": {
+              "Proxy-Authorization": "\u2022\u2022\u2022\u2022"
+            },
+            "response": {
+              "headers": {
+                "Set-Cookie": "\u2022\u2022\u2022\u2022"
+              }
+            }
+          }
+        },
+        {
+          "name": "a credential name outside a header map is kept",
+          "secrets": [],
+          "typed": [],
+          "authHeaders": true,
+          "value": {
+            "authorization": "kept",
+            "cookie": "kept",
+            "body": {
+              "headers": "not an object"
+            }
+          },
+          "expect": {
+            "authorization": "kept",
+            "cookie": "kept",
+            "body": {
+              "headers": "not an object"
+            }
+          }
+        },
+        {
+          "name": "document.cookie and cookie objects have their values replaced, names kept",
+          "secrets": [],
+          "typed": [],
+          "authHeaders": true,
+          "value": {
+            "cookies": "sid=abc123; theme=dark",
+            "result": [
+              {
+                "name": "sid",
+                "value": "abc123",
+                "domain": "example.test",
+                "path": "/",
+                "httpOnly": true
+              }
+            ],
+            "notACookie": {
+              "name": "field",
+              "value": "visible"
+            }
+          },
+          "expect": {
+            "cookies": "sid=\u2022\u2022\u2022\u2022; theme=\u2022\u2022\u2022\u2022",
+            "result": [
+              {
+                "name": "sid",
+                "value": "\u2022\u2022\u2022\u2022",
+                "domain": "example.test",
+                "path": "/",
+                "httpOnly": true
+              }
+            ],
+            "notACookie": {
+              "name": "field",
+              "value": "visible"
+            }
+          }
+        },
+        {
+          "name": "credentials are kept when input masking is off",
+          "secrets": [],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "requestHeaders": {
+              "Authorization": "Bearer t0ken"
+            },
+            "cookies": "sid=1"
+          },
+          "expect": {
+            "requestHeaders": {
+              "Authorization": "Bearer t0ken"
+            },
+            "cookies": "sid=1"
+          }
+        },
+        {
+          "name": "headers and secrets together",
+          "secrets": [
+            "hunter22"
+          ],
+          "typed": [],
+          "authHeaders": true,
+          "value": {
+            "url": "https://example.test/?pw=hunter22",
+            "requestHeaders": {
+              "Cookie": "pw=hunter22",
+              "X-Echo": "hunter22"
+            }
+          },
+          "expect": {
+            "url": "https://example.test/?pw=\u2022\u2022\u2022\u2022",
+            "requestHeaders": {
+              "Cookie": "\u2022\u2022\u2022\u2022",
+              "X-Echo": "\u2022\u2022\u2022\u2022"
+            }
+          }
+        }
+      ]
+    },
+    "typedSecret": {
+      "mirrors": {
+        "ts": "shared/typed-secrets.ts typedText + isRedactableValue + isPasswordFieldType",
+        "py": "secret_redaction.py typed_text + is_redactable_value + is_password_field_type"
+      },
+      "notes": "What input masking adds to the run's secrets when a key-sending command types into a field: the typed text (string and number parts joined, WebDriver's special keys U+E000..U+F8FF removed) when it is at least 4 characters after trimming and the field's type reads `password` (trimmed, any case). `redacts` is that decision; each adapter only supplies the field-type read.",
+      "cases": [
+        {
+          "name": "typed text joins its parts",
+          "parts": [
+            "Super",
+            "Secret"
+          ],
+          "fieldType": "password",
+          "expect": {
+            "text": "SuperSecret",
+            "redacts": true
+          }
+        },
+        {
+          "name": "special keys are keys pressed, not text",
+          "parts": "Super\ue007Secret\ue004",
+          "fieldType": "password",
+          "expect": {
+            "text": "SuperSecret",
+            "redacts": true
+          }
+        },
+        {
+          "name": "a W3C value spelled one key per item",
+          "parts": [
+            "h",
+            "u",
+            "n",
+            "t",
+            "e",
+            "r",
+            "2",
+            "2"
+          ],
+          "fieldType": "PASSWORD",
+          "expect": {
+            "text": "hunter22",
+            "redacts": true
+          }
+        },
+        {
+          "name": "numbers are text, booleans and objects are not",
+          "parts": [
+            12,
+            34.0,
+            true,
+            null,
+            {
+              "a": 1
+            },
+            "56"
+          ],
+          "fieldType": "password",
+          "expect": {
+            "text": "123456",
+            "redacts": true
+          }
+        },
+        {
+          "name": "a password field's type reads password in any case and spacing",
+          "parts": "longenough",
+          "fieldType": " Password ",
+          "expect": {
+            "text": "longenough",
+            "redacts": true
+          }
+        },
+        {
+          "name": "a text field is not a password field",
+          "parts": "tomsmith",
+          "fieldType": "text",
+          "expect": {
+            "text": "tomsmith",
+            "redacts": false
+          }
+        },
+        {
+          "name": "a field whose type could not be read is not one",
+          "parts": "tomsmith",
+          "fieldType": null,
+          "expect": {
+            "text": "tomsmith",
+            "redacts": false
+          }
+        },
+        {
+          "name": "a value shorter than four characters is never one",
+          "parts": "abc",
+          "fieldType": "password",
+          "expect": {
+            "text": "abc",
+            "redacts": false
+          }
+        },
+        {
+          "name": "whitespace does not count toward the length",
+          "parts": "  ab  ",
+          "fieldType": "password",
+          "expect": {
+            "text": "  ab  ",
+            "redacts": false
+          }
+        }
+      ]
     }
   }
 }

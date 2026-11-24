@@ -340,23 +340,61 @@ was typed into a password field. The page collector replaces the value of every
 `<input type="password">` with `••••` (fixed, so the length does not leak) in
 the DOM it records: the anchor, every `input`/`change` record and every `value`
 attribute mutation. A field a show-password toggle turned into a text input
-stays masked. Every other field is recorded as typed. The `send_keys` row keeps
-the real text, password included, so the Actions list and `transcript.md` show
-what the test typed.
+stays masked. Every other field is recorded as typed.
+
+The same switch redacts the typed password from what the adapter sends: before
+an element's `send_keys` runs, the adapter reads the element's `type` property
+(one driver round trip, capped at 2 s, only for a value of 4 characters or more
+not already known) and, for a password field, adds the typed value to the run's
+redaction set. The `send_keys` row itself, and every frame after it, then
+carries `••••` in its place. Independently, the values of `Authorization`,
+`Proxy-Authorization`, `Cookie` and `Set-Cookie` are replaced in every network
+row's `headers`, `requestHeaders` and `responseHeaders`, each cookie's value in
+a navigation row's `cookies`, and the `value` of every cookie a command returns.
+A read that fails or overruns leaves the value as typed and never stops the
+command; after one overrun the session reads no more field types, since the
+abandoned read is still running on it.
 
 | Setting | `enable()` | pytest | ini | env |
 |---|---|---|---|---|
-| Turn password masking off | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
+| Turn password masking and the automatic redaction off | `mask_inputs=False` | `--devtools-no-mask-inputs` | `devtools_mask_inputs = false` | `DEVTOOLS_MASK_INPUTS=0` |
 | Also mask elements by CSS selector (text and value) | `mask_selectors=[".account-number"]` | `--devtools-mask-selector .account-number` (repeatable) | `devtools_mask_selectors` (one per line) | `DEVTOOLS_MASK_SELECTORS=.a,.b` |
 
 Precedence is the command line, then the ini file, then the environment.
 
-Masking only changes the replayed page. The typed password is still in the
-`send_keys` row, the trace's action events and `transcript.md`; a literal
-credential in your test source reaches the Source tab; console lines, request
-bodies and errors carry whatever the page or the test put there;
-screenshots and screencast frames are pixels; and a password field the page
-turns into a text field before the collector sees it is recorded as typed.
+Not redacted automatically: text typed into a field that is not a password
+field, keys sent through `ActionChains` (they name no field), a password typed
+on a native app, and anything sent before the password was typed (a literal
+credential in your test source reaches the live Source tab when the test's
+first command runs; the archive is written at the end and carries none of it).
+Screenshots and screencast frames are pixels. List any other value in
+`secrets` (below). A `--devtools-secret` value is dropped from the Run-all and
+rerun commands the dashboard holds, so a rerun spawned from it does not redact
+that value; `--devtools-secret-env` names a variable the rerun inherits.
+
+### Redacting secrets
+
+`secrets` lists more values replaced by `••••` in every frame the adapter
+sends, from the start of the run: command rows and their results and errors,
+console lines and stdout, network URLs, headers and bodies, the DOM and its
+mutations, the A11y captures, the test source and the suite tree. The backend
+builds the trace archive from those frames, so the archive carries none of them
+either. A value inside a longer string is replaced, as are its JSON-escaped,
+URL-encoded and form-encoded forms. A prefix of a value is never replaced: a
+password field's own keystrokes are already masked by the page collector. The test and the driver still see
+the real value.
+
+| Setting | `enable()` | pytest | ini | env |
+|---|---|---|---|---|
+| A value | `secrets=["SuperSecretPassword!"]` | `--devtools-secret VALUE` (repeatable) | | |
+| A value read from an environment variable at start | `secrets=[{"env": "LOGIN_PASSWORD"}]` | `--devtools-secret-env LOGIN_PASSWORD` (repeatable) | `devtools_secret_envs` (one name per line) | `DEVTOOLS_SECRET_ENVS=LOGIN_PASSWORD,API_TOKEN` |
+
+The command line wins over the ini file, which wins over the environment. A
+value shorter than 4 characters, or a variable that is not set, is skipped with
+a warning that never prints the value. Pixels, base64 data (an image, or a
+base64 body of 256 characters or more), other encodings such as a `Basic`
+authorization header, and object keys are not redacted; see
+[Secret redaction](../../README.md#-secret-redaction).
 
 ### Parallel runs (`pytest -n`)
 

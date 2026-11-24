@@ -33,6 +33,7 @@ export const SHARED_OPTIONS: Record<keyof BaseDevToolsOptions, OptionTarget> = {
   emitArtifactsManifest: { feature: 'artifacts-manifest' },
   maskInputs: { feature: 'input-masking' },
   maskSelectors: { feature: 'input-masking' },
+  secrets: { feature: 'input-masking' },
   traceResources: { feature: 'page-resources' }
 }
 
@@ -83,6 +84,7 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   trace_granularity: { feature: 'per-test-granularity' },
   mask_inputs: { feature: 'input-masking' },
   mask_selectors: { feature: 'input-masking' },
+  secrets: { feature: 'input-masking' },
   trace_resources: { feature: 'page-resources' },
   '--devtools': TURNS_THE_ADAPTER_ON,
   '--devtools-trace': { feature: 'trace-mode' },
@@ -90,6 +92,8 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   '--devtools-trace-policy': { feature: 'retry-retention' },
   '--devtools-no-mask-inputs': { feature: 'input-masking' },
   '--devtools-mask-selector': { feature: 'input-masking' },
+  '--devtools-secret': { feature: 'input-masking' },
+  '--devtools-secret-env': { feature: 'input-masking' },
   '--devtools-trace-resources': { feature: 'page-resources' },
   devtools: TURNS_THE_ADAPTER_ON,
   devtools_trace: { feature: 'trace-mode' },
@@ -97,6 +101,7 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   devtools_trace_policy: { feature: 'retry-retention' },
   devtools_mask_inputs: { feature: 'input-masking' },
   devtools_mask_selectors: { feature: 'input-masking' },
+  devtools_secret_envs: { feature: 'input-masking' },
   devtools_trace_resources: { feature: 'page-resources' },
   DEVTOOLS_HOST: WHERE_THE_BACKEND_LISTENS,
   DEVTOOLS_PORT: WHERE_THE_BACKEND_LISTENS,
@@ -113,6 +118,7 @@ export const PYTHON_OPTIONS: Record<string, OptionTarget> = {
   DEVTOOLS_TRACE_GRANULARITY: { feature: 'per-test-granularity' },
   DEVTOOLS_MASK_INPUTS: { feature: 'input-masking' },
   DEVTOOLS_MASK_SELECTORS: { feature: 'input-masking' },
+  DEVTOOLS_SECRET_ENVS: { feature: 'input-masking' },
   DEVTOOLS_TRACE_RESOURCES: { feature: 'page-resources' },
   DEVTOOLS_CAPTURE_TIMING: {
     notFeature:

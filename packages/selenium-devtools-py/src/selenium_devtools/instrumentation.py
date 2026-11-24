@@ -30,6 +30,7 @@ from . import (
     page_resources,
     performance,
     read_value_locators,
+    secret_redaction,
     wait_tracking,
 )
 from ._contract import MAPPED_COMMANDS, READ_ONLY_COMMANDS, SCREENCAST_POLL_INTERVAL_MS
@@ -233,6 +234,23 @@ def _guarded_execute_script(driver: Any) -> Any:
             _internal.active = False
 
     return run
+
+
+def _note_typed_input(driver: Any, orig_execute: Any, driver_command: str, params: Any) -> None:
+    """Before an element's send_keys runs, read its field type, so a password is redacted from its own row on.
+
+    Through the unpatched ``execute``, so the read records no row.
+    """
+    if driver_command != "sendKeysToElement" or not isinstance(params, dict) or driver_is_native_app(driver):
+        return
+
+    def read_type() -> Any:
+        reply = orig_execute(driver, "getElementProperty", {"id": params.get("id"), "name": "type"})
+        return reply.get("value") if isinstance(reply, dict) else reply
+
+    secret_redaction.note_typed_input(
+        params.get("text", params.get("value")), read_type, session=getattr(driver, "session_id", None)
+    )
 
 
 def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
@@ -1232,6 +1250,7 @@ def install(
         _capture_source(capturer, src)  # Source tab: send the test file once
         target = element_locators.selector_for_command(driver_command, params)
         poll = wait_tracking.poll_of(driver_command, params, target)
+        _note_typed_input(self, orig_execute, driver_command, params)
         try:
             result = orig_execute(self, driver_command, params)
         except BaseException as exc:  # capture then re-raise unchanged

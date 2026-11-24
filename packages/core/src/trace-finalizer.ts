@@ -17,6 +17,7 @@ import type {
 } from '@wdio/devtools-shared'
 import { reportCaptureTiming } from './capture-timing.js'
 import { errorMessage } from './error.js'
+import { secretRedactor } from './secret-redaction.js'
 import {
   buildArtifactsManifest,
   writeArtifactsManifest
@@ -400,7 +401,8 @@ async function writeSessionTrace(
     actionSnapshots: snapshots.length ? snapshots : undefined,
     screencastFrames: ctx.screencastFrames,
     format: ctx.format,
-    testMetadata: ctx.testMetadata
+    testMetadata: ctx.testMetadata,
+    redactor: secretRedactor()
   })
   ctx.log?.('info', `Trace saved to ${artifact.path}`)
   ctx.onArtifact?.(artifact)

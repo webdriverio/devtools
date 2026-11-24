@@ -156,6 +156,23 @@ describe('serverLock', () => {
     ).toBeUndefined()
   })
 
+  it('applies the secrets option without ever echoing a refused value', () => {
+    const target = defaults()
+    const secrets = ['SuperSecretPassword!', { env: 'LOGIN_PASSWORD' }]
+    expect(applyConfigureOptions(target, { secrets })).toEqual([])
+    expect(target).toMatchObject({ secrets })
+
+    const refused = defaults()
+    const warnings = applyConfigureOptions(
+      refused,
+      untyped({ secrets: 'SuperSecretPassword!' })
+    )
+    expect('secrets' in refused).toBe(false)
+    expect(warnings).toEqual([
+      'configure: ignoring secrets: expected an array of strings and { env: string } objects, got string'
+    ])
+  })
+
   it('applies the mask options, refusing selectors that are not a list of strings', () => {
     const target = defaults()
     expect(
