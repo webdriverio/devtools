@@ -71,6 +71,15 @@ class TestConfigure(_Configured):
             warnings = secret_redaction.configure(["abc", {"env": "NOT_SET_ANYWHERE"}])
         self.assertEqual(len(warnings), 2)
         self.assertNotIn("abc", "\n".join(logs.output))
+        self.assertNotIn("NOT_SET_ANYWHERE", "\n".join(logs.output))
+        self.assertIn("2 entries skipped", "\n".join(logs.output))
+
+    def test_a_cookie_string_of_many_spaces_is_redacted_in_linear_time(self):
+        secret_redaction.configure([])
+        text = "a=1;" + " " * 200_000 + "b"
+        started = time.monotonic()
+        self.assertEqual(secret_redaction.redact({"cookies": text})["cookies"], "a=••••;" + " " * 200_000 + "b")
+        self.assertLess(time.monotonic() - started, 1.0)
 
 
 class _RecordingClient(WSClient):

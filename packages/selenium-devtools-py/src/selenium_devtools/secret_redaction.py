@@ -205,7 +205,7 @@ def configure(secrets: Optional[Sequence[SecretEntry]] = None, automatic: bool =
 
     ``automatic`` (the ``mask_inputs`` switch) also redacts what is typed into
     password fields and credential headers and cookies; passwords already
-    learned stay redacted unless it is off. Returns the warnings, also logged.
+    learned stay redacted unless it is off. Returns the warnings; only their count is logged.
     """
     entries = _env_entries() if secrets is None else list(secrets)
     resolved, warnings = resolve_secrets(entries, os.environ)
@@ -213,8 +213,9 @@ def configure(secrets: Optional[Sequence[SecretEntry]] = None, automatic: bool =
     if not automatic:
         _state["typed"] = []
     _rebuild()
-    for warning in warnings:
-        _log.warning(warning)
+    if warnings:
+        # A count only: a log line never carries anything read from the entries or the environment.
+        _log.warning("secrets: %d entries skipped (too short, an unset variable, or not a string or {env})", len(warnings))
     return warnings
 
 
@@ -229,7 +230,7 @@ def _read_with_ceiling(read_field_type: Callable[[], Any]) -> Any:
         try:
             result["type"] = read_field_type()
         except Exception as exc:  # noqa: BLE001 - a failed read leaves the value as typed, never the command
-            _log.debug("field type read failed (%s); the typed value is not redacted", exc)
+            _log.debug("field type read failed (%s); the typed value is not redacted", type(exc).__name__)
 
     reader = threading.Thread(target=run, name="devtools-field-type", daemon=True)
     reader.start()

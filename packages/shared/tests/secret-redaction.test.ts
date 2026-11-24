@@ -131,6 +131,16 @@ describe('createSecretRedactor', () => {
     expect(typed.redact(node)).toBe(node)
   })
 
+  it('redacts a cookie string of many spaces in linear time', () => {
+    const credentials = createSecretRedactor([], { authHeaders: true })!
+    const text = `a=1;${' '.repeat(200_000)}b`
+    const started = performance.now()
+    expect(credentials.redact({ cookies: text }).cookies).toBe(
+      `a=${MASKED_VALUE};${' '.repeat(200_000)}b`
+    )
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
+
   it('survives a cycle', () => {
     const value: Record<string, unknown> = { text: SECRET }
     value.self = value

@@ -390,8 +390,8 @@ the real value.
 | A value read from an environment variable at start | `secrets=[{"env": "LOGIN_PASSWORD"}]` | `--devtools-secret-env LOGIN_PASSWORD` (repeatable) | `devtools_secret_envs` (one name per line) | `DEVTOOLS_SECRET_ENVS=LOGIN_PASSWORD,API_TOKEN` |
 
 The command line wins over the ini file, which wins over the environment. A
-value shorter than 4 characters, or a variable that is not set, is skipped with
-a warning that never prints the value. Pixels, base64 data (an image, or a
+value shorter than 4 characters, or a variable that is not set, is skipped, and
+one warning gives the count of skipped entries, never a value or a name. Pixels, base64 data (an image, or a
 base64 body of 256 characters or more), other encodings such as a `Basic`
 authorization header, and object keys are not redacted; see
 [Secret redaction](../../README.md#-secret-redaction).

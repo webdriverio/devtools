@@ -95,9 +95,15 @@ function redactCredential(value: unknown): unknown {
   return Array.isArray(value) ? value.map(redactCredential) : value
 }
 
-/** `document.cookie`: each cookie's value replaced, its name kept. */
+/** `document.cookie`: each cookie's value replaced, its name kept; a split, so the time is linear in the text. */
 function redactCookieString(text: string): string {
-  return text.replace(/(^|;\s*)([^=;]+)=[^;]*/g, `$1$2=${MASKED_VALUE}`)
+  return text
+    .split(';')
+    .map((pair) => {
+      const eq = pair.indexOf('=')
+      return eq > 0 ? `${pair.slice(0, eq)}=${MASKED_VALUE}` : pair
+    })
+    .join(';')
 }
 
 function isCookieObject(record: Record<string, unknown>): boolean {

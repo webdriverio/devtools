@@ -6,7 +6,6 @@ Mirrors ``shared/redaction-walk.ts``; ``packages/shared/mirror-vectors.json``
 
 from __future__ import annotations
 
-import re
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 #: What a redacted value reads as: the page mask's placeholder, so its length never leaks.
@@ -22,7 +21,6 @@ AUTH_HEADER_NAMES = ("authorization", "proxy-authorization", "cookie", "set-cook
 HEADER_KEYS = ("headers", "requestHeaders", "responseHeaders")
 
 _COOKIE_KEYS = ("domain", "path", "httpOnly", "secure", "sameSite", "expiry")
-_COOKIE_PAIR = re.compile(r"(^|;\s*)([^=;]+)=[^;]*")
 
 
 class Rules:
@@ -56,7 +54,7 @@ def walk(value: Any, rules: Rules, key: Optional[str] = None) -> Any:
 
 
 def _changed(redacted: Any, item: Any) -> bool:
-    # A string compares by value (``re.sub`` may return an equal copy); a container by identity, since an unchanged one is returned as is.
+    # A string compares by value (a rewrite may return an equal copy); a container by identity, since an unchanged one is returned as is.
     return redacted != item if isinstance(item, str) else redacted is not item
 
 
@@ -78,7 +76,11 @@ def _redact_credential(value: Any) -> Any:
 
 
 def _redact_cookie_string(text: str) -> str:
-    return _COOKIE_PAIR.sub(lambda m: f"{m.group(1)}{m.group(2)}={REDACTED_SECRET}", text)
+    # A split, so the time is linear in the text.
+    return ";".join(
+        f"{pair[:pair.index('=')]}={REDACTED_SECRET}" if pair.find("=") > 0 else pair
+        for pair in text.split(";")
+    )
 
 
 def _is_cookie_object(record: Dict[str, Any]) -> bool:

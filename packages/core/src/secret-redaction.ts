@@ -28,7 +28,7 @@ function rebuild(): void {
 }
 rebuild()
 
-/** Reads `secrets` at start and returns the warnings to log; passwords already learned stay redacted unless `maskInputs: false` turns that off. */
+/** Reads `secrets` at start and returns what to log, a count of skipped entries; passwords already learned stay redacted unless `maskInputs: false` turns that off. */
 export function configureSecretRedaction(
   options: Pick<BaseDevToolsOptions, 'secrets' | 'maskInputs'> = {},
   env: Readonly<Record<string, string | undefined>> = process.env
@@ -40,7 +40,12 @@ export function configureSecretRedaction(
     typed = []
   }
   rebuild()
-  return warnings
+  // A count only: a log line never carries anything read from the entries or the environment.
+  return warnings.length > 0
+    ? [
+        `secrets: ${warnings.length} entries skipped (too short, an unset variable, or not a string or { env })`
+      ]
+    : []
 }
 
 /** The value with the run's secrets replaced; the value itself when nothing is redacted. */

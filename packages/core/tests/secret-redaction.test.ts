@@ -21,6 +21,8 @@ import type { TraceCapturer } from '@wdio/devtools-trace/trace-exporter'
 
 const SECRET = 'SuperSecretPassword!'
 
+class TestSessionCapturer extends SessionCapturerBase {}
+
 const { sockets, FakeSocket } = vi.hoisted(() => {
   const sockets: { sent: string[] }[] = []
   class FakeSocket {
@@ -75,8 +77,9 @@ describe('configureSecretRedaction', () => {
       { LOGIN_PASSWORD: SECRET }
     )
     expect(secretRedactor()?.secrets).toEqual([SECRET])
-    expect(warnings).toHaveLength(2)
-    expect(warnings.join('\n')).not.toContain('abc')
+    expect(warnings).toEqual([
+      'secrets: 2 entries skipped (too short, an unset variable, or not a string or { env })'
+    ])
   })
 })
 
@@ -141,14 +144,14 @@ describe('sendUpstream', () => {
   it('sends a row typed into a password field redacted, with no secrets listed', async () => {
     configureSecretRedaction()
     await noteTypedInput(SECRET, async () => 'password')
-    const capturer = new SessionCapturerBase({ hostname: 'localhost', port: 1 })
+    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
     capturer.sendUpstream('commands', [{ command: 'setValue', args: [SECRET] }])
     expect(sockets.at(-1)!.sent.at(-1)).not.toContain(SECRET)
   })
 
   it('sends a frame with the run’s secrets redacted, keeping the scope and the caller’s value', () => {
     configureSecretRedaction({ secrets: [SECRET] })
-    const capturer = new SessionCapturerBase({
+    const capturer = new TestSessionCapturer({
       hostname: 'localhost',
       port: 1
     })
@@ -164,7 +167,7 @@ describe('sendUpstream', () => {
 
   it('sends the payload as it is when no secret is listed or typed', () => {
     resetRedaction()
-    const capturer = new SessionCapturerBase({
+    const capturer = new TestSessionCapturer({
       hostname: 'localhost',
       port: 1
     })
