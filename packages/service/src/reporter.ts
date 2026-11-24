@@ -22,7 +22,8 @@ import {
   failedHookRow,
   isCucumberSuite,
   orderLast,
-  readFeatureScenario
+  picklesTitled,
+  readFeatureScenarios
 } from './reporter-helpers.js'
 import type { FeatureScenario } from './types.js'
 
@@ -109,6 +110,8 @@ export class TestReporter extends WebdriverIOReporter {
   #currentScenarioUid?: string
   /** Pickle index of the first example seen of each outline, keyed by file and outline line. */
   #outlineStarts = new Map<string, number>()
+  /** Pickle indices seen for each file and scenario title, in the order they started. */
+  #titledPickles = new Map<string, number[]>()
 
   constructor(
     options: Reporters.Options,
@@ -187,8 +190,13 @@ export class TestReporter extends WebdriverIOReporter {
   ): number | undefined {
     const pickleIndex = parseInt(suiteStats.uid, 10)
     const scenario = isNaN(pickleIndex)
-      ? null
-      : readFeatureScenario(file, suiteStats.title)
+      ? undefined
+      : this.#declarationOf(
+          file,
+          suiteStats.title,
+          pickleIndex,
+          readFeatureScenarios(file, suiteStats.title)
+        )
     if (!scenario) {
       return undefined
     }
@@ -202,6 +210,30 @@ export class TestReporter extends WebdriverIOReporter {
       suiteStats.featureLine = line
     }
     return scenario.line
+  }
+
+  // Same-titled scenarios run in file order, so the nth distinct pickle with a title is the nth declaration's; a retry reuses its pickle index.
+  #declarationOf(
+    file: string,
+    title: string,
+    pickleIndex: number,
+    scenarios: FeatureScenario[]
+  ): FeatureScenario | undefined {
+    const key = `${file}\0${title}`
+    const seen = this.#titledPickles.get(key) ?? []
+    if (!seen.includes(pickleIndex)) {
+      seen.push(pickleIndex)
+    }
+    this.#titledPickles.set(key, seen)
+    let ordinal = seen.indexOf(pickleIndex)
+    for (const scenario of scenarios) {
+      const count = picklesTitled(scenario, title)
+      if (ordinal < count) {
+        return scenario
+      }
+      ordinal -= count
+    }
+    return scenarios.at(-1)
   }
 
   #outlineStart(

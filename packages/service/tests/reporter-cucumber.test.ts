@@ -829,3 +829,63 @@ describe('retried attempts (test:retry)', () => {
     ])
   })
 })
+
+describe('Cucumber scenarios the feature file alone cannot tell apart', () => {
+  const REPEATED = `Feature: Repeated titles
+
+  Scenario: Log in
+    Given I am on the login page
+
+  Scenario: Log in
+    Given I am on the login page
+`
+  const DOCSTRING = `Feature: Docstring outline
+
+  Scenario Outline: Post a note
+    Given I post:
+      """
+      Rule: not a rule
+      Examples: not a table
+      """
+    When I login with <username>
+
+    Examples:
+      | username |
+      | tomsmith |
+      | foobar   |
+`
+  let repeated: string
+  let docstring: string
+
+  beforeAll(() => {
+    repeated = path.join(rootDir, 'features', 'repeated.feature')
+    docstring = path.join(rootDir, 'features', 'docstring.feature')
+    fs.writeFileSync(repeated, REPEATED)
+    fs.writeFileSync(docstring, DOCSTRING)
+  })
+
+  function run(uri: string, titles: string[]): TreeNode[] {
+    const feature: FeatureSpec = {
+      uri,
+      title: 'Feature',
+      scenarios: titles.map((title, i) => ({
+        title,
+        steps: [{ id: `${uri}-${i}`, title: 'Given I am on the login page' }]
+      }))
+    }
+    return sentFeatures(runFeatures('10.2', rootDir, [feature]).report)[0]
+      .suites
+  }
+
+  it('keeps two plain scenarios with one title as two rows', () => {
+    const suites = run(repeated, ['Log in', 'Log in'])
+    expect(suites).toHaveLength(2)
+    expect(suites[0].uid).not.toBe(suites[1].uid)
+  })
+
+  it('reads an outline past a docstring holding block keywords', () => {
+    const suites = run(docstring, ['Post a note', 'Post a note'])
+    expect(suites.map((s) => s.featureLine)).toEqual([13, 14])
+    expect(suites[0].uid).not.toBe(suites[1].uid)
+  })
+})

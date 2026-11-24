@@ -196,41 +196,64 @@ function outlineExamples(
 }
 
 // Exact, never `includes`: a title contained in an earlier scenario's title would find that scenario.
-function findScenario(
-  lines: string[],
-  title: string
-): FeatureScenario | undefined {
+function findScenarios(lines: string[], title: string): FeatureScenario[] {
+  const found: FeatureScenario[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
     const outline = keywordName(line, OUTLINE_KEYWORDS)
     if (outline !== undefined) {
       const examples = outlineExamples(lines, i, outline)
       if (outline === title || examples.some((e) => e.name === title)) {
-        return { line: i + 1, examples }
+        found.push({ line: i + 1, examples })
       }
     } else if (keywordName(line, SCENARIO_KEYWORDS) === title) {
       // A plain scenario has no examples, so it never takes a row line.
-      return { line: i + 1, examples: [] }
+      found.push({ line: i + 1, examples: [] })
     }
   }
-  return undefined
+  return found
 }
 
-/** The scenario titled `title` in a feature file, or null when neither is found. */
-export function readFeatureScenario(
+function docStringFence(line: string): string | undefined {
+  return ['"""', '```'].find((fence) => line.startsWith(fence))
+}
+
+// A docstring's text is step data, so a `Rule:` or `Examples:` inside it starts nothing.
+function withoutDocStrings(lines: string[]): string[] {
+  let open: string | undefined
+  return lines.map((raw) => {
+    const fence = docStringFence(raw.trim())
+    if (open === undefined) {
+      open = fence
+      return fence === undefined ? raw : ''
+    }
+    if (fence === open) {
+      open = undefined
+    }
+    return ''
+  })
+}
+
+/** Every scenario titled `title` in a feature file, in file order; empty when the file or title is not found. */
+export function readFeatureScenarios(
   filePath: string,
   title: string
-): FeatureScenario | null {
+): FeatureScenario[] {
   try {
     if (!existsSync(filePath)) {
-      return null
+      return []
     }
     const lines = readFileSync(filePath, 'utf-8').split('\n')
-    return findScenario(lines, title) ?? null
+    return findScenarios(withoutDocStrings(lines), title)
   } catch (error) {
     console.error('[Reporter] Failed to parse feature file:', error)
-    return null
+    return []
   }
+}
+
+/** How many pickles titled `title` a scenario compiles to. */
+export function picklesTitled(scenario: FeatureScenario, title: string) {
+  return scenario.examples.filter((e) => e.name === title).length || 1
 }
 
 /** An example's row line: the one row Cucumber gives its title, else its position among its outline's pickles. */
