@@ -379,6 +379,38 @@ describe('DevtoolsService - afterTest state stamping', () => {
     }
   })
 
+  it('ends an attempt before the service waits for its command hooks', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const settle = vi
+      .spyOn(HooksInFlight.prototype, 'settled')
+      .mockImplementation(async () => {
+        vi.setSystemTime(13_000)
+        return true
+      })
+    try {
+      const service = new DevToolsHookService({
+        mode: 'trace',
+        tracePolicy: 'retain-on-failure'
+      })
+      await service.before({} as never, [], mockBrowser)
+      const title = 'settling attempt'
+      vi.setSystemTime(1_000)
+      service.beforeTest({ file, fullTitle: title })
+      vi.setSystemTime(3_000)
+      await service.afterTest({ file, fullTitle: title }, {}, { passed: true })
+      await service.after()
+      const ctx = finalizeTraceExport.mock.calls.at(-1)?.[0] as {
+        outcomes: { attemptsFor(uid: string): Array<{ endTime?: number }> }
+      }
+      expect(
+        ctx.outcomes.attemptsFor(deterministicUid(file, title))
+      ).toMatchObject([{ endTime: 3_000 }])
+    } finally {
+      settle.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
   it('leaves no failure message on a failed scenario that reported no error', async () => {
     const service = new DevToolsHookService({
       mode: 'trace',
