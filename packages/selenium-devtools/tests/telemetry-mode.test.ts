@@ -19,6 +19,7 @@ import {
   type OnCommandCtx
 } from '../src/helpers/commandPostActions.js'
 import { captureFinalFrame } from '../src/helpers/finalFrame.js'
+import { getDriverOriginals } from '../src/driverPatcher.js'
 import type {
   CapturedCommand,
   DevToolsMode,
@@ -267,6 +268,38 @@ describe('telemetry mode: no page injection, preload or BiDi attach', () => {
 
       expect(inject).toHaveBeenCalledTimes(expected)
       expect(capturer.commandsLog.length).toBe(expected)
+    }
+  )
+
+  it.each([
+    ['telemetry', false],
+    ['trace', true]
+  ] as const)(
+    '%s: the published metadata has a viewport only when observed (%s)',
+    async (mode, observed) => {
+      vi.spyOn(NativeNetworkCapture.prototype, 'start').mockResolvedValue()
+      const originals = getDriverOriginals() as Record<string, unknown>
+      const executeScript = vi.fn().mockResolvedValue({ width: 1, height: 1 })
+      const manage = vi.fn()
+      Object.assign(originals, { executeScript, manage })
+      const driver = {
+        getSession: () => Promise.resolve({ getId: () => 'sess-1' }),
+        getCapabilities: () => Promise.resolve({ browserName: 'chrome' })
+      } as unknown as SeleniumDriverLike
+      const ctx = makeLifecycleCtx(mode)
+
+      try {
+        await onDriverCreated(ctx, driver)
+
+        const metadata = ctx.sessionCapturer?.metadata as object
+        expect('viewport' in metadata).toBe(observed)
+        expect(executeScript.mock.calls.length > 0).toBe(observed)
+        expect(manage.mock.calls.length > 0).toBe(false)
+      } finally {
+        delete originals.executeScript
+        delete originals.manage
+        ctx.sessionCapturer?.cleanup()
+      }
     }
   )
 })
