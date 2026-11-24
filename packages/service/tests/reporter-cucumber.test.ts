@@ -44,7 +44,7 @@ function featureId(version: WdioVersion, uri: string, rootDir: string) {
   return `${id}:1:1`
 }
 
-function harness(specs: string[]): Harness {
+function harness(specs: string[], cid = CID): Harness {
   const report = vi.fn()
   const onRetry = vi.fn()
   const reporter = new TestReporter(
@@ -59,10 +59,10 @@ function harness(specs: string[]): Harness {
     if (payload.title && payload.parent) {
       message.fullTitle = `${payload.parent}: ${payload.title}`
     }
-    reporter.emit(event, { ...message, cid: CID, specs, uid: payload.uid })
+    reporter.emit(event, { ...message, cid, specs, uid: payload.uid })
   }
   reporter.emit('runner:start', {
-    cid: CID,
+    cid,
     specs,
     capabilities: { browserName: 'chrome' },
     config: {}
@@ -136,9 +136,13 @@ function runSteps(
 function runFeatures(
   version: WdioVersion,
   rootDir: string,
-  features: FeatureSpec[]
+  features: FeatureSpec[],
+  cid = CID
 ): Harness {
-  const h = harness(features.map((f) => f.uri))
+  const h = harness(
+    features.map((f) => f.uri),
+    cid
+  )
   let pickleIndex = 0
   for (const feature of features) {
     const fid = featureId(version, feature.uri, rootDir)
@@ -360,7 +364,7 @@ describe('Cucumber suite tree on WebdriverIO 9.x and 10.2', () => {
 })
 
 describe('Cucumber scenario lines read from the feature file', () => {
-  // A plain scenario whose title contains the first outline's, then an outline and a template.
+  // A plain scenario whose title contains the first outline's, an outline, a template and another plain scenario.
   const MIXED = `Feature: Outline numbering
 
   Scenario: As a user, I can log into the secure area twice
@@ -384,6 +388,9 @@ describe('Cucumber scenario lines read from the feature file', () => {
       | username |
       | alice    |
       | bob      |
+
+  Scenario: Log out
+    Given I am on the login page
 `
   const PLAIN_TITLE = 'As a user, I can log into the secure area twice'
   const OUTLINE_TITLE = 'As a user, I can log into the secure area'
@@ -394,7 +401,7 @@ describe('Cucumber scenario lines read from the feature file', () => {
     fs.writeFileSync(mixed, MIXED)
   })
 
-  function runScenarios(titles: string[]): TreeNode[] {
+  function runScenarios(titles: string[], cid = CID): TreeNode[] {
     const feature: FeatureSpec = {
       uri: mixed,
       title: 'Outline numbering',
@@ -403,7 +410,7 @@ describe('Cucumber scenario lines read from the feature file', () => {
         steps: [{ id: `${title}-${i}`, title: 'Given I am on the login page' }]
       }))
     }
-    return sentFeatures(runFeatures('10.2', rootDir, [feature]).report)[0]
+    return sentFeatures(runFeatures('10.2', rootDir, [feature], cid).report)[0]
       .suites
   }
 
@@ -430,6 +437,25 @@ describe('Cucumber scenario lines read from the feature file', () => {
       OUTLINE_TITLE
     ])
     expect(suites.map((s) => s.featureLine)).toEqual([undefined, 12, 13, 14])
+  })
+
+  it('keys a plain scenario on itself, not its worker slot or pickle index', () => {
+    const full = runScenarios(
+      [
+        PLAIN_TITLE,
+        OUTLINE_TITLE,
+        OUTLINE_TITLE,
+        OUTLINE_TITLE,
+        'Login as alice',
+        'Login as bob',
+        'Log out'
+      ],
+      '0-0'
+    )
+    const [alone] = runScenarios(['Log out'], '1-4')
+    expect(full[6].featureLine).toBeUndefined()
+    expect(alone.uid).toBe(full[6].uid)
+    expect(full[0].uid).not.toBe(full[6].uid)
   })
 
   it('gives an example run alone the line it has in a full run', () => {

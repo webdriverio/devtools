@@ -39,11 +39,19 @@ function isScenario(item: SuiteStats | TestStats): boolean {
 // numeric uid + example-row fallback), then delegates the Mocha/Jasmine path
 // to core's generateStableUid. `parentScope` (the owning scenario's stable
 // uid) disambiguates Cucumber steps so identical step text in sibling
-// scenarios yields distinct, rerun-stable uids.
+// scenarios yields distinct, rerun-stable uids. `scenarioLine` is a
+// scenario's own line read from its feature file.
 function generateStableUid(
   item: SuiteStats | TestStats,
-  parentScope?: string,
-  inFeatureFile = false
+  {
+    parentScope,
+    inFeatureFile = false,
+    scenarioLine
+  }: {
+    parentScope?: string
+    inFeatureFile?: boolean
+    scenarioLine?: number
+  } = {}
 ): string {
   // For Cucumber scenarios, prefer the feature file URI:line as the stable
   // discriminator. The Cucumber pickle carries the actual line of the example
@@ -65,15 +73,10 @@ function generateStableUid(
   }
 
   // Fallback for Cucumber scenarios where the pickle URI:line wasn't captured.
-  // Not `parent`: WDIO 10.2 changed that feature id's form, and `file` names the feature.
+  // Only the scenario's own properties: the worker slot and pickle index change with the run's selection.
   if (isScenario(item) && /^\d+$/.test(item.uid)) {
     const file = 'file' in item ? (item.file ?? '') : ''
-    return deterministicUid(
-      item.title,
-      file,
-      item.cid || '',
-      `example-${item.uid}`
-    )
+    return deterministicUid(file, String(scenarioLine ?? ''), item.title)
   }
 
   // Cucumber step: scope by the owning scenario's stable uid via
@@ -127,6 +130,7 @@ export class TestReporter extends WebdriverIOReporter {
     // For Cucumber scenarios: prefer the pickle's URI:line (stable across
     // single-example reruns). Fall back to index-based feature-file parsing
     // only if the pickle data isn't available.
+    let scenarioLine: number | undefined
     if (isScenario(suiteStats) && suiteStats.file?.endsWith('.feature')) {
       const cucumberArg = (suiteStats as { argument?: unknown }).argument as
         { uri?: string; line?: number } | undefined
@@ -140,12 +144,12 @@ export class TestReporter extends WebdriverIOReporter {
         suiteStats.featureFile = pickleUri
         suiteStats.featureLine = pickleLine
       } else {
-        this.#resolveExampleLine(suiteStats, suiteStats.file)
+        scenarioLine = this.#resolveFeatureLines(suiteStats, suiteStats.file)
       }
     }
 
     // Generate stable UID for consistent identification across reruns
-    suiteStats.uid = generateStableUid(suiteStats)
+    suiteStats.uid = generateStableUid(suiteStats, { scenarioLine })
 
     // Track the open Cucumber scenario so its steps scope their uids to it.
     if (isScenario(suiteStats)) {
@@ -176,14 +180,17 @@ export class TestReporter extends WebdriverIOReporter {
     this.#sendUpstream()
   }
 
-  // WDIO's scenario uid is its position among every pickle of the run, so an example is numbered from its outline's first.
-  #resolveExampleLine(suiteStats: SuiteStats, file: string): void {
+  // Sets an example's row line and returns the scenario's own; WDIO's uid is a position among every pickle, so examples count from their outline's first.
+  #resolveFeatureLines(
+    suiteStats: SuiteStats | TestStats,
+    file: string
+  ): number | undefined {
     const pickleIndex = parseInt(suiteStats.uid, 10)
     const scenario = isNaN(pickleIndex)
       ? null
       : readFeatureScenario(file, suiteStats.title)
     if (!scenario) {
-      return
+      return undefined
     }
     const line = exampleLine(
       scenario,
@@ -194,6 +201,7 @@ export class TestReporter extends WebdriverIOReporter {
       suiteStats.featureFile = file
       suiteStats.featureLine = line
     }
+    return scenario.line
   }
 
   #outlineStart(
@@ -236,9 +244,21 @@ export class TestReporter extends WebdriverIOReporter {
     const retryKey = attemptKey(testStats)
     const retriedUid = this.#retriedUids.get(retryKey)
     this.#retriedUids.delete(retryKey)
+    // A `scenarioLevelReporter` scenario is a test, and needs the lines a scenario suite gets.
+    const scenarioLine =
+      isScenario(testStats) &&
+      testStats.file &&
+      inFeatureFile &&
+      testStats.featureLine === undefined
+        ? this.#resolveFeatureLines(testStats, testStats.file)
+        : undefined
     testStats.uid =
       retriedUid ??
-      generateStableUid(testStats, this.#currentScenarioUid, inFeatureFile)
+      generateStableUid(testStats, {
+        parentScope: this.#currentScenarioUid,
+        inFeatureFile,
+        scenarioLine
+      })
 
     this.#sendUpstream()
   }
