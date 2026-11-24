@@ -149,6 +149,15 @@ class TestTypedPasswords(_Configured):
         self.assertEqual(self._rows()[-1]["args"][0]["value"], list("••••"))
         self.assertEqual(self.driver.received[:2], ["getElementProperty", "sendKeysToElement"])
 
+    def test_a_source_sent_before_the_password_was_learned_is_sent_again_redacted(self):
+        self._type("user", "tomsmith")
+        self._type("pw", SECRET)
+        sources = [data for scope, data in self.tx.sent if scope == "sources"]
+        self.assertEqual(len(sources), 2)
+        self.assertIn(SECRET, next(iter(sources[0].values())))
+        self.assertNotIn(SECRET, next(iter(sources[-1].values())))
+        self.assertEqual(sources[0].keys(), sources[-1].keys())
+
     def test_text_typed_into_another_field_is_kept(self):
         self._type("user", "tomsmith")
         self.assertEqual(self._rows()[-1]["args"][0]["text"], "tomsmith")

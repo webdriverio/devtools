@@ -1005,7 +1005,7 @@
         "ts": "shared/secret-redaction.ts createSecretRedactor(...).redact (walk: shared/redaction-walk.ts)",
         "py": "secret_redaction.py create_secret_redactor(...).redact (walk: redaction_walk.py)"
       },
-      "notes": "Every string in a JSON-shaped value has each secret (listed or typed) replaced by the fixed placeholder, in four forms: as typed, JSON-escaped, encodeURIComponent and form-encoded (space as +, only alphanumerics and *-._ kept). Typed passwords are redacted exactly like listed secrets; a keystroke prefix of either is never replaced, since the page collector already masks a password field's own value keystroke by keystroke. An array of 4 or more one-character strings (a W3C Send Keys value) is redacted as the text it spells and split back into characters, so it takes the placeholder's length. A data: URI or a base64 run of 256+ characters is left alone unless it equals a form of a secret, and so is any string under `screenshot`, or under `data` beside a `mimeType`. With `authHeaders` (on whenever input masking is), the values of Authorization, Proxy-Authorization, Cookie and Set-Cookie in any object under `headers`, `requestHeaders` or `responseHeaders` are replaced, a string under `cookies` has each cookie's value replaced, and a cookie object (string name and value plus a W3C cookie field) has its value replaced. Keys are kept. A value that changes nothing is returned as it is.",
+      "notes": "Every string in a JSON-shaped value has each secret (listed or typed) replaced by the fixed placeholder, in four forms: as typed, JSON-escaped, encodeURIComponent and form-encoded (space as +, only alphanumerics and *-._ kept). Typed passwords are redacted exactly like listed secrets; a keystroke prefix of either is never replaced, since the page collector already masks a password field's own value keystroke by keystroke. An array of 4 or more one-character strings (a W3C Send Keys value) is redacted as the text it spells and split back into characters, so it takes the placeholder's length. An array of two or more strings, some longer than one character (a client call's parts, as in sendKeys('Super', 'Secret')), whose joined text holds a secret no single part holds whole becomes a one-item array of the redacted joined text; when every secret sits inside one part, the parts keep their shape. A data: URI or a base64 run of 256+ characters is left alone unless it equals a form of a secret, and so is any string under `screenshot`, or under `data` beside a `mimeType`. With `authHeaders` (on whenever input masking is), the values of Authorization, Proxy-Authorization, Cookie and Set-Cookie in any object under `headers`, `requestHeaders` or `responseHeaders` are replaced, a string under `cookies` has each cookie's value replaced, and a cookie object (string name and value plus a W3C cookie field) has its value replaced. Keys are kept. A value that changes nothing is returned as it is.",
       "cases": [
         {
           "name": "a secret inside a longer string is replaced",
@@ -1041,6 +1041,43 @@
           "authHeaders": false,
           "value": "Enter tomsmith for the username and SuperSecretPassword! for the password. tomsmith again.",
           "expect": "Enter \u2022\u2022\u2022\u2022 for the username and \u2022\u2022\u2022\u2022 for the password. \u2022\u2022\u2022\u2022 again."
+        },
+        {
+          "name": "a secret split across a client call's parts is redacted as the text they join to",
+          "secrets": [],
+          "typed": [
+            "SuperSecret"
+          ],
+          "authHeaders": false,
+          "value": {
+            "command": "sendKeys",
+            "args": [
+              "Super",
+              "Secret"
+            ]
+          },
+          "expect": {
+            "command": "sendKeys",
+            "args": [
+              "\u2022\u2022\u2022\u2022"
+            ]
+          }
+        },
+        {
+          "name": "parts that each hold a secret whole keep their shape",
+          "secrets": [
+            "tomsmith"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": [
+            "user tomsmith",
+            "and more"
+          ],
+          "expect": [
+            "user \u2022\u2022\u2022\u2022",
+            "and more"
+          ]
         },
         {
           "name": "the placeholder does not reveal the length",

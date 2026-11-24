@@ -238,20 +238,22 @@ def _read_with_ceiling(read_field_type: Callable[[], Any]) -> Any:
     return _TIMED_OUT if reader.is_alive() else result.get("type")
 
 
-def note_typed_input(parts: Any, read_field_type: Callable[[], Any], session: Any = None) -> None:
-    """Add what a key-sending command typed to the run's secrets when ``read_field_type`` names a password field."""
+def note_typed_input(parts: Any, read_field_type: Callable[[], Any], session: Any = None) -> bool:
+    """Add what a key-sending command typed to the run's secrets when ``read_field_type`` names a password field; True when it was new."""
     text = typed_text(parts)
     known = text in _state["typed"] or text in _state["configured"]
     if not _state["automatic"] or known or not is_redactable_value(text) or session in _state["stalled"]:
-        return
+        return False
     field_type = _read_with_ceiling(read_field_type)
     if field_type is _TIMED_OUT:
         # The abandoned read is still on the session, so no later read may queue beside the user's commands on it.
         _state["stalled"].add(session)
-        return
+        return False
     if is_password_field_type(field_type) and text not in _state["typed"]:
         _state["typed"].append(text)
         _rebuild()
+        return True
+    return False
 
 
 def redact(value: Any) -> Any:

@@ -59,12 +59,17 @@ def _changed(redacted: Any, item: Any) -> bool:
 
 
 def _redact_keystrokes(items: Sequence[Any], rules: Rules) -> Optional[List[str]]:
-    # A W3C Send Keys payload spells the text one character per item; the array takes the placeholder's length.
-    if len(items) < MIN_SECRET_LENGTH or not all(isinstance(i, str) and len(i) == 1 for i in items):
+    # Typed text arrives in parts (one character per item, or a client call's chunks); both are redacted as the text they join to.
+    if len(items) < 2 or not all(isinstance(i, str) for i in items):
         return None
     typed = "".join(items)
     redacted = rules.text(typed)
-    return None if redacted == typed else list(redacted)
+    if redacted == typed:
+        return None
+    if all(len(i) == 1 for i in items):
+        return list(redacted)
+    # Parts that each hold their secret whole keep their shape; only a secret split across parts joins them.
+    return None if "".join(rules.text(i) for i in items) == redacted else [redacted]
 
 
 def _redact_credential(value: Any) -> Any:

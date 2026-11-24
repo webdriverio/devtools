@@ -364,9 +364,10 @@ Precedence is the command line, then the ini file, then the environment.
 
 Not redacted automatically: text typed into a field that is not a password
 field, keys sent through `ActionChains` (they name no field), a password typed
-on a native app, and anything sent before the password was typed (a literal
-credential in your test source reaches the live Source tab when the test's
-first command runs; the archive is written at the end and carries none of it).
+on a native app, and anything sent before the password was typed, other than
+the test source: a literal credential in it reaches the live Source tab when the
+test's first command runs, and the source is sent again redacted once the
+password is typed, so the tab and the archive carry none of it.
 Screenshots and screencast frames are pixels. List any other value in
 `secrets` (below). A `--devtools-secret` value is dropped from the Run-all and
 rerun commands the dashboard holds, so a rerun spawned from it does not redact

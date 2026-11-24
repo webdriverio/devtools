@@ -17,7 +17,7 @@ import os
 import sys
 import threading
 import weakref
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from . import (
     assertions,
@@ -75,8 +75,8 @@ _log = logging.getLogger(f"{LOGGER_NAME}.instrumentation")
 # patched_execute skips capturing them as user commands.
 _internal = threading.local()
 
-# User-file paths whose source we've already sent (once per file per run).
-_sources_sent: set = set()
+# User-file sources already sent (once per file per run), kept so a newly learned password can redact them.
+_sources_sent: Dict[str, str] = {}
 
 
 _skip_frames_cache: Optional[tuple] = None
@@ -236,10 +236,14 @@ def _guarded_execute_script(driver: Any) -> Any:
     return run
 
 
-def _note_typed_input(driver: Any, orig_execute: Any, driver_command: str, params: Any) -> None:
+def _note_typed_input(
+    driver: Any, capturer: SessionCapturer, orig_execute: Any, driver_command: str, params: Any
+) -> None:
     """Before an element's send_keys runs, read its field type, so a password is redacted from its own row on.
 
-    Through the unpatched ``execute``, so the read records no row.
+    Through the unpatched ``execute``, so the read records no row. A newly learned
+    password re-sends the sources already sent, which the backend replaces by path,
+    so neither the Source tab nor the archive keeps a literal sent before it.
     """
     if driver_command != "sendKeysToElement" or not isinstance(params, dict) or driver_is_native_app(driver):
         return
@@ -248,9 +252,11 @@ def _note_typed_input(driver: Any, orig_execute: Any, driver_command: str, param
         reply = orig_execute(driver, "getElementProperty", {"id": params.get("id"), "name": "type"})
         return reply.get("value") if isinstance(reply, dict) else reply
 
-    secret_redaction.note_typed_input(
+    learned = secret_redaction.note_typed_input(
         params.get("text", params.get("value")), read_type, session=getattr(driver, "session_id", None)
     )
+    if learned and _sources_sent:
+        capturer.send_sources(dict(_sources_sent))
 
 
 def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
@@ -275,7 +281,7 @@ def _capture_source(capturer: SessionCapturer, call_src: Optional[str]) -> None:
         return
     if text is None:
         return
-    _sources_sent.add(path)
+    _sources_sent[path] = text
     capturer.send_sources({path: text})
 
 # Selenium command names that change the document — after these we drain the
@@ -1250,7 +1256,7 @@ def install(
         _capture_source(capturer, src)  # Source tab: send the test file once
         target = element_locators.selector_for_command(driver_command, params)
         poll = wait_tracking.poll_of(driver_command, params, target)
-        _note_typed_input(self, orig_execute, driver_command, params)
+        _note_typed_input(self, capturer, orig_execute, driver_command, params)
         try:
             result = orig_execute(self, driver_command, params)
         except BaseException as exc:  # capture then re-raise unchanged

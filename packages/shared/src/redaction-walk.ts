@@ -74,17 +74,24 @@ function walk(value: unknown, w: Walk, key?: string): unknown {
   return result
 }
 
-/** A W3C Send Keys payload spells the text one character per item; the joined text is redacted and split back, so the array takes the placeholder's length. */
+/** Typed text arrives in parts: a W3C Send Keys payload one character per item, a client call (`sendKeys('Super', 'Secret')`) in chunks; both are redacted as the text they join to. */
 function redactKeystrokes(items: unknown[], w: Walk): string[] | undefined {
-  const isKeystrokes =
-    items.length >= MIN_SECRET_LENGTH &&
-    items.every((item) => typeof item === 'string' && [...item].length === 1)
-  if (!isKeystrokes) {
+  if (
+    items.length < 2 ||
+    !items.every((item): item is string => typeof item === 'string')
+  ) {
     return undefined
   }
   const typed = items.join('')
   const redacted = w.text(typed)
-  return redacted === typed ? undefined : [...redacted]
+  if (redacted === typed) {
+    return undefined
+  }
+  if (items.every((item) => [...item].length === 1)) {
+    return [...redacted]
+  }
+  // Parts that each hold their secret whole keep their shape; only a secret split across parts joins them.
+  return items.map(w.text).join('') === redacted ? undefined : [redacted]
 }
 
 /** A credential header's value, a string or a list of them, as the placeholder. */
