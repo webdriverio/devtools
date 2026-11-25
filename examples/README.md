@@ -64,7 +64,7 @@ Every desktop login example reads it (WebdriverIO, Nightwatch and Selenium in
 each runner, and both Python login cases; a trailing slash is ignored). Unset,
 they drive the public site as before. `web_form.py` drives selenium.dev's form
 page instead and the mobile examples read `DEVTOOLS_MOBILE_URL`. CI's `examples-smoke` job runs one
-of each in trace mode against the fixture and checks the zips with
+of each, plus the WebdriverIO Cucumber one, in trace mode against the fixture and checks the zips with
 `pnpm smoke:assert`; the expected rows per test live in
 `packages/conformance/smoke/expectations/`, so a change to one of those
 examples' steps updates its expectation file too.
