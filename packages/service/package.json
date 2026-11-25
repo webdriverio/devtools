@@ -15,6 +15,12 @@
   "bin": {
     "show-trace": "./bin/show-trace.mjs"
   },
+  "files": [
+    "dist",
+    "bin",
+    "README.md",
+    "CHANGELOG.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -11,6 +11,12 @@
   "type": "module",
   "types": "./types.d.ts",
   "exports": "./dist/script.js",
+  "files": [
+    "dist",
+    "src",
+    "types.d.ts",
+    "CHANGELOG.md"
+  ],
   "typeScriptVersion": "^5.0.0",
   "scripts": {
     "dev": "vite",

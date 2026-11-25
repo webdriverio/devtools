@@ -24,3 +24,23 @@ overrides:
   # @wdio/browser-runner depends on both: vite-plugin-commonjs pins esbuild ^0.14 and modern-node-polyfills peers it <=0.18; either forks a second vite whose viteConfig type the app's can't satisfy.
   'modern-node-polyfills>esbuild': ^0.28.2
   '@originjs/vite-plugin-commonjs>esbuild': ^0.28.2
+
+# pnpm 11 fails an install on an unlisted build script; pnpm 10 skipped them all, and none is needed
+allowBuilds:
+  '@nightwatch/nightwatch-inspector': false
+  '@parcel/watcher': false
+  '@swc/core': false
+  edgedriver: false
+  esbuild: false
+  geckodriver: false
+  unrs-resolver: false
+
+# Without it, pnpm installs an exact version under a day old and adds it to minimumReleaseAgeExclude
+minimumReleaseAgeStrict: true
+
+# WebdriverIO v10 has new releases often: accept them before `minimumReleaseAge`
+minimumReleaseAgeExclude:
+  - '@wdio/*'
+  - create-wdio
+  - webdriver
+  - webdriverio

@@ -3,7 +3,7 @@
   "version": "11.2.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.26.1+sha512.664074abc367d2c9324fdc18037097ce0a8f126034160f709928e9e9f95d98714347044e5c3164d65bd5da6c59c6be362b107546292a8eecb7999196e5ce58fa",
+  "packageManager": "pnpm@11.28.11+sha512.740184d10f81f5d5b165be88560ee7ba62406c4134896abc27a580109eec2f47c1e41d91251c944c2cababcb1c22461799ebb72de2ec625af2030b0e36c735a3",
   "scripts": {
     "build": "pnpm -r build",
     "show-trace": "node packages/backend/dist/show-trace.js",

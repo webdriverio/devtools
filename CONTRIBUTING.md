@@ -5,7 +5,12 @@ Thanks for contributing to WebdriverIO DevTools! This guide gets you from a clon
 ## Prerequisites
 
 - **Node.js** 22.23.4, 24.22.1, 26.12.1 or a later release of these lines
-- **pnpm** ≥ 9 (this is a pnpm workspace / monorepo)
+- **pnpm** 11, the exact version in `packageManager` (`package.json`). Run `corepack enable`; Node.js 26 has no Corepack, so first run `npm install -g corepack`.
+
+pnpm 11 can stop an install, in CI too:
+
+- **A version less than one day old** (`minimumReleaseAge`). Wait one day. In a terminal, answer No when pnpm asks to exclude it. `minimumReleaseAgeExclude` lists the WebdriverIO packages, which release often: add a package only with a comment that gives the reason.
+- **A new build script** (`strictDepBuilds`). Add the package to `allowBuilds` in `pnpm-workspace.yaml`, with `false` unless it needs the script.
 
 ## Setup
 
