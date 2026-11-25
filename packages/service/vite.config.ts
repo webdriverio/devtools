@@ -1,6 +1,5 @@
 import url from 'node:url'
 import path from 'node:path'
-import dts from 'vite-plugin-dts'
 import { defineConfig } from 'vite'
 
 const __dirname = url.fileURLToPath(new URL('.', import.meta.url))
@@ -67,12 +66,5 @@ export default defineConfig({
         )
       }
     }
-  },
-  plugins: [
-    dts({
-      root: __dirname,
-      entryRoot: 'src',
-      tsconfigPath: './tsconfig.build.json'
-    })
-  ]
+  }
 })
