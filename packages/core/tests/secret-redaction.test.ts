@@ -166,6 +166,36 @@ describe('sendUpstream', () => {
     expect(row.args[1]).toBe(SECRET)
   })
 
+  it('holds a frame sent while a typing read is in flight, then sends it redacted with what the read learned', async () => {
+    configureSecretRedaction()
+    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
+    const socket = sockets.at(-1)!
+    let answer!: (type: string) => void
+    const learning = noteTypedInput(
+      SECRET,
+      () => new Promise<string>((resolve) => (answer = resolve))
+    )
+    capturer.sendUpstream('consoleLogs', [{ args: [`typed ${SECRET}`] }])
+    capturer.sendUpstream('networkRequests', [{ url: `/?pw=${SECRET}` }])
+    expect(socket.sent).toEqual([])
+
+    answer('password')
+    await learning
+    await Promise.resolve()
+    expect(socket.sent.map((frame) => JSON.parse(frame).scope)).toEqual([
+      'consoleLogs',
+      'networkRequests'
+    ])
+    expect(socket.sent.join('')).not.toContain(SECRET)
+  })
+
+  it('sends at once when no typing read is in flight', () => {
+    configureSecretRedaction()
+    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
+    capturer.sendUpstream('consoleLogs', [{ args: ['hello'] }])
+    expect(sockets.at(-1)!.sent).toHaveLength(1)
+  })
+
   it('sends the payload as it is when no secret is listed or typed', () => {
     resetRedaction()
     const capturer = new TestSessionCapturer({
