@@ -19,6 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from selenium_devtools import (
     _contract,
+    capture_calls,
     capture_timing,
     capturer,
     device,
@@ -59,6 +60,7 @@ RUNNERS = {
     "collectorMaskPrelude",
     "resourceUrlKey",
     "captureGate",
+    "popupBidiHang",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -117,6 +119,21 @@ class TestAssertionTarget(unittest.TestCase):
                             read_value_locators.assertion_target(*operands), step["expect"], step
                         )
         read_value_locators.reset()
+
+
+class TestPopupBidiHang(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("popupBidiHang"):
+            with self.subTest(case["name"]):
+                caps = case["capabilities"]
+                self.assertEqual(
+                    {
+                        "major": capture_calls.chrome_major_version(caps),
+                        "affected": capture_calls.has_popup_bidi_hang(caps),
+                        "ceilings": capture_calls.capture_ceilings_apply(caps),
+                    },
+                    case["expect"],
+                )
 
 
 class TestNativeSession(unittest.TestCase):

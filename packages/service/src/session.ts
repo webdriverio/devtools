@@ -18,7 +18,6 @@ import { isNativeAppSession, sessionHasDocument } from '@wdio/devtools-shared'
 import { isAppiumSession } from './mobile.js'
 import {
   applyPerformanceData,
-  CAPTURE_PERFORMANCE_SCRIPT,
   collectorDrainExpression,
   drainCollectorWithRecovery,
   errorMessage,
@@ -29,14 +28,21 @@ import {
   LOG_SOURCES,
   rememberReadValue,
   RetryTracker,
-  SessionCapturerBase,
-  type CapturedPerformancePayload
+  SessionCapturerBase
 } from '@wdio/devtools-core'
 import type { DevToolsMode, TraceMutation } from '@wdio/devtools-shared'
 import type { CommandLog } from './types.js'
 import { serializeCommandError } from './command-error.js'
 import { toCommandError } from './assert-capture.js'
 import { directProbes } from './direct-probes.js'
+import {
+  drainWithin,
+  injectWithin,
+  readPerformanceWithin,
+  readWithin,
+  registerPreloadWithin,
+  screenshotWithin
+} from './capture-calls.js'
 import type { CommandNesting } from './command-stack.js'
 import { WaitRows } from './wait-rows.js'
 
@@ -212,7 +218,10 @@ export class SessionCapturer extends SessionCapturerBase {
       this.traceMode !== 'trace' && isNativeAppSession(browser.capabilities)
     if (!isAppiumSession(browser) || nativeLiveCapture) {
       try {
-        commandLogEntry.screenshot = await browser.takeScreenshot()
+        commandLogEntry.screenshot = await screenshotWithin(
+          browser,
+          'command screenshot'
+        )
       } catch (screenshotError) {
         log.warn(
           `failed to capture screenshot: ${(screenshotError as Error).message}`
@@ -425,8 +434,7 @@ export class SessionCapturer extends SessionCapturerBase {
     try {
       // Brief settle so navigation entries are populated before we read them.
       await new Promise((resolve) => setTimeout(resolve, 500))
-      const payload = (await browser.execute(CAPTURE_PERFORMANCE_SCRIPT)) as
-        CapturedPerformancePayload | undefined
+      const payload = await readPerformanceWithin(browser)
       if (applyPerformanceData(entry, payload, args[0] as string | undefined)) {
         this.sendReplaceCommand(entry.timestamp, entry)
       }
@@ -455,19 +463,21 @@ export class SessionCapturer extends SessionCapturerBase {
 
     this.#isScriptInjected = true
     log.info('Injecting devtools script...')
+    let registered = false
     try {
       const functionDeclaration = `async () => { ${await loadCollectorSource()} }`
 
-      await browser.scriptAddPreloadScript({
-        functionDeclaration
-      })
+      // A timed-out registration stays marked injected; a retry would wait out the same ceiling.
+      registered = await registerPreloadWithin(browser, functionDeclaration)
     } catch (err) {
       // Leave the guard open so a later attempt (context change, reload) can
       // retry — a stuck guard silently disables DOM capture for the session.
       this.#isScriptInjected = false
       throw err
     }
-    log.info('✓ Script injected successfully')
+    if (registered) {
+      log.info('✓ Script injected successfully')
+    }
   }
 
   /** Evaluate the collector bundle in the document that is loaded RIGHT NOW.
@@ -488,7 +498,7 @@ export class SessionCapturer extends SessionCapturerBase {
       await direct.runScript(`return ${source}`)
       return
     }
-    await browser.execute(`return ${source}`)
+    await injectWithin(browser, source)
   }
 
   /** Clear the per-session injection guard so the next `injectScript` re-adds
@@ -542,7 +552,9 @@ export class SessionCapturer extends SessionCapturerBase {
         injectIntoCurrentDocument: () =>
           this.injectIntoCurrentDocument(browser),
         currentUrl: () =>
-          direct ? direct.getUrl().then((u) => u ?? '') : browser.getUrl(),
+          direct
+            ? direct.getUrl().then((u) => u ?? '')
+            : readWithin(browser, () => browser.getUrl(), 'url read'),
         log: (level, message) => log[level](message)
       })
       if (!payload) {
@@ -586,21 +598,23 @@ export class SessionCapturer extends SessionCapturerBase {
         collectorDrainExpression(forceAnchor, mode, storedKeys)
       )
     }
-    return browser.execute(
-      (anchor, resources, stored) => {
-        if (typeof window.wdioTraceCollector === 'undefined') {
-          return null
-        }
-        if (anchor) {
-          window.wdioTraceCollector.captureCurrentDom()
-        }
-        return window.wdioTraceCollector.getTraceData(
-          resources === 'none' ? undefined : { resources, stored }
-        )
-      },
-      forceAnchor,
-      mode,
-      [...storedKeys]
+    return drainWithin(browser, () =>
+      browser.execute(
+        (anchor, resources, stored) => {
+          if (typeof window.wdioTraceCollector === 'undefined') {
+            return null
+          }
+          if (anchor) {
+            window.wdioTraceCollector.captureCurrentDom()
+          }
+          return window.wdioTraceCollector.getTraceData(
+            resources === 'none' ? undefined : { resources, stored }
+          )
+        },
+        forceAnchor,
+        mode,
+        [...storedKeys]
+      )
     )
   }
 

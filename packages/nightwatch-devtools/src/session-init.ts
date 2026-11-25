@@ -30,6 +30,7 @@ import {
   resolveAdapterOutputDir
 } from '@wdio/devtools-core'
 import { TraceType } from './types.js'
+import { captureCallsFor } from './capture-calls.js'
 import type { TraceResourcesMode } from '@wdio/devtools-shared'
 import { TIMING } from './constants.js'
 import { SessionCapturer } from './session.js'
@@ -243,7 +244,8 @@ async function tryAttachBidi(
   const { attachBidiHandlers, buildBidiSinks } = await import('./bidi.js')
   const ok = await attachBidiHandlers(
     driver,
-    buildBidiSinks(ctx.sessionCapturer)
+    buildBidiSinks(ctx.sessionCapturer),
+    captureCallsFor(browser)
   )
   if (ok) {
     ctx.sessionCapturer.bidiActive = true
@@ -273,7 +275,8 @@ async function tryRegisterPreload(
   }
   ctx.sessionCapturer.preloadRegistered = await registerCollectorPreload(
     driver,
-    (level, message) => log[level](message)
+    (level, message) => log[level](message),
+    captureCallsFor(browser)
   )
 }
 

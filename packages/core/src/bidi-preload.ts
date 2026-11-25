@@ -10,6 +10,10 @@
 // `performance.timeOrigin`. Nothing to detect, nothing to attribute.
 
 import { loadSeleniumSubmodule } from './bidi.js'
+import {
+  BIDI_SETUP_TIMEOUT_MS,
+  type CaptureCallGuard
+} from './capture-call-guard.js'
 import { errorMessage } from './error.js'
 import { loadCollectorSource } from './script-loader.js'
 
@@ -19,6 +23,7 @@ interface ScriptManager {
     argumentValueList?: unknown[],
     sandbox?: string | null
   ) => Promise<number>
+  removePreloadScript?: (id: number) => Promise<void>
 }
 
 /** `selenium-webdriver/bidi/scriptManager`'s default export. Cast at this
@@ -38,7 +43,8 @@ type ScriptManagerFactory = (
  */
 export async function registerCollectorPreload(
   driver: unknown,
-  log?: (level: 'info' | 'warn', message: string) => void
+  log: ((level: 'info' | 'warn', message: string) => void) | undefined,
+  guard: CaptureCallGuard
 ): Promise<boolean> {
   const factory =
     loadSeleniumSubmodule<ScriptManagerFactory>('bidi/scriptManager')
@@ -46,17 +52,16 @@ export async function registerCollectorPreload(
     return false
   }
   try {
-    // No browsing-context id, which registers the script GLOBALLY — contexts
-    // created later are covered too. Scoping it to the current context would
-    // miss exactly the documents this exists to catch.
-    const manager = await factory(undefined, driver)
-    // Raw source, not the IIFE-wrapped form: a preload script is a function
-    // declaration, so the bundle's top-level await works in the body directly.
-    await manager.addPreloadScript(
-      `async () => { ${await loadCollectorSource()} }`
+    const registered = await guard.setup(
+      (signal) => addCollectorPreload(factory, driver, signal),
+      BIDI_SETUP_TIMEOUT_MS,
+      false,
+      'BiDi preload registration'
     )
-    log?.('info', '✓ Collector registered at document-start (BiDi preload)')
-    return true
+    if (registered) {
+      log?.('info', '✓ Collector registered at document-start (BiDi preload)')
+    }
+    return registered
   } catch (err) {
     log?.(
       'warn',
@@ -64,4 +69,28 @@ export async function registerCollectorPreload(
     )
     return false
   }
+}
+
+async function addCollectorPreload(
+  factory: ScriptManagerFactory,
+  driver: unknown,
+  signal: AbortSignal
+): Promise<boolean> {
+  // No browsing-context id, which registers the script GLOBALLY: contexts
+  // created later are covered too. Scoping it to the current context would
+  // miss exactly the documents this exists to catch.
+  const manager = await factory(undefined, driver)
+  const source = await loadCollectorSource()
+  if (signal.aborted) {
+    return false
+  }
+  // Raw source, not the IIFE-wrapped form: a preload script is a function
+  // declaration, so the bundle's top-level await works in the body directly.
+  const id = await manager.addPreloadScript(`async () => { ${source} }`)
+  // Answered after its ceiling, when the caller has already fallen back to injection.
+  if (signal.aborted) {
+    await manager.removePreloadScript?.(id).catch(() => undefined)
+    return false
+  }
+  return true
 }
