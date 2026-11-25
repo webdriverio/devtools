@@ -44,7 +44,7 @@ function featureId(version: WdioVersion, uri: string, rootDir: string) {
   return `${id}:1:1`
 }
 
-function harness(specs: string[]): Harness {
+function harness(specs: string[], cid = CID): Harness {
   const report = vi.fn()
   const onRetry = vi.fn()
   const reporter = new TestReporter(
@@ -59,10 +59,10 @@ function harness(specs: string[]): Harness {
     if (payload.title && payload.parent) {
       message.fullTitle = `${payload.parent}: ${payload.title}`
     }
-    reporter.emit(event, { ...message, cid: CID, specs, uid: payload.uid })
+    reporter.emit(event, { ...message, cid, specs, uid: payload.uid })
   }
   reporter.emit('runner:start', {
-    cid: CID,
+    cid,
     specs,
     capabilities: { browserName: 'chrome' },
     config: {}
@@ -136,9 +136,13 @@ function runSteps(
 function runFeatures(
   version: WdioVersion,
   rootDir: string,
-  features: FeatureSpec[]
+  features: FeatureSpec[],
+  cid = CID
 ): Harness {
-  const h = harness(features.map((f) => f.uri))
+  const h = harness(
+    features.map((f) => f.uri),
+    cid
+  )
   let pickleIndex = 0
   for (const feature of features) {
     const fid = featureId(version, feature.uri, rootDir)
@@ -356,6 +360,142 @@ describe('Cucumber suite tree on WebdriverIO 9.x and 10.2', () => {
     })
     expect(trees[1]).toEqual(trees[0])
     expect(trees[1][0].tests).toHaveLength(1)
+  })
+})
+
+describe('Cucumber scenario lines read from the feature file', () => {
+  // A plain scenario whose title contains the first outline's, an outline, a template and another plain scenario.
+  const MIXED = `Feature: Outline numbering
+
+  Scenario: As a user, I can log into the secure area twice
+    Given I am on the login page
+
+  Scenario Outline: As a user, I can log into the secure area
+    Given I am on the login page
+    When I login with <username>
+
+    Examples:
+      | username |
+      | tomsmith |
+      | foobar   |
+      | admin    |
+
+  Scenario Template: Login as <username>
+    Given I am on the login page
+    When I login with <username>
+
+    Examples:
+      | username |
+      | alice    |
+      | bob      |
+
+  Scenario: Log out
+    Given I am on the login page
+`
+  const PLAIN_TITLE = 'As a user, I can log into the secure area twice'
+  const OUTLINE_TITLE = 'As a user, I can log into the secure area'
+  let mixed: string
+
+  beforeAll(() => {
+    mixed = path.join(rootDir, 'features', 'mixed.feature')
+    fs.writeFileSync(mixed, MIXED)
+  })
+
+  function runScenarios(titles: string[], cid = CID): TreeNode[] {
+    const feature: FeatureSpec = {
+      uri: mixed,
+      title: 'Outline numbering',
+      scenarios: titles.map((title, i) => ({
+        title,
+        steps: [{ id: `${title}-${i}`, title: 'Given I am on the login page' }]
+      }))
+    }
+    return sentFeatures(runFeatures('10.2', rootDir, [feature], cid).report)[0]
+      .suites
+  }
+
+  it('numbers each example within its own outline', () => {
+    const suites = runScenarios([
+      PLAIN_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      'Login as alice',
+      'Login as bob'
+    ])
+    expect(suites.slice(1).map((s) => s.featureLine)).toEqual([
+      12, 13, 14, 22, 23
+    ])
+    expect(new Set(suites.map((s) => s.uid)).size).toBe(6)
+  })
+
+  it('gives a plain scenario before an outline no example line', () => {
+    const suites = runScenarios([
+      PLAIN_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE,
+      OUTLINE_TITLE
+    ])
+    expect(suites.map((s) => s.featureLine)).toEqual([undefined, 12, 13, 14])
+  })
+
+  it('keys a plain scenario on itself, not its worker slot or pickle index', () => {
+    const full = runScenarios(
+      [
+        PLAIN_TITLE,
+        OUTLINE_TITLE,
+        OUTLINE_TITLE,
+        OUTLINE_TITLE,
+        'Login as alice',
+        'Login as bob',
+        'Log out'
+      ],
+      '0-0'
+    )
+    const [alone] = runScenarios(['Log out'], '1-4')
+    expect(full[6].featureLine).toBeUndefined()
+    expect(alone.uid).toBe(full[6].uid)
+    expect(full[0].uid).not.toBe(full[6].uid)
+  })
+
+  it('keeps same-titled examples apart when the parser cannot read the file', () => {
+    const french = path.join(rootDir, 'features', 'french.feature')
+    fs.writeFileSync(
+      french,
+      `# language: fr
+Fonctionnalité: Connexion
+
+  Plan du scénario: Se connecter
+    Soit je suis sur la page de connexion
+
+    Exemples:
+      | utilisateur |
+      | tomsmith    |
+      | foobar      |
+`
+    )
+    const run = () =>
+      sentFeatures(
+        runFeatures('10.2', rootDir, [
+          {
+            uri: french,
+            title: 'Connexion',
+            scenarios: [0, 1].map((i) => ({
+              title: 'Se connecter',
+              steps: [{ id: `s-${i}`, title: 'Soit je suis sur la page' }]
+            }))
+          }
+        ]).report
+      )[0].suites
+    const suites = run()
+    expect(suites).toHaveLength(2)
+    expect(new Set(suites.map((s) => s.uid)).size).toBe(2)
+    expect(run().map((s) => s.uid)).toEqual(suites.map((s) => s.uid))
+  })
+
+  it('gives an example run alone the line it has in a full run', () => {
+    const [bob] = runScenarios(['Login as bob'])
+    expect(bob.featureLine).toBe(23)
   })
 })
 
@@ -722,5 +862,65 @@ describe('retried attempts (test:retry)', () => {
     expect(tests).toEqual([
       { uid: retried.uid, title: retried.title, state: 'passed', retries: 1 }
     ])
+  })
+})
+
+describe('Cucumber scenarios the feature file alone cannot tell apart', () => {
+  const REPEATED = `Feature: Repeated titles
+
+  Scenario: Log in
+    Given I am on the login page
+
+  Scenario: Log in
+    Given I am on the login page
+`
+  const DOCSTRING = `Feature: Docstring outline
+
+  Scenario Outline: Post a note
+    Given I post:
+      """
+      Rule: not a rule
+      Examples: not a table
+      """
+    When I login with <username>
+
+    Examples:
+      | username |
+      | tomsmith |
+      | foobar   |
+`
+  let repeated: string
+  let docstring: string
+
+  beforeAll(() => {
+    repeated = path.join(rootDir, 'features', 'repeated.feature')
+    docstring = path.join(rootDir, 'features', 'docstring.feature')
+    fs.writeFileSync(repeated, REPEATED)
+    fs.writeFileSync(docstring, DOCSTRING)
+  })
+
+  function run(uri: string, titles: string[]): TreeNode[] {
+    const feature: FeatureSpec = {
+      uri,
+      title: 'Feature',
+      scenarios: titles.map((title, i) => ({
+        title,
+        steps: [{ id: `${uri}-${i}`, title: 'Given I am on the login page' }]
+      }))
+    }
+    return sentFeatures(runFeatures('10.2', rootDir, [feature]).report)[0]
+      .suites
+  }
+
+  it('keeps two plain scenarios with one title as two rows', () => {
+    const suites = run(repeated, ['Log in', 'Log in'])
+    expect(suites).toHaveLength(2)
+    expect(suites[0].uid).not.toBe(suites[1].uid)
+  })
+
+  it('reads an outline past a docstring holding block keywords', () => {
+    const suites = run(docstring, ['Post a note', 'Post a note'])
+    expect(suites.map((s) => s.featureLine)).toEqual([13, 14])
+    expect(suites[0].uid).not.toBe(suites[1].uid)
   })
 })
