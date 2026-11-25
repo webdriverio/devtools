@@ -155,13 +155,19 @@ export function handleBidiJsException(
   }
 }
 
-/** `handler` as a listener that does nothing once `signal` aborts, so a subscription answered after its ceiling stays inert. */
-function unlessAborted<E>(
+/** Opens once every subscription of a setup has answered within its ceiling; a setup that runs out never opens, so the page's own capture stays the session's. */
+interface SetupGate {
+  open: boolean
+}
+
+/** `handler` as a listener that does nothing until `gate` opens or once `signal` aborts, so an event delivered during a setup that then times out sets no BiDi evidence. */
+function whileServing<E>(
+  gate: SetupGate,
   signal: AbortSignal,
   handler: (event: E) => void
 ): (event: E) => void {
   return (event) => {
-    if (!signal.aborted) {
+    if (gate.open && !signal.aborted) {
       handler(event)
     }
   }
@@ -176,21 +182,23 @@ async function attachLogInspector(
 ): Promise<boolean> {
   try {
     const inspector = (await factory(driver)) as LogInspector
+    const gate: SetupGate = { open: false }
     if (signal.aborted) {
       return false
     }
     await inspector.onConsoleEntry(
-      unlessAborted(signal, (e) => handleBidiConsoleEntry(e, sinks, log))
+      whileServing(gate, signal, (e) => handleBidiConsoleEntry(e, sinks, log))
     )
     if (signal.aborted) {
       return false
     }
     await inspector.onJavascriptException(
-      unlessAborted(signal, (e) => handleBidiJsException(e, sinks, log))
+      whileServing(gate, signal, (e) => handleBidiJsException(e, sinks, log))
     )
     if (signal.aborted) {
       return false
     }
+    gate.open = true
     log('info', '✓ BiDi LogInspector attached (console + JS exceptions)')
     return true
   } catch (err) {
@@ -450,11 +458,12 @@ export async function attachNetworkInspector(
   try {
     const inspector = (await factory(driver)) as NetworkInspector
     const rows = new Map<string, NetworkRequest>()
+    const gate: SetupGate = { open: false }
     const guarded: BidiHandlerSinks = {
-      pushConsoleLog: unlessAborted(signal, sinks.pushConsoleLog),
-      pushNetworkRequest: unlessAborted(signal, sinks.pushNetworkRequest),
+      pushConsoleLog: whileServing(gate, signal, sinks.pushConsoleLog),
+      pushNetworkRequest: whileServing(gate, signal, sinks.pushNetworkRequest),
       replaceNetworkRequest: (id, entry) => {
-        if (!signal.aborted) {
+        if (gate.open && !signal.aborted) {
           sinks.replaceNetworkRequest(id, entry)
         }
       }
@@ -480,6 +489,10 @@ export async function attachNetworkInspector(
       // The inspector is attached either way; only failed requests stay pending.
       log('warn', `BiDi network.fetchError unavailable: ${errorMessage(err)}`)
     }
+    if (signal.aborted) {
+      return false
+    }
+    gate.open = true
     log('info', '✓ BiDi NetworkInspector attached (request + response)')
     return true
   } catch (err) {

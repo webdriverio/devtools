@@ -627,6 +627,8 @@ def _attach_network(
     may still arrive later and then stays pending.
     """
     stats = stats if stats is not None else {}
+    # A subscription abandoned at its ceiling never serves, whatever it delivered before; see network_serving.
+    stats["cancelled"] = cancelled
     stats["captured"] = 0
     pending: Dict[str, Dict[str, Any]] = {}
     stats["pending"] = pending
@@ -734,7 +736,11 @@ def network_serving(stats: Optional[Dict[str, Any]]) -> bool:
     Appium's BiDi shim accepts the subscription and then delivers nothing; read
     by the drain to decide whether the page's own network entries are the
     session's capture or a second listing of what BiDi already reported."""
-    return bool(stats and stats.get("attached") and stats.get("observed"))
+    if not stats:
+        return False
+    cancelled = stats.get("cancelled")
+    abandoned = cancelled is not None and cancelled.is_set()
+    return bool(stats.get("attached") and stats.get("observed")) and not abandoned
 
 
 def _subscribe_via_event_manager(

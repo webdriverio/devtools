@@ -22,7 +22,7 @@ import {
   type CaptureSession
 } from '../src/capture-call-guard.js'
 import { registerCollectorPreload } from '../src/bidi-preload.js'
-import { attachNetworkInspector } from '../src/bidi.js'
+import { attachNetworkInspector, buildBidiSinks } from '../src/bidi.js'
 import { drainCollectorWithRecovery } from '../src/script-loader.js'
 import { captureActionSnapshot } from '../src/action-snapshot.js'
 import { SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS } from '../src/with-timeout.js'
@@ -269,6 +269,64 @@ describe('BiDi setup answered after its ceiling', () => {
     await expect(attached).resolves.toBe(false)
     onRequest?.({ request: { request: 'r1', url: 'http://x/' } })
     expect(sinks.pushNetworkRequest).not.toHaveBeenCalled()
+  })
+
+  it('sets no BiDi evidence from an event delivered while a later subscription is still waiting', async () => {
+    const target = {
+      consoleLogs: [],
+      networkRequests: [],
+      sendUpstream: vi.fn(),
+      bidiNetworkObserved: false
+    }
+    let onRequest: ((event: unknown) => void) | undefined
+    const { guard } = affected()
+    const attached = guard.setup(
+      (signal) =>
+        attachNetworkInspector(
+          {},
+          async () => ({
+            beforeRequestSent: async (cb: (event: unknown) => void) => {
+              onRequest = cb
+            },
+            responseCompleted: () => hung<void>()
+          }),
+          buildBidiSinks(target),
+          () => {},
+          signal
+        ),
+      BIDI_SETUP_TIMEOUT_MS,
+      false,
+      'BiDi network subscription'
+    )
+    await vi.advanceTimersByTimeAsync(0)
+    onRequest?.({ request: { request: 'r1', url: 'http://x/' } })
+    await vi.advanceTimersByTimeAsync(BIDI_SETUP_TIMEOUT_MS)
+    await expect(attached).resolves.toBe(false)
+    expect(target.bidiNetworkObserved).toBe(false)
+    expect(target.networkRequests).toEqual([])
+  })
+
+  it('passes events through once every subscription has answered', async () => {
+    const sinks = {
+      pushConsoleLog: vi.fn(),
+      pushNetworkRequest: vi.fn(),
+      replaceNetworkRequest: vi.fn()
+    }
+    let onRequest: ((event: unknown) => void) | undefined
+    const attached = await attachNetworkInspector(
+      {},
+      async () => ({
+        beforeRequestSent: async (cb: (event: unknown) => void) => {
+          onRequest = cb
+        },
+        responseCompleted: async () => {}
+      }),
+      sinks,
+      () => {}
+    )
+    expect(attached).toBe(true)
+    onRequest?.({ request: { request: 'r1', url: 'http://x/' } })
+    expect(sinks.pushNetworkRequest).toHaveBeenCalledTimes(1)
   })
 
   it('removes a preload registration that answers late, and falls back', async () => {
