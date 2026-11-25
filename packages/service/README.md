@@ -260,6 +260,8 @@ capabilities: [{
 
 The service starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
 
+Appium 3 only: appium-interceptor 1.0.x declares a peer of `appium@^3.0.1`, so on an Appium 4 server the listener does not start and the warning described above is logged. Stay on Appium 3.x with UiAutomator2 8.x for native network until the plugin supports Appium 4 ([examples/MOBILE.md](https://github.com/webdriverio/devtools/blob/main/examples/MOBILE.md#appium-3-or-appium-4) lists which driver pairs with which Appium).
+
 The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
 
 ## Reference
