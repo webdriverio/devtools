@@ -88,6 +88,14 @@ function redactLine(
   } catch {
     return redactor.redactString(line)
   }
+  // A raw body such as `123456` parses as a number, which the walk leaves alone; a string is walked so its escapes are decoded.
+  if (
+    typeof parsed === 'number' ||
+    typeof parsed === 'boolean' ||
+    parsed === null
+  ) {
+    return redactor.redactString(line)
+  }
   const redacted = keepReferences(parsed, redactor.redact(parsed), references)
   const text = JSON.stringify(redacted)
   return text === JSON.stringify(parsed) ? line : text

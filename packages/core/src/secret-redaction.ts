@@ -20,6 +20,8 @@ let configured: string[] = []
 let typed: string[] = []
 let automatic = true
 let redactor: SecretRedactor | undefined
+let readsInFlight = 0
+let onReadsSettled: (() => void)[] = []
 let generation = 0
 /** Each trace artifact written, with the redactor generation it was written under. */
 const written = new Map<string, number>()
@@ -88,16 +90,39 @@ export async function noteTypedInput(
     return
   }
   const text = typedText(parts)
-  // A read that fails or hangs leaves the value as typed: it must never hold the user's command back.
-  const type = await withTimeout(
-    startRead(readFieldType),
-    FIELD_TYPE_PROBE_TIMEOUT_MS,
-    undefined
-  )
-  if (isPasswordFieldType(type) && !typed.includes(text)) {
-    typed.push(text)
-    rebuild()
+  readsInFlight++
+  try {
+    // A read that fails or hangs leaves the value as typed: it must never hold the user's command back.
+    const type = await withTimeout(
+      startRead(readFieldType),
+      FIELD_TYPE_PROBE_TIMEOUT_MS,
+      undefined
+    )
+    if (isPasswordFieldType(type) && !typed.includes(text)) {
+      typed.push(text)
+      rebuild()
+    }
+  } finally {
+    readsInFlight--
+    if (readsInFlight === 0) {
+      const waiters = onReadsSettled
+      onReadsSettled = []
+      waiters.forEach((resume) => resume())
+    }
   }
+}
+
+/** Whether a field-type read is in flight, during which a frame could carry a password not yet learned. */
+export function typingReadsPending(): boolean {
+  return readsInFlight > 0
+}
+
+/** Resolves once no field-type read is in flight; at once when none is. */
+export function whenTypingReadsSettle(): Promise<void> {
+  if (readsInFlight === 0) {
+    return Promise.resolve()
+  }
+  return new Promise((resume) => onReadsSettled.push(resume))
 }
 
 /** Records an artifact just written, so a password learned after it can still be redacted from it. */
