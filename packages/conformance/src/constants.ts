@@ -52,6 +52,8 @@ export const RULES = {
   testHasRows: 'every-test-has-rows',
   waitParentsItsRows: 'wait-row-parents-its-commands',
   passwordMaskedInPage: 'password-masked-only-in-the-page',
+  typedPasswordNeverSent: 'typed-password-never-sent',
+  credentialHeadersRedacted: 'credential-headers-redacted',
   agreeOnActions: 'adapters-agree-on-actions',
   agreeOnErrors: 'adapters-agree-on-errors',
   agreeOnPages: 'adapters-agree-on-pages',
@@ -108,6 +110,7 @@ export const SCOPES = {
   mutations: 'mutations',
   networkRequests: 'networkRequests',
   suites: 'suites',
+  sources: 'sources',
   replaceCommand: WS_SCOPE.replaceCommand,
   config: WS_SCOPE.config
 } as const satisfies Record<string, WsMessageScope>
@@ -127,6 +130,12 @@ export const SCENARIO_ENV = {
   login: 'CONFORMANCE_LOGIN_URL',
   broken: 'CONFORMANCE_BROKEN_URL'
 } as const
+
+/** The credential the fake browser's requests carry in their Authorization and Cookie headers, and its responses in Set-Cookie. */
+export const CREDENTIAL = 'conformance-session-t0ken'
+
+/** What every scenario types into the password field, with no `secrets` configured. */
+export const SCENARIO_SECRET = 'secret'
 
 export const SCENARIO_TIMEOUT_MS = 60_000
 

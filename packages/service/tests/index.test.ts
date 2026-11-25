@@ -3,10 +3,12 @@ import type * as DevtoolsCore from '@wdio/devtools-core'
 import {
   captureMask,
   configureInputMasking,
+  configureSecretRedaction,
   DRIVER_ACTIVITY_MAX_HOLD_MS,
   isDriverBusy,
   isInputDispatchInFlight,
   rememberReadValue,
+  secretRedactor,
   selectorForReadValue
 } from '@wdio/devtools-core'
 import DevToolsHookService from '../src/index.js'
@@ -659,6 +661,26 @@ describe('DevtoolsService - Screencast Integration', () => {
       new DevToolsHookService()
       expect(captureMask()).toEqual({ inputs: true, selectors: [] })
       configureInputMasking()
+    })
+  })
+
+  describe('secrets', () => {
+    it('sets the run’s secrets from the service options, an env entry read at start', () => {
+      vi.stubEnv('SERVICE_TEST_SECRET', 'from-the-env')
+      try {
+        new DevToolsHookService({
+          secrets: ['SuperSecretPassword!', { env: 'SERVICE_TEST_SECRET' }]
+        })
+        expect(secretRedactor()?.secrets).toEqual([
+          'SuperSecretPassword!',
+          'from-the-env'
+        ])
+        new DevToolsHookService()
+        expect(secretRedactor()?.secrets).toEqual([])
+      } finally {
+        vi.unstubAllEnvs()
+        configureSecretRedaction()
+      }
     })
   })
 })

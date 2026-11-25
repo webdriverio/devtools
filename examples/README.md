@@ -48,6 +48,14 @@ translates it into the plugin's own options.
 `DEVTOOLS_TRACE_GRANULARITY` and `DEVTOOLS_TRACE_POLICY` walk the rest of the
 ladder, so each runner needs only one config.
 
+The demo password is redacted on its own once a test types it into the
+password field. `DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!'` also lists it
+in `secrets` for the WebdriverIO mocha, Nightwatch and Selenium Cucumber
+examples, which redacts it from the start of the run, including the login page
+text and the test source a live dashboard receives before the typing. The
+Python adapter reads the same variable through its own setting:
+`DEVTOOLS_SECRET_ENVS=DEVTOOLS_EXAMPLE_SECRET`.
+
 ## Local fixture site
 
 `pnpm smoke:fixtures` serves a copy of the-internet's login flow (`/`, `/login`,

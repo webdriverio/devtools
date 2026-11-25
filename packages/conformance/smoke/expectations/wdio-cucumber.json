@@ -42,7 +42,7 @@
       "error": true
     },
     {
-      "test": "When I login with tomsmith and SuperSecretPassword!",
+      "test": "When I login with tomsmith and ••••",
       "rows": ["Element.fill", "Element.fill", "Element.click"],
       "error": false
     },

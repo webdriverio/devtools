@@ -643,6 +643,9 @@ importers:
       '@xmldom/xmldom':
         specifier: ^0.9.12
         version: 0.9.12
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
       fluent-ffmpeg:
         specifier: ^2.1.3
         version: 2.1.3

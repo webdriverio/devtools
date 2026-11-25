@@ -1,6 +1,6 @@
-import type { CommandLog } from '@wdio/devtools-shared'
+import { MASKED_VALUE, type CommandLog } from '@wdio/devtools-shared'
 
-import { PASSWORD_FIELDS, RULES, SCOPES } from './constants.js'
+import { PASSWORD_FIELDS, RULES, SCENARIO_SECRET, SCOPES } from './constants.js'
 import type { GroundTruth, RecordedStream, Violation } from './types.js'
 
 /** WebDriver's special keys say which key was pressed; the typed text is what is left. */
@@ -21,7 +21,7 @@ function argsCarry(row: CommandLog, text: string): boolean {
   return stringsIn(row.args).includes(text)
 }
 
-// The page masks a password field's value, which needs the run's policy ahead of every collector source; the row that typed it keeps the real text.
+// The page masks a password field's value, which needs the run's policy ahead of every collector source; the row that typed some text carries it, a typed password as the placeholder.
 export function checkPasswordMasking(
   stream: RecordedStream,
   truth: GroundTruth
@@ -57,7 +57,10 @@ export function checkPasswordMasking(
             }
           ]
         : []),
-      ...(stream.rows.some((row) => argsCarry(row, text))
+      // A listed secret is redacted on its row; `checkSecretRedaction` holds it to that.
+      ...(stream.rows.some((row) =>
+        argsCarry(row, text === SCENARIO_SECRET ? MASKED_VALUE : text)
+      )
         ? []
         : [
             {

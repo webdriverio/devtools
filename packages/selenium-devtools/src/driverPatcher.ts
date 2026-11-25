@@ -18,6 +18,7 @@ import {
   selectorForElement
 } from './helpers/element-locators.js'
 import { getCallSourceFromStack } from './helpers/utils.js'
+import { inputGate } from './helpers/input-gate.js'
 import type {
   CapturedCommand,
   DriverOriginals,
@@ -134,9 +135,6 @@ function emitCommand(hooks: DriverPatcherHooks, cmd: CapturedCommand): void {
   }
 }
 
-/** Element commands that dispatch input to the page. */
-const INPUT_ELEMENT_METHODS = new Set(['click', 'sendKeys', 'clear', 'submit'])
-
 /** Reports the command once it settles — see `CapturedCommand.timestamp` for why
  *  the row is stamped at completion rather than at invocation. */
 function makeSettle(
@@ -161,6 +159,20 @@ function makeSettle(
   }
 }
 
+/** An element's `sendKeys('Super', 'Secret')` is recorded as the text it types, as the W3C payload carries it, so a password split across parts is redacted whole. */
+function recordedArgs(
+  methodName: string,
+  args: unknown[],
+  fromElement: boolean
+): unknown[] {
+  const typesText =
+    fromElement &&
+    methodName === 'sendKeys' &&
+    args.length > 1 &&
+    args.every((arg) => typeof arg === 'string' || typeof arg === 'number')
+  return typesText ? [args.join('')] : args
+}
+
 /** What a command's row says about the call, read at invocation, where a wait condition's call order is still the issue order. */
 function describeCall(
   methodName: string,
@@ -169,7 +181,9 @@ function describeCall(
   target: unknown,
   startTime: number
 ): Omit<CapturedCommand, 'result' | 'rawResult' | 'error' | 'timestamp'> {
-  const serializedArgs = args.map(safeSerialize)
+  const serializedArgs = recordedArgs(methodName, args, fromElement).map(
+    safeSerialize
+  )
   // `this` is the only trace of which element the command targets — the
   // locator was consumed by the findElement that produced it.
   const selector = fromElement ? selectorForElement(target) : undefined
@@ -208,15 +222,12 @@ function makeWrappedMethod(
 
     let result: unknown
     try {
-      const { beforeInput } = hooks
-      result =
-        fromElement && beforeInput && INPUT_ELEMENT_METHODS.has(methodName)
-          ? beforeInput()
-              .catch((err: unknown) =>
-                log.warn(`beforeInput hook threw: ${errorMessage(err)}`)
-              )
-              .then(() => original.apply(this, args))
-          : original.apply(this, args)
+      const gate = fromElement
+        ? inputGate(hooks, methodName, this, args)
+        : undefined
+      result = gate
+        ? gate.then(() => original.apply(this, args))
+        : original.apply(this, args)
     } catch (err) {
       settle(undefined, err as Error)
       throw err

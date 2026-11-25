@@ -6,6 +6,8 @@ import {
 } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
+import { FIELD_TYPE_SCRIPT } from '@wdio/devtools-shared'
+
 import {
   BIDI_PATH,
   BIDI_RESULTS,
@@ -232,7 +234,9 @@ export class FakeWebDriver {
     if (method === 'GET' && path === '/timeouts') {
       return { value: DEFAULT_TIMEOUTS }
     }
-    const element = path.match(/^\/element\/([^/]+)\/(value|click|clear|text)$/)
+    const element = path.match(
+      /^\/element\/([^/]+)\/(value|click|clear|text|(?:property|attribute)\/type)$/
+    )
     if (element) {
       return this.#onElement(element[1], element[2], params)
     }
@@ -354,6 +358,9 @@ export class FakeWebDriver {
         value: { error: 'stale element reference', message: id, stacktrace: '' }
       }
     }
+    if (action.endsWith('/type')) {
+      return { value: FakeMaskPolicy.fieldType(el.selector) }
+    }
     const value =
       action === 'value'
         ? this.#mask.type(el.selector, String(params.text ?? ''))
@@ -410,6 +417,9 @@ export class FakeWebDriver {
     const doc = this.#current
     if (!doc) {
       return null
+    }
+    if (script === FIELD_TYPE_SCRIPT) {
+      return FakeMaskPolicy.fieldType((JSON.parse(args) as unknown[])[0])
     }
     if (COLLECTOR_SIGNATURE.test(script) || COLLECTOR_SIGNATURE.test(args)) {
       this.#mask.noteSource(script, args)

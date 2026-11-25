@@ -23,6 +23,17 @@ function makeCapturer(browser?: NightwatchBrowser): SessionCapturer {
 }
 
 describe('SessionCapturer.captureCommand', () => {
+  it("records a typing command's text parts joined", async () => {
+    const cap = makeCapturer()
+    await cap.captureCommand(
+      'setValue',
+      ['#password', ['Super', 'Secret']],
+      undefined,
+      undefined
+    )
+    expect(cap.commandsLog[0].args).toEqual(['#password', 'SuperSecret'])
+  })
+
   it('pushes the entry into commandsLog with a stable _id', async () => {
     const cap = makeCapturer()
     await cap.captureCommand('click', ['#btn'], { ok: true }, undefined)

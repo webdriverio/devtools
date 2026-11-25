@@ -18,6 +18,7 @@ import selenium_devtools as devtools
 from . import assertions, frames, instrumentation, read_value_locators, rerun
 from ._contract import TRACE_RESOURCES_MODES
 from .constants import ENV_OPT_IN, ENV_PORT, LOGGER_NAME
+from .secret_redaction import SecretEntry
 from .utils import now_ms
 
 _log = logging.getLogger(f"{LOGGER_NAME}.pytest")
@@ -85,6 +86,24 @@ def pytest_addoption(parser) -> None:  # noqa: ANN001
         action="append",
         default=None,
         help="Also mask the text and value of elements matching this CSS selector in the replayed page. Repeatable.",
+    )
+    group.addoption(
+        "--devtools-secret",
+        action="append",
+        default=None,
+        help="A value replaced by •••• in everything the dashboard and the trace receive. Repeatable.",
+    )
+    group.addoption(
+        "--devtools-secret-env",
+        action="append",
+        default=None,
+        help="The name of an environment variable whose value is redacted like --devtools-secret. Repeatable.",
+    )
+    parser.addini(
+        "devtools_secret_envs",
+        "Names of environment variables whose values are redacted from the dashboard and the trace, one per line.",
+        type="linelist",
+        default=None,
     )
     parser.addini(
         "devtools_mask_inputs",
@@ -192,6 +211,16 @@ def _resolve_mask_selectors(config) -> Optional[List[str]]:  # noqa: ANN001
         return [str(s) for s in cli]
     value = _ini_raw(config, "devtools_mask_selectors")
     return [str(s) for s in value] if value else None
+
+
+def _resolve_secrets(config) -> Optional[List[SecretEntry]]:  # noqa: ANN001
+    """Secrets from the CLI, else env names from ini, else undecided (``enable()`` reads the environment)."""
+    literals = config.getoption("--devtools-secret", None) or []
+    names = config.getoption("--devtools-secret-env", None) or []
+    if literals or names:
+        return [str(s) for s in literals] + [{"env": str(n)} for n in names]
+    value = _ini_raw(config, "devtools_secret_envs")
+    return [{"env": str(n)} for n in value] if value else None
 
 
 def _overridden(config, name: str) -> bool:  # noqa: ANN001
@@ -558,6 +587,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001
             trace_resources=_resolve_trace_resources(config),
             mask_inputs=_resolve_mask_inputs(config),
             mask_selectors=_resolve_mask_selectors(config),
+            secrets=_resolve_secrets(config),
         )
         # pytest owns the suite tree — suppress the adapter's default script suite.
         from . import instrumentation

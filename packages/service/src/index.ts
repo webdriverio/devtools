@@ -6,6 +6,7 @@ import {
   captureAndAttachScreenshot,
   clearReadValues,
   configureInputMasking,
+  configureSecretRedaction,
   errorMessage,
   FINAL_SNAPSHOT_COMMAND,
   finalizeTraceExport,
@@ -20,6 +21,7 @@ import {
   type TraceExportContext,
   restoreBrowserFocus
 } from '@wdio/devtools-core'
+import { TypedInputReads } from './typed-input.js'
 import { getAllureSink } from './allure.js'
 import { wireAssertCapture, type ExpectAssertion } from './assert-capture.js'
 import { AssertionTracker } from './assertion-tracker.js'
@@ -110,6 +112,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   constructor(serviceOptions: ServiceOptions = {}) {
     this.#options = serviceOptions
     configureInputMasking(serviceOptions)
+    for (const warning of configureSecretRedaction(serviceOptions)) {
+      log.warn(warning)
+    }
     this.#assertionTracker = new AssertionTracker({
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,
@@ -152,6 +157,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
    *  multiremote) closes the earlier window early, degrading to unguarded
    *  polling rather than stalling the recorder. */
   #closeCommandWindow?: () => void
+  #typedInput = new TypedInputReads()
 
   /** Current test UID, set in beforeTest(), used by afterCommand() to tag commands. */
   #currentTestUid?: string
@@ -796,6 +802,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser || isServiceProbe(command)) {
       return
     }
+    this.#typedInput.read(this.#browser, command, args)
     // Holds the filmstrip poll off the driver for the whole command (see
     // driver-activity.ts); opened before the pre-action probes so it spans them.
     // Not for an injection call: #afterCommand skips those before closing, so
@@ -926,6 +933,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (settled) {
       const { frame, nesting } = settled
       if (this.#browser) {
+        const typing = this.#typedInput.settled()
+        if (typing) {
+          await typing
+        }
         const captured = await this.#sessionCapturer.afterCommand(
           this.#browser,
           command,

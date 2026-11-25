@@ -53,6 +53,26 @@ class RerunTestCase(unittest.TestCase):
         return rerun.run_options()
 
 
+class TestALiteralSecretStaysOutOfBothCommands(RerunTestCase):
+    """A ``--devtools-secret`` value would reach the dashboard redacted and rerun as the placeholder."""
+
+    def test_both_spellings_are_dropped_and_a_secret_env_is_kept(self):
+        options = self.configure_pytest(
+            [
+                "--devtools-secret", "SuperSecretPassword!",
+                "--devtools-secret=hunter22",
+                "--devtools-secret-env", "LOGIN_PASSWORD",
+                "-p", "no:cacheprovider",
+            ]
+        )
+        for command in (options["launchCommand"], options["rerunCommand"]):
+            self.assertNotIn("SuperSecretPassword!", command)
+            self.assertNotIn("hunter22", command)
+            self.assertNotIn("--devtools-secret ", command)
+            self.assertIn("--devtools-secret-env LOGIN_PASSWORD", command)
+            self.assertIn("-p no:cacheprovider", command)
+
+
 class TestARerunChildsRunAll(RerunTestCase):
     """Run-all is inherited from the spawner, never derived from a rerun
     child's own invocation — see REUSE_ENV.LAUNCH_COMMAND in shared."""

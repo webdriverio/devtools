@@ -60,7 +60,11 @@ export const config: WebdriverIO.Config = {
         // the trace without them.
         filmstrip: process.env.DEVTOOLS_FILMSTRIP !== 'off',
         // Always emitted, so the artifact set is inspectable for any rung.
-        emitArtifactsManifest: true
+        emitArtifactsManifest: true,
+        // DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!' redacts the demo password from the dashboard and the trace.
+        secrets: process.env.DEVTOOLS_EXAMPLE_SECRET
+          ? [{ env: 'DEVTOOLS_EXAMPLE_SECRET' }]
+          : []
       }
     ]
   ],

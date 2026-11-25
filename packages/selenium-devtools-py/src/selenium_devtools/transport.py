@@ -21,6 +21,7 @@ from urllib.parse import quote
 from ._contract import WORKER_QUERY_RUN_ID
 from .constants import CONNECT_TIMEOUT_S, WORKER_PATH
 from .run_id import resolve_run_id
+from .secret_redaction import redact
 
 
 class WSClient:
@@ -119,7 +120,8 @@ class WSClient:
         if not self.connected or self._sock is None:
             return False
         try:
-            self._send_frame(0x1, json.dumps({"scope": scope, "data": data}).encode())
+            payload = {"scope": scope, "data": redact(data)}
+            self._send_frame(0x1, json.dumps(payload).encode())
             return True
         except OSError:
             self.connected = False
