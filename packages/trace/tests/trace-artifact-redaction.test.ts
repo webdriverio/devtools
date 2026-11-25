@@ -140,6 +140,18 @@ describe('redactTraceArtifact', () => {
     expect(decode(entries['resources/body-sha'])).toBe(MASKED_VALUE)
   })
 
+  it('redacts a password from a JSON string body that spells it with escapes', async () => {
+    const zipPath = path.join(dir, 'trace.zip')
+    const escaped = `"\\u0053${SECRET.slice(1)}"`
+    await fs.writeFile(
+      zipPath,
+      zipSync({ 'resources/body-sha': encode(escaped) })
+    )
+    expect(await redactTraceArtifact(zipPath, redactor)).toBe(true)
+    const entries = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    expect(JSON.parse(decode(entries['resources/body-sha']))).toBe(MASKED_VALUE)
+  })
+
   it('leaves an archive with nothing to redact untouched', async () => {
     const zipPath = path.join(dir, 'trace.zip')
     const bytes = zipSync({ 'trace.trace': encode('{"type":"x"}') })

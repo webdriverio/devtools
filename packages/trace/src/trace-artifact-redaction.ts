@@ -88,8 +88,12 @@ function redactLine(
   } catch {
     return redactor.redactString(line)
   }
-  // A raw body such as `123456` parses as a number, which the walk leaves alone; only a record or list is walked.
-  if (typeof parsed !== 'object' || parsed === null) {
+  // A raw body such as `123456` parses as a number, which the walk leaves alone; a string is walked so its escapes are decoded.
+  if (
+    typeof parsed === 'number' ||
+    typeof parsed === 'boolean' ||
+    parsed === null
+  ) {
     return redactor.redactString(line)
   }
   const redacted = keepReferences(parsed, redactor.redact(parsed), references)
