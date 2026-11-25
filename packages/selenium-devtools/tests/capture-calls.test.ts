@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as Core from '@wdio/devtools-core'
 import type { Metadata } from '@wdio/devtools-shared'
 import { SessionCapturer } from '../src/session.js'
 import { getDriverOriginals } from '../src/driverPatcher.js'
+
+// The bundle is read from disk, which fake timers cannot advance; a slow read would outlast the test's timer steps.
+vi.mock('@wdio/devtools-core', async (importOriginal) => ({
+  ...(await importOriginal<typeof Core>()),
+  loadInjectableScript: async () => '/* collector */'
+}))
 
 const capturers: SessionCapturer[] = []
 let restore: (() => void) | undefined
