@@ -1,6 +1,8 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import url from 'node:url'
+import ts from 'typescript'
 import { describe, it, expect } from 'vitest'
 
 const packagesDir = path.resolve(
@@ -64,5 +66,37 @@ describe('published type declarations', () => {
       .filter((types): types is string => typeof types === 'string')
       .filter((types) => !fs.existsSync(path.join(service, types)))
     expect(missing).toEqual([])
+  })
+
+  // An unresolved base makes `ServiceOptions` lose its members or degrade to `any`, which the import scan cannot see.
+  it('types the service options a consumer writes', () => {
+    const declarations = path.join(packagesDir, 'service', 'dist', 'types.d.ts')
+    if (!fs.existsSync(declarations)) {
+      return
+    }
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devtools-consumer-'))
+    const consumer = path.join(dir, 'wdio.conf.ts')
+    fs.writeFileSync(
+      consumer,
+      [
+        `import type { ServiceOptions } from ${JSON.stringify(declarations.replace(/\.d\.ts$/, '.js'))}`,
+        "export const valid: ServiceOptions = { mode: 'trace', traceGranularity: 'test', maskInputs: false }",
+        '// @ts-expect-error not a DevTools mode',
+        "export const invalid: ServiceOptions = { mode: 'nonsense' }"
+      ].join('\n')
+    )
+    const program = ts.createProgram([consumer], {
+      noEmit: true,
+      strict: true,
+      skipLibCheck: true,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      target: ts.ScriptTarget.ES2022
+    })
+    const errors = ts
+      .getPreEmitDiagnostics(program, program.getSourceFile(consumer))
+      .map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n'))
+    fs.rmSync(dir, { recursive: true, force: true })
+    expect(errors).toEqual([])
   })
 })
