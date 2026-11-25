@@ -1672,6 +1672,26 @@
           }
         }
       ]
+    },
+    "popupBidiHang": {
+      "mirrors": {
+        "ts": "core/capture-call-guard.ts chromeMajorVersion, hasPopupBidiHang, captureCeilingsApply",
+        "py": "capture_calls.py chrome_major_version, has_popup_bidi_hang, capture_ceilings_apply"
+      },
+      "notes": "expect.major is the Chrome major the capabilities name, or null for another browser or an unreadable version. expect.affected is whether that major never answers a BiDi command for a window.open() tab (156 and 157, crbug 571161446). expect.ceilings is whether capture calls get ceilings: affected, and not an Appium session, whose calls are legitimately slow.",
+      "cases": [
+        {"name": "no capabilities", "capabilities": null, "expect": {"major": null, "affected": false, "ceilings": false}},
+        {"name": "Chrome 155 is unaffected", "capabilities": {"browserName": "chrome", "browserVersion": "155.0.7700.10"}, "expect": {"major": 155, "affected": false, "ceilings": false}},
+        {"name": "Chrome 156 is affected", "capabilities": {"browserName": "chrome", "browserVersion": "156.0.7800.4"}, "expect": {"major": 156, "affected": true, "ceilings": true}},
+        {"name": "Chrome 157 is affected, whatever the name's case", "capabilities": {"browserName": "Chrome", "browserVersion": "157.0.8000.22"}, "expect": {"major": 157, "affected": true, "ceilings": true}},
+        {"name": "Chrome 158 carries the fix", "capabilities": {"browserName": "chrome", "browserVersion": "158.0.8106.0"}, "expect": {"major": 158, "affected": false, "ceilings": false}},
+        {"name": "the headless shell is Chrome", "capabilities": {"browserName": "chrome-headless-shell", "browserVersion": "157.0.8000.22"}, "expect": {"major": 157, "affected": true, "ceilings": true}},
+        {"name": "a legacy version key", "capabilities": {"browserName": "chrome", "version": "156.0.1"}, "expect": {"major": 156, "affected": true, "ceilings": true}},
+        {"name": "Firefox is not Chrome", "capabilities": {"browserName": "firefox", "browserVersion": "156.0"}, "expect": {"major": null, "affected": false, "ceilings": false}},
+        {"name": "Chrome 157 on Android through Appium gets no ceilings", "capabilities": {"browserName": "chrome", "browserVersion": "157.0.8000.22", "platformName": "Android", "appium:automationName": "UiAutomator2"}, "expect": {"major": 157, "affected": true, "ceilings": false}},
+        {"name": "an appium: capability alone marks an Appium session", "capabilities": {"browserName": "chrome", "browserVersion": "156.0.1", "appium:options": {}}, "expect": {"major": 156, "affected": true, "ceilings": false}},
+        {"name": "an unreadable version", "capabilities": {"browserName": "chrome", "browserVersion": "stable"}, "expect": {"major": null, "affected": false, "ceilings": false}}
+      ]
     }
   }
 }

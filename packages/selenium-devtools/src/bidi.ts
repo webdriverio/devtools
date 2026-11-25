@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import {
   type BidiHandlerSinks,
+  type CaptureCallGuard,
   attachBidiHandlers as attachBidiHandlersCore,
   buildBidiSinks as buildBidiSinksCore,
   errorMessage
@@ -107,10 +108,14 @@ export function ensureHeadlessChrome(rawBuilder: unknown): void {
  */
 export async function attachBidiHandlers(
   driver: unknown,
-  sinks: BidiHandlerSinks
+  sinks: BidiHandlerSinks,
+  guard: CaptureCallGuard
 ): Promise<boolean> {
-  return attachBidiHandlersCore(driver, sinks, (level, message) =>
-    log[level](message)
+  return attachBidiHandlersCore(
+    driver,
+    sinks,
+    (level, message) => log[level](message),
+    guard
   )
 }
 

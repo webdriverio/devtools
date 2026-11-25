@@ -27,7 +27,10 @@ import {
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
+  captureCeilingsApply,
+  chromeMajorVersion,
   finalFrameStamp,
+  hasPopupBidiHang,
   formatCaptureTimingSummary,
   resolveAdapterOutputDir,
   resolveRunId,
@@ -98,7 +101,8 @@ const RUNNERS = [
   'captureGate',
   'secretResolution',
   'secretRedaction',
-  'typedSecret'
+  'typedSecret',
+  'popupBidiHang'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -174,6 +178,23 @@ describe('nativeSession', () => {
       expect({
         nativeApp: isNativeAppSession(c.capabilities),
         platform: deviceFromCapabilities(c.capabilities)?.platform ?? null
+      }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('popupBidiHang', () => {
+  for (const c of section<
+    Named & {
+      capabilities: unknown
+      expect: { major: number | null; affected: boolean; ceilings: boolean }
+    }
+  >('popupBidiHang').cases) {
+    it(c.name, () => {
+      expect({
+        major: chromeMajorVersion(c.capabilities) ?? null,
+        affected: hasPopupBidiHang(c.capabilities),
+        ceilings: captureCeilingsApply(c.capabilities)
       }).toEqual(c.expect)
     })
   }

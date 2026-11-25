@@ -29,6 +29,7 @@ import {
   cucumberScenarioUid,
   isFailedResult,
   resolveTestAttempt,
+  recordRetriedAttempt,
   stampTestState,
   testMetadataUid,
   type TestOutcomeResult
@@ -386,7 +387,12 @@ export default class DevToolsHookService implements Services.ServiceInstance {
                 self.#sessionCapturer.sendUpstream('suites', upstreamData),
               (location: string) => {
                 self.#sessionCapturer.ensureSourceLoaded(location)
-              }
+              },
+              (test) =>
+                recordRetriedAttempt(self.#attemptTracker, self.#testMetadata, {
+                  retried: test,
+                  current: self.#currentTestUid
+                })
             )
             self.#testReporters.push(this)
           }

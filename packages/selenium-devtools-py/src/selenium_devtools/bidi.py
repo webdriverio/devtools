@@ -41,6 +41,12 @@ import sys
 import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .capture_calls import (
+    BIDI_SETUP_TIMEOUT_S,
+    NEVER_CANCELLED,
+    Cancellation,
+    call_with_timeout,
+)
 from .capturer import SessionCapturer
 from .constants import (
     BIDI_CAPABILITY,
@@ -381,7 +387,9 @@ def bidi_enabled(driver: Any) -> bool:
     return isinstance(url, str) and url.startswith("ws")
 
 
-def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
+def _attach_console(
+    driver: Any, capturer: SessionCapturer, cancelled: Cancellation = NEVER_CANCELLED
+) -> bool:
     try:
         script = driver.script
     except Exception as exc:  # noqa: BLE001 — any selenium/BiDi failure is a no-op
@@ -389,6 +397,8 @@ def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
         return False
 
     def on_console_entry(entry: Any) -> None:
+        if cancelled.is_set():
+            return
         try:
             level, args = console_kwargs(entry)
             capturer.capture_console(level, args, source="browser")
@@ -396,6 +406,8 @@ def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
             _warn(f"console handler threw: {exc}")
 
     def on_js_error(entry: Any) -> None:
+        if cancelled.is_set():
+            return
         try:
             level, args = js_error_kwargs(entry)
             capturer.capture_console(level, args, source="browser")
@@ -403,9 +415,13 @@ def _attach_console(driver: Any, capturer: SessionCapturer) -> bool:
             _warn(f"JS error handler threw: {exc}")
 
     try:
+        if cancelled.is_set():
+            return False
         script.add_console_message_handler(on_console_entry)
+        if cancelled.is_set():
+            return False
         script.add_javascript_error_handler(on_js_error)
-        return True
+        return not cancelled.is_set()
     except Exception as exc:  # noqa: BLE001
         _warn(f"console/JS handlers failed to attach: {exc}")
         return False
@@ -592,7 +608,10 @@ CloseBuilder = Callable[
 
 
 def _attach_network(
-    driver: Any, capturer: SessionCapturer, stats: Optional[Dict[str, Any]] = None
+    driver: Any,
+    capturer: SessionCapturer,
+    stats: Optional[Dict[str, Any]] = None,
+    cancelled: Cancellation = NEVER_CANCELLED,
 ) -> bool:
     """Subscribe to network events WITHOUT interception (see module docstring).
 
@@ -608,6 +627,8 @@ def _attach_network(
     may still arrive later and then stays pending.
     """
     stats = stats if stats is not None else {}
+    # A subscription abandoned at its ceiling never serves, whatever it delivered before; see network_serving.
+    stats["cancelled"] = cancelled
     stats["captured"] = 0
     pending: Dict[str, Dict[str, Any]] = {}
     stats["pending"] = pending
@@ -644,7 +665,7 @@ def _attach_network(
             _warn(f"{label} handler threw: {exc}")
 
     def on_request_sent(event: Any) -> None:
-        if not active["ok"]:
+        if not active["ok"] or cancelled.is_set():
             return
         try:
             params = event_params(event)
@@ -668,7 +689,7 @@ def _attach_network(
         label: str, build: CloseBuilder, gates: List[Dict[str, bool]]
     ) -> Callable[[Any], None]:
         def on_event(event: Any) -> None:
-            if not all(gate["ok"] for gate in gates):
+            if not all(gate["ok"] for gate in gates) or cancelled.is_set():
                 return
             params = event_params(event)
             if _incomplete_event(params, label):
@@ -688,6 +709,8 @@ def _attach_network(
         BIDI_NET_FETCH_ERROR, fetch_error_kwargs, [active, failures]
     )
 
+    if cancelled.is_set():
+        return False
     attached = _subscribe_via_event_manager(
         driver,
         {
@@ -696,6 +719,9 @@ def _attach_network(
         },
         active,
     )
+    # Answered after its ceiling: the caller has moved on, so nothing here may claim the session.
+    if cancelled.is_set():
+        return False
     stats["attached"] = attached
     if attached and not _subscribe_via_event_manager(
         driver, {BIDI_NET_FETCH_ERROR: on_fetch_error}, failures, optional=True
@@ -710,7 +736,11 @@ def network_serving(stats: Optional[Dict[str, Any]]) -> bool:
     Appium's BiDi shim accepts the subscription and then delivers nothing; read
     by the drain to decide whether the page's own network entries are the
     session's capture or a second listing of what BiDi already reported."""
-    return bool(stats and stats.get("attached") and stats.get("observed"))
+    if not stats:
+        return False
+    cancelled = stats.get("cancelled")
+    abandoned = cancelled is not None and cancelled.is_set()
+    return bool(stats.get("attached") and stats.get("observed")) and not abandoned
 
 
 def _subscribe_via_event_manager(
@@ -805,9 +835,21 @@ def attach(
             "options.web_socket_url = True to capture console/network"
         )
         return False
-    attached = 0
-    if _attach_console(driver, capturer):
-        attached += 1
-    if _attach_network(driver, capturer, stats):
-        attached += 1
-    return attached > 0
+    # One worker for both, so the two cannot race selenium's lazy BiDi connection setup.
+    def subscribe(cancelled: Cancellation) -> bool:
+        console = not cancelled.is_set() and _attach_console(driver, capturer, cancelled)
+        network = not cancelled.is_set() and _attach_network(driver, capturer, stats, cancelled)
+        return console or network
+
+    def undo(_attached: bool) -> None:
+        if stats is not None:
+            stats.pop("attached", None)
+
+    return call_with_timeout(
+        driver,
+        subscribe,
+        BIDI_SETUP_TIMEOUT_S,
+        False,
+        "BiDi console and network subscription",
+        undo,
+    )

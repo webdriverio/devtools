@@ -1306,6 +1306,9 @@
         },
         "order": {
           "type": "number"
+        },
+        "hook": {
+          "type": "boolean"
         }
       },
       "required": [
