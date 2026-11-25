@@ -59,7 +59,7 @@
     "import-meta-resolve": "^4.2.0",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^10.0.2",
-    "ws": "^8.22.0",
+    "ws": "^8.23.0",
     "xpath": "^0.0.36",
     "yazl": "^3.3.1"
   },
