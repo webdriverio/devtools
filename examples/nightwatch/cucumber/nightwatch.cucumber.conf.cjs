@@ -3,6 +3,10 @@ const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 const { cucumberHooksPath } = require('@wdio/nightwatch-devtools')
 
+const MODE = ['trace', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'live'
+
 const featuresDir = path.resolve(__dirname, 'features')
 
 module.exports = {
@@ -57,12 +61,13 @@ module.exports = {
         // Cucumber exposes per-scenario hooks, so each scenario is captured as
         // its own test unit. Trace when the harness sets DEVTOOLS_MODE=trace,
         // otherwise stream live to the backend/UI.
-        mode: process.env.DEVTOOLS_MODE === 'trace' ? 'trace' : 'live',
+        mode: MODE,
         // 'test' (not 'session'): Nightwatch quits the browser per scenario, so a
         // single run-end session write has no live session. Per-scenario 'test'
         // slices flush a zip at each scenario's pre-quit hook, while the session
         // is still alive.
-        traceGranularity: 'session',
+        // Live and telemetry modes warn that they ignore this, so set it only for trace.
+        ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
         bidi: true
       })
     }

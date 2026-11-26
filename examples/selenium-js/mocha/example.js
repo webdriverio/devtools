@@ -14,6 +14,10 @@ import { strict as assert } from 'node:assert'
 import { Builder, By, until } from 'selenium-webdriver'
 import { DevTools } from '@wdio/selenium-devtools'
 
+const MODE = ['live', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'trace'
+
 // ── Config ladder — change this block per rung ──────────────────────────────
 // 1 live:    { mode: 'live' }
 // 2 trace:   { mode: 'trace' }
@@ -22,9 +26,11 @@ import { DevTools } from '@wdio/selenium-devtools'
 // 5 retry:   { mode: 'trace', traceGranularity: 'test', tracePolicy: 'on-first-retry' }
 DevTools.configure({
   // Trace by default (regen); DEVTOOLS_MODE=live flips to live for live-parity recording.
-  mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
-  traceGranularity: 'session',
-  tracePolicy: 'retain-on-first-failure',
+  mode: MODE,
+  // Live and telemetry modes warn that they ignore these, so set them only for trace.
+  ...(MODE === 'trace'
+    ? { traceGranularity: 'session', tracePolicy: 'retain-on-first-failure' }
+    : {}),
   headless: true
 })
 
