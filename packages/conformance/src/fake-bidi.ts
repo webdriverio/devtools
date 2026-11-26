@@ -3,6 +3,7 @@ import type { Server } from 'node:http'
 import { WebSocketServer, type WebSocket } from 'ws'
 
 import {
+  CREDENTIAL,
   BIDI_PATH,
   LOAD_MS,
   RESPONSE_BYTES,
@@ -109,7 +110,11 @@ const bidiRequest = (id: number, url: string, at: number) => ({
   request: `request-${id}`,
   url,
   method: 'GET',
-  headers: [bidiHeader('accept', '*/*')],
+  headers: [
+    bidiHeader('accept', '*/*'),
+    bidiHeader('Authorization', `Bearer ${CREDENTIAL}`),
+    bidiHeader('Cookie', `sid=${CREDENTIAL}`)
+  ],
   cookies: [],
   headersSize: 0,
   bodySize: 0,
@@ -161,7 +166,10 @@ export function networkEvents(
           status: 200,
           statusText: 'OK',
           fromCache: false,
-          headers: [bidiHeader('content-type', mime)],
+          headers: [
+            bidiHeader('content-type', mime),
+            bidiHeader('Set-Cookie', `sid=${CREDENTIAL}; HttpOnly`)
+          ],
           mimeType: mime,
           bytesReceived: RESPONSE_BYTES,
           headersSize: 0,

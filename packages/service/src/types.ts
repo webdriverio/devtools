@@ -71,10 +71,6 @@ declare global {
   namespace WebdriverIO {
     interface ServiceOption extends ServiceOptions {}
     interface Browser {
-      // CDP escape hatch present at runtime in Chrome/Chromium sessions but
-      // omitted from WDIO's public Browser type. Returns Puppeteer's top-level
-      // browser object — see screencast.ts for the local shape we use.
-      getPuppeteer?: () => Promise<unknown>
       // Runtime DOM snapshot for agent auto-healing. Added by
       // @wdio/devtools-service in the before hook.
       getSnapshot(options?: GetSnapshotOptions): Promise<GetSnapshotResult>
@@ -96,6 +92,10 @@ declare module '@wdio/reporter' {
     // Cucumber-specific fields stay locally cast in reporter.ts.
     pickle?: { uri?: string; location?: { line?: number } }
     uri?: string
+    // Position among the suite's children, which the dashboard sorts by.
+    order?: number
+    // Set on a row that stands for a failed hook, which the dashboard drops when its suite runs again.
+    hook?: boolean
   }
 
   interface SuiteStats {
@@ -105,6 +105,7 @@ declare module '@wdio/reporter' {
     featureLine?: number
     pickle?: { uri?: string; location?: { line?: number } }
     uri?: string
+    order?: number
   }
 }
 
@@ -114,6 +115,25 @@ declare module '@wdio/reporter' {
  *  versions, so we pin only what's invoked. */
 export interface CucumberExpressionLike {
   match(text: string): unknown
+}
+
+/** What the reporter knows of a retried test: its title, its suite's title and its file. */
+export interface RetriedTest {
+  title: string
+  parent?: string
+  file?: string
+}
+
+/** An outline example: its 1-based row line and the name Cucumber gives its scenario. */
+export interface ExampleRow {
+  line: number
+  name: string
+}
+
+/** A scenario of a feature file: its 1-based line and, for an outline, its examples in order. */
+export interface FeatureScenario {
+  line: number
+  examples: ExampleRow[]
 }
 
 export type StepDef = {

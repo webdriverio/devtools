@@ -6,11 +6,16 @@
 export function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
-  fallback: T
+  fallback: T,
+  /** Told when `ms` passes first, so a caller can report the call that lost. */
+  onTimeout?: () => void
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms)
+    timer = setTimeout(() => {
+      onTimeout?.()
+      resolve(fallback)
+    }, ms)
   })
   // .finally on the race result clears the timer in BOTH the resolved AND
   // rejected branch — earlier code only cleared on fulfillment, leaving a

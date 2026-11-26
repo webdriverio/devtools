@@ -16,6 +16,7 @@ import {
   type ExpectAssertion
 } from './assert-capture.js'
 import { pushActionSnapshotAt } from './action-snapshot.js'
+import { screenshotWithin } from './capture-calls.js'
 import { isAppiumSession } from './mobile.js'
 import type { SessionCapturer } from './session.js'
 import type { ServiceOptions } from './types.js'
@@ -138,7 +139,10 @@ export class AssertionTracker {
     const browser = this.#ctx.getBrowser()
     if (browser && !isAppiumSession(browser)) {
       try {
-        entry.screenshot = await browser.takeScreenshot()
+        entry.screenshot = await screenshotWithin(
+          browser,
+          'assertion screenshot'
+        )
       } catch (err) {
         // best-effort: a missing screenshot must not fail the assertion hook
         log.debug(`assertion screenshot skipped: ${errorMessage(err)}`)

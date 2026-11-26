@@ -62,8 +62,10 @@ import {
   applyConfigureOptions,
   serverLock
 } from './helpers/configure-options.js'
+import { noteTypedIntoElement } from './helpers/typed-input.js'
 import {
   configureInputMasking,
+  configureSecretRedaction,
   RetryTracker,
   errorMessage,
   requestsInterceptedNetwork
@@ -184,9 +186,10 @@ class SeleniumDevToolsPlugin {
       video: options.video ?? 'off',
       emitArtifactsManifest: options.emitArtifactsManifest,
       maskInputs: options.maskInputs ?? true,
-      maskSelectors: options.maskSelectors ?? []
+      maskSelectors: options.maskSelectors ?? [],
+      secrets: options.secrets ?? []
     }
-    configureInputMasking(this.#options)
+    this.#applyCapturePolicy()
     const policyWarning = ignoredOptionsWarning(options, this.#options.mode)
     if (policyWarning) {
       log.warn(policyWarning)
@@ -299,6 +302,16 @@ class SeleniumDevToolsPlugin {
     return this.#uiReadyPromise
   }
 
+  // Secrets are read only when they changed, so a later configure() call never repeats their warnings.
+  #applyCapturePolicy(secretsChanged = true): void {
+    configureInputMasking(this.#options)
+    if (secretsChanged) {
+      for (const warning of configureSecretRedaction(this.#options)) {
+        log.warn(warning)
+      }
+    }
+  }
+
   configure(opts: DevToolsOptions = {}) {
     assertDevToolsMode(opts.mode)
     if ('rerunCommand' in opts) {
@@ -313,7 +326,7 @@ class SeleniumDevToolsPlugin {
       log.warn(warning)
     }
     // A preload already registered keeps the policy it was built with; only sessions started after this see a change.
-    configureInputMasking(this.#options)
+    this.#applyCapturePolicy('secrets' in opts || 'maskInputs' in opts)
     const ignored = ignoredOptionsWarning(opts, this.#options.mode)
     if (ignored) {
       log.warn(ignored)
@@ -700,6 +713,14 @@ const patched = patchSelenium({
   observesPage: () => observesPage(plugin.options.mode),
   afterNavigation: () => plugin.instrumentNavigationTarget(),
   beforeInput: () => plugin.focusForInput(),
+  beforeTyping: (element, args) =>
+    observesPage(plugin.options.mode)
+      ? noteTypedIntoElement(
+          element,
+          args,
+          plugin.sessionCapturer?.isNativeAppSession === true
+        )
+      : Promise.resolve(),
   afterActions: (driver) => plugin.onActionsPerformed(driver),
   // Per-scenario cleanup ONLY here (finalizes that driver's screencast,
   // clears per-driver state). The session-wide teardown — set-finalized,

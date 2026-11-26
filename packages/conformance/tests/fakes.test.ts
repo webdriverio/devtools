@@ -283,7 +283,8 @@ describe('the fake network', () => {
       })
       expect(completed.response.status).toBe(200)
       expect(completed.response.headers.map((h) => h.name)).toEqual([
-        'content-type'
+        'content-type',
+        'Set-Cookie'
       ])
     }
   })

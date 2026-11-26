@@ -182,6 +182,95 @@ class TestTheChannelsThatSurvivedTheBiDiRegeneration(unittest.TestCase):
         self.assertIsNone(seen["kwargs"].get("contexts"))
 
 
+_HAS_SCRIPT_FACADE = _HAS_SELENIUM and (
+    importlib.util.find_spec("selenium.webdriver.remote.script") is not None
+)
+
+# What the adapter calls on whatever `driver.script` returns.
+_SCRIPT_METHODS_USED = (
+    "pin",
+    "unpin",
+    "add_console_message_handler",
+    "add_javascript_error_handler",
+)
+
+
+@unittest.skipUnless(
+    _HAS_SCRIPT_FACADE, "selenium predates remote.script.Script (before 4.53)"
+)
+class TestTheScriptFacade(unittest.TestCase):
+    """From 4.53 `driver.script` returns `remote.script.Script`, a facade over
+    the BiDi module class the tests above check. The facade forwards a name it
+    does not define through a `__getattr__` that warns it is deprecated, so a
+    method the adapter calls that moves there is on its way out."""
+
+    def test_the_driver_returns_the_facade(self):
+        from selenium.webdriver.remote.script import Script
+        from selenium.webdriver.remote.webdriver import WebDriver
+
+        returned = inspect.signature(WebDriver.script.fget).return_annotation
+        self.assertIn(returned, (Script, "Script"))
+
+    def test_the_facade_defines_every_method_the_adapter_calls(self):
+        from selenium.webdriver.remote.script import Script
+
+        for method in _SCRIPT_METHODS_USED:
+            self.assertTrue(callable(vars(Script).get(method)), method)
+
+    def test_pin_through_the_facade_registers_without_a_browsing_context(self):
+        """The facade's `pin` must still reach the module's global registration,
+        with no `contexts`, and `unpin` must remove what it returned."""
+        import warnings
+        from unittest import mock
+
+        from selenium.webdriver.common.bidi.script import Script as BidiScript
+        from selenium.webdriver.remote.script import Script
+
+        from selenium_devtools.bidi_preload import register_collector_preload
+
+        added, removed = [], []
+
+        def fake_add(self, function_declaration, *args, **kwargs):
+            added.append((function_declaration, args, kwargs))
+            return f"preload-{len(added)}"
+
+        def fake_remove(self, script_id):
+            removed.append(script_id)
+
+        facade = Script(BidiScript.__new__(BidiScript))
+        driver = mock.Mock(caps={"webSocketUrl": "ws://127.0.0.1/session"})
+        driver.script = facade
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            with mock.patch.object(BidiScript, "_add_preload_script", fake_add), \
+                    mock.patch.object(BidiScript, "_remove_preload_script", fake_remove):
+                self.assertTrue(register_collector_preload(driver, "void 0"))
+                facade.unpin(facade.pin("async () => {}"))
+
+        declaration, args, kwargs = added[0]
+        self.assertIn("void 0", declaration)
+        self.assertEqual(args, ())
+        self.assertIsNone(kwargs.get("contexts"))
+        self.assertEqual(removed, ["preload-2"])
+
+    def test_the_console_handlers_reach_the_module_class(self):
+        import warnings
+        from unittest import mock
+
+        from selenium.webdriver.remote.script import Script
+
+        inner = mock.Mock()
+        facade = Script(inner)
+        console, error = object(), object()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            facade.add_console_message_handler(console)
+            facade.add_javascript_error_handler(error)
+
+        inner.add_console_message_handler.assert_called_once_with(console)
+        inner.add_javascript_error_handler.assert_called_once_with(error)
+
+
 @unittest.skipUnless(_HAS_SELENIUM, "selenium is not installed")
 class TestTheCapabilityTheAdapterInjects(unittest.TestCase):
     def test_the_bidi_capability_name_matches_selenium(self):

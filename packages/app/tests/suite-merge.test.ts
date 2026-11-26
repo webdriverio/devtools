@@ -269,6 +269,73 @@ describe('mergeSuite', () => {
     // state=undefined doesn't clobber existing 'passed'.
     expect(mergeSuite(existing, incoming, ctx()).state).toBe('passed')
   })
+
+  it('drops the failed attempt of a retried scenario, its failed hook row included', () => {
+    const existing = suite('scenario', {
+      state: undefined,
+      retries: 0,
+      tests: [
+        test('hook-before', { state: 'failed', title: 'Before' }),
+        test('step-1', { state: 'skipped' })
+      ]
+    })
+    const incoming = suite('scenario', {
+      state: undefined,
+      retries: 1,
+      tests: [test('step-1', { state: 'passed', start: 3000, end: 4000 })]
+    })
+    const merged = mergeSuite(existing, incoming, ctx())
+    expect(merged.tests?.map((t) => [t.uid, t.state])).toEqual([
+      ['step-1', 'passed']
+    ])
+    expect(merged.state).toBe('passed')
+    // Later updates of the same attempt merge as before.
+    const next = suite('scenario', {
+      state: undefined,
+      retries: 1,
+      tests: [test('step-2', { state: 'passed', start: 4000, end: 5000 })]
+    })
+    expect(mergeSuite(merged, next, ctx()).tests?.map((t) => t.uid)).toEqual([
+      'step-1',
+      'step-2'
+    ])
+  })
+  it('drops a failed hook row when its suite runs again, keeping the steps until they report', () => {
+    const existing = suite('scenario', {
+      state: undefined,
+      tests: [
+        test('hook-before', { state: 'failed', title: 'Before', hook: true }),
+        test('step-1', { state: 'skipped' })
+      ]
+    })
+    // A fresh CLI run: same uid, new start, retries back at 0, and the hook now passes.
+    const incoming = suite('scenario', {
+      state: undefined,
+      start: 5000,
+      end: undefined,
+      tests: [test('step-1', { state: 'passed', start: 5000, end: 6000 })]
+    })
+    const merged = mergeSuite(existing, incoming, ctx())
+    expect(merged.tests?.map((t) => [t.uid, t.state])).toEqual([
+      ['step-1', 'passed']
+    ])
+    expect(merged.state).toBe('passed')
+  })
+
+  it('keeps a failed hook row across updates of the same run', () => {
+    const existing = suite('scenario', {
+      state: undefined,
+      end: undefined,
+      tests: [test('hook-before', { state: 'failed', hook: true })]
+    })
+    const incoming = suite('scenario', {
+      state: undefined,
+      tests: [test('step-1', { state: 'skipped' })]
+    })
+    expect(
+      mergeSuite(existing, incoming, ctx()).tests?.map((t) => t.uid)
+    ).toEqual(['hook-before', 'step-1'])
+  })
 })
 
 describe('mergeChildSuites', () => {

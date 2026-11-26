@@ -33,6 +33,11 @@ export const NETWORK_RULES: RuleId[] = [
   RULES.requestListedOnce,
   RULES.requestSourceServed
 ]
+export const MASKING_RULES: RuleId[] = [
+  RULES.passwordMaskedInPage,
+  RULES.typedPasswordNeverSent,
+  RULES.credentialHeadersRedacted
+]
 export const ERROR_RULES: RuleId[] = [
   RULES.failureRecorded,
   RULES.errorCarriesBrowserMessage

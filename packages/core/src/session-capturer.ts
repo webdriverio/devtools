@@ -26,6 +26,11 @@ import {
   sessionHasDocument
 } from '@wdio/devtools-shared'
 import { resolveRunId } from './run-id.js'
+import {
+  redactSecrets,
+  typingReadsPending,
+  whenTypingReadsSettle
+} from './secret-redaction.js'
 import { reattributeDomAnchors } from '@wdio/devtools-trace/trace-mutations'
 import { TestCapture } from './test-capture.js'
 import { nativeAppOf, type NativeApp } from './action-snapshot.js'
@@ -241,8 +246,13 @@ export abstract class SessionCapturerBase {
       this.notifyDrop(event, 'closed')
       return
     }
+    // A frame sent while a typing read is in flight could carry the password it is about to learn.
+    if (typingReadsPending() || this.#held.length > 0) {
+      this.#hold(event, data)
+      return
+    }
     try {
-      this.ws.send(JSON.stringify({ scope: event, data }))
+      this.ws.send(JSON.stringify({ scope: event, data: redactSecrets(data) }))
     } catch (err) {
       this.notifyDrop(event, 'send-error', err)
     }
@@ -252,6 +262,28 @@ export abstract class SessionCapturerBase {
    *  published. Capped: a dashboard that never connects must not grow this
    *  without bound for the length of a run. */
   #pending: { event: string; data: unknown }[] = []
+
+  /** Frames held while a typing read was in flight, sent in order once it settles, redacted with what it learned. */
+  #held: { event: string; data: unknown }[] = []
+
+  #hold(event: string, data: unknown): void {
+    if (this.#held.length >= SessionCapturerBase.MAX_PENDING_UPSTREAM) {
+      this.notifyDrop(event, 'closed')
+      return
+    }
+    this.#held.push({ event, data })
+    if (this.#held.length === 1) {
+      void whenTypingReadsSettle().then(() => this.#releaseHeld())
+    }
+  }
+
+  #releaseHeld(): void {
+    const held = this.#held
+    this.#held = []
+    for (const { event, data } of held) {
+      this.sendUpstream(event, data)
+    }
+  }
 
   #buffer(event: string, data: unknown): void {
     if (this.#pending.length >= SessionCapturerBase.MAX_PENDING_UPSTREAM) {

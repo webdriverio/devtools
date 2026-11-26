@@ -25,6 +25,7 @@ import {
   recaptureAfterNavigation,
   type QueuedPageCapture
 } from './navigation-recapture.js'
+import { recordedTypingArgs } from './helpers/typed-input.js'
 import { nightwatchRunnerId } from './helpers/utils.js'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import {
@@ -314,7 +315,7 @@ export class SessionCapturer extends SessionCapturerBase {
       _id: commandId,
       id: publicId ?? commandId,
       command,
-      args,
+      args: recordedTypingArgs(command, args),
       result,
       // Error objects don't JSON.stringify well.
       error: serializeError(error),

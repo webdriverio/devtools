@@ -49,8 +49,7 @@ export class ScreencastRecorder extends ScreencastRecorderBase<WebdriverIO.Brows
    * to latch onto.
    */
   async #openCdpSession(): Promise<CdpSessionLike | undefined> {
-    // getPuppeteer is augmented onto WebdriverIO.Browser in types.ts; the
-    // returned Puppeteer object isn't typed by WDIO, so narrow it locally.
+    // WDIO types the result with puppeteer-core, which the service does not install, so narrow it locally.
     const raw = await withTimeout(
       Promise.resolve(this.driver?.getPuppeteer?.()),
       SCREENCAST_HANDSHAKE_TIMEOUT_MS,
