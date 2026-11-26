@@ -76,7 +76,8 @@ none of it is needed for any other demo or test in this repo.
    36 image fails to boot, its own log notes that "Guest Angle is still unstable
    for API > 35" — add `-gpu swiftshader_indirect`.
 
-2. **Appium 2.x or 3.x** and the Android driver. **Export the SDK path first,
+2. **Appium 3.x or 4.x** and the Android driver, in a pair that matches (see
+   [Appium 3 or Appium 4](#appium-3-or-appium-4) below). **Export the SDK path first,
    in this shell** — Appium's Android driver reads its OWN environment, so
    exporting it where the tests run changes nothing and the session is refused
    with `Neither ANDROID_HOME nor ANDROID_SDK_ROOT environment variable was
@@ -94,6 +95,47 @@ exported`, delivered through the client as a WebDriver failure that looks
 
    The preflight reads the running Appium's environment and says so when this
    is what is wrong, because nothing else in the stack does.
+
+### Appium 3 or Appium 4
+
+Appium 4 needs Node `^22.22.2 || ^24.15.0 || >=26`, and each driver major
+supports one Appium major. `appium driver install uiautomator2` picks the
+newest driver, which on an Appium 3 server is one that server cannot load, so
+on Appium 3 name the major:
+
+| Appium | UiAutomator2 driver | XCUITest driver | appium-interceptor (native network) |
+|---|---|---|---|
+| 3.x | 5.x to 8.x | 12.x | 1.0.x |
+| 4.x | 9.x and later | 13.x and later | not supported yet |
+
+```sh
+# Appium 3
+appium driver install --source=npm appium-uiautomator2-driver@8
+appium driver install --source=npm appium-xcuitest-driver@12
+
+# Appium 4
+appium driver install uiautomator2
+appium driver install xcuitest
+```
+
+Two differences show up in these examples:
+
+- **UiAutomator2 10.x checks chromedriver against a SHA-256 allowlist** before
+  running it, so the `DEVTOOLS_MOBILE=web` setup below can be refused on
+  Appium 4, a binary named by `chromedriverExecutable` included. Allowing any
+  binary is a server feature of its own, beside autodownload:
+
+  ```sh
+  appium --address 127.0.0.1 --port 4723 \
+    --allow-insecure=uiautomator2:chromedriver_autodownload,uiautomator2:chromedriver_allow_any_executable
+  ```
+
+- **Native network capture needs Appium 3.** appium-interceptor 1.0.x declares
+  a peer of `appium@^3.0.1`, so on an Appium 4 server `appium:intercept: true`
+  captures nothing and each adapter logs that the interceptor listener did not
+  start. Stay on Appium 3.x with UiAutomator2 8.x for native network until the
+  plugin supports Appium 4. Nothing else in these examples depends on the
+  plugin, and the Clock app they drive makes no requests.
 
 **You do not need an app.** The default target is the device's own Clock app,
 so there is no `.apk` to build, upload, or keep credentials for — which is what
@@ -198,6 +240,11 @@ appium --address 127.0.0.1 --port 4723 \
   --allow-insecure=uiautomator2:chromedriver_autodownload
 ```
 
+On Appium 4 with UiAutomator2 10.x or later, add
+`uiautomator2:chromedriver_allow_any_executable` to the same flag (see
+[Appium 3 or Appium 4](#appium-3-or-appium-4)), or the chromedriver the
+session resolves can be refused.
+
 There is no `appium:chromedriverAutodownload` capability, despite how often it
 is written down — the driver only reads `chromedriverExecutable` and
 `chromedriverExecutableDir`, so that name is silently ignored. Pointing at a
@@ -257,6 +304,9 @@ emulator:
    `chromedriverExecutable` and `chromedriverExecutableDir`. The other spelling
    is widely copied — this repo had it in `examples/wdio/cucumber/wdio.mobile.conf.ts`
    too — and it is silently ignored.
+   On UiAutomator2 10.x and later the binary those name is also checked against
+   the driver's SHA-256 allowlist; `--allow-insecure=uiautomator2:chromedriver_allow_any_executable`
+   lifts that check.
 
 3. **A `sudo npm i -g appium` leaves the download target root-owned.** The
    driver tree under `~/.appium` then belongs to root, autodownload fetches the
@@ -404,9 +454,11 @@ that the refusal exists to prevent is the local driver's, not theirs.
    xcrun simctl list devices available
    xcrun simctl boot "iPhone 17 Pro"
    ```
-4. **The XCUITest driver**; its first run also builds WebDriverAgent, once:
+4. **The XCUITest driver**; its first run also builds WebDriverAgent, once.
+   On Appium 3, name the 12.x line, since 13.x requires Appium 4:
    ```sh
-   appium driver install xcuitest
+   appium driver install xcuitest                                   # Appium 4
+   appium driver install --source=npm appium-xcuitest-driver@12     # Appium 3
    ```
 
 Two things that cost a debugging round each. Appium loads drivers at **startup**,
@@ -459,6 +511,7 @@ All are tracked, and all are visible in these examples rather than hidden:
   Python** (#372). Only the WDIO service derives one from the app's page source.
 - **A native session captures no network by default** (#444). All four
   adapters can read it from the appium-interceptor plugin when the session
-  sets `appium:intercept: true` (see each adapter's README). The Clock app
+  sets `appium:intercept: true` (see each adapter's README), on Appium 3 only
+  (see [Appium 3 or Appium 4](#appium-3-or-appium-4)). The Clock app
   these examples drive makes no requests, so there is nothing to see here
   either way.

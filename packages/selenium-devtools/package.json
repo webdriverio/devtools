@@ -29,7 +29,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
+    "build": "tsup",
     "watch": "tsup src/index.ts --format esm --dts --sourcemap --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",
@@ -57,7 +57,7 @@
     "@xmldom/xmldom": "^0.9.12",
     "stacktrace-parser": "^0.1.11",
     "webdriverio": "^10.0.2",
-    "ws": "^8.22.0",
+    "ws": "^8.23.0",
     "xpath": "^0.0.36",
     "yazl": "^3.3.1"
   },

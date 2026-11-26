@@ -432,6 +432,14 @@ export const SCREENCAST_DEFAULTS: Required<ScreencastOptions> = {
   maxBufferFrames: 2000
 }
 
+/** A secret named by the environment variable holding it, so a committed config never carries the value. */
+export interface SecretFromEnv {
+  env: string
+}
+
+/** One `secrets` entry: the value itself, or where to read it. */
+export type SecretEntry = string | SecretFromEnv
+
 /**
  * Options every framework adapter accepts. Each adapter's own options interface
  * extends this and adds only its framework-specific fields (e.g. WDIO's
@@ -473,13 +481,13 @@ export interface BaseDevToolsOptions {
    *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
    *  Only applies in trace mode. */
   emitArtifactsManifest?: boolean
-  /** Mask the value of password fields in the replayed page (DOM snapshot,
-   *  field state, value mutations). Default true. Command rows always keep
-   *  what the test typed. Live and trace mode alike. */
+  /** Mask password fields in the replayed page and redact typed passwords, credential headers and cookies from what is sent and written. Default true. */
   maskInputs?: boolean
   /** CSS selectors whose matching elements have their text and value masked
    *  in the replayed page too, password or not. Default none. */
   maskSelectors?: string[]
+  /** More values to redact from what is sent and written, each a string or `{ env: 'NAME' }` read at start; under 4 characters ignored with a warning. Default none. */
+  secrets?: SecretEntry[]
   /** `styles` (default) stores the stylesheets and fonts the trace's pages used so replay does not load them from the site; `none` stores nothing. Trace mode only. */
   traceResources?: TraceResourcesMode
 }
@@ -768,6 +776,8 @@ export interface TestStats {
   hooks?: unknown[]
   callSource?: string
   order?: number
+  /** Set on a row that stands for a failed hook rather than a test. */
+  hook?: boolean
 }
 
 export interface SuiteStats {

@@ -257,7 +257,8 @@ async function attachBidi(
   try {
     const attached = await attachBidiHandlers(
       driver,
-      buildBidiSinks(ctx.sessionCapturer!)
+      buildBidiSinks(ctx.sessionCapturer!),
+      ctx.sessionCapturer!.captureCalls
     )
     if (attached) {
       ctx.sessionCapturer!.bidiActive = true
@@ -284,12 +285,16 @@ function registerPreload(
   ctx: SessionLifecycleCtx,
   driver: SeleniumDriverLike
 ): Promise<void> {
-  return registerCollectorPreload(driver, (level, message) =>
-    log[level](message)
+  const capturer = ctx.sessionCapturer
+  if (!capturer) {
+    return Promise.resolve()
+  }
+  return registerCollectorPreload(
+    driver,
+    (level, message) => log[level](message),
+    capturer.captureCalls
   ).then((registered) => {
-    if (ctx.sessionCapturer) {
-      ctx.sessionCapturer.preloadRegistered = registered
-    }
+    capturer.preloadRegistered = registered
   })
 }
 

@@ -21,6 +21,11 @@ import type {
 import { reportCaptureTiming } from './capture-timing.js'
 import { errorMessage } from './error.js'
 import {
+  noteWrittenTrace,
+  redactEarlierTraces,
+  secretRedactor
+} from './secret-redaction.js'
+import {
   buildArtifactsManifest,
   writeArtifactsManifest
 } from './artifacts-manifest.js'
@@ -391,8 +396,10 @@ async function writeSessionTrace(
     actionSnapshots: snapshots.length ? snapshots : undefined,
     screencastFrames: ctx.screencastFrames,
     format: ctx.format,
-    testMetadata: ctx.testMetadata
+    testMetadata: ctx.testMetadata,
+    redactor: secretRedactor()
   })
+  noteWrittenTrace(artifact.path)
   ctx.log?.('info', `Trace saved to ${artifact.path}`)
   ctx.onArtifact?.(artifact)
   return artifact
@@ -452,6 +459,13 @@ export async function finalizeTraceExport(
   // can miss the manifest. A no-op for WDIO (awaits eager flushes inline).
   await awaitPendingCaptures(ctx)
   const artifacts = await fanOutTraceWrites(ctx)
+  // A slice written before a later test typed a password still holds it, in the spec source every slice carries.
+  await redactEarlierTraces((artifactPath, error) =>
+    ctx.log?.(
+      'warn',
+      `Could not redact a later password from ${artifactPath}: ${errorMessage(error)}`
+    )
+  )
   await maybeWriteManifest(ctx, artifacts)
   // After the writes, so the report's own output cannot land in the trace's console.
   await reportCaptureTiming(ctx.resolveOutputDir())

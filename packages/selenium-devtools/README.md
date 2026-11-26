@@ -411,8 +411,9 @@ The trace uses a portable NDJSON schema, so the same `.zip` (or `ndjson-director
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`) via `allure-js-commons` when an Allure runner adapter is active. |
 | `emitArtifactsManifest` | `boolean` | auto | Write the `devtools-artifacts-<sessionId>.json` manifest — the generic index reporters/CI consume to discover produced artifacts — next to the trace. Off by default; **auto-enables** when an `allure-js-commons` runtime is active (the same signal the inline Allure attach uses). Set explicitly to force on/off. Trace mode only. |
 | `captureAssertions` | `boolean` | `true` | Capture `node:assert` assertions (both passing and failing) as trace action rows. Set `false` to opt out. |
-| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), live and trace mode alike. `false` records them as typed. Command rows always keep the typed text. See [Password masking](../../README.md#-password-masking) for what is and is not covered. |
+| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), and redact what was typed into them, and the values of `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie` headers, from command rows, network, console and the trace, live and trace mode alike. `false` turns both off. See [Password masking](../../README.md#-password-masking) and [Secret redaction](../../README.md#-secret-redaction). |
 | `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |
+| `secrets` | `Array<string \| { env: string }>` | `[]` | Values replaced by `••••` in everything the dashboard and the trace receive, on top of the typed passwords `maskInputs` redacts: command rows, console, network, DOM, sources. `{ env: 'NAME' }` reads the value from that variable at start; a value under 4 characters is ignored with a warning. See [Secret redaction](../../README.md#-secret-redaction). |
 
 `ScreencastOptions`:
 
@@ -490,6 +491,8 @@ const driver = await new Builder()
 ```
 
 The plugin starts a listener for each driver and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and before the driver quits, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin a warning is logged and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
+
+Appium 3 only: appium-interceptor 1.0.x declares a peer of `appium@^3.0.1`, so on an Appium 4 server the listener does not start and the warning described above is logged. Stay on Appium 3.x with UiAutomator2 8.x for native network until the plugin supports Appium 4 ([examples/MOBILE.md](https://github.com/webdriverio/devtools/blob/main/examples/MOBILE.md#appium-3-or-appium-4) lists which driver pairs with which Appium).
 
 The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
 

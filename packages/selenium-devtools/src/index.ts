@@ -55,8 +55,10 @@ import {
   applyConfigureOptions,
   serverLock
 } from './helpers/configure-options.js'
+import { noteTypedIntoElement } from './helpers/typed-input.js'
 import {
   configureInputMasking,
+  configureSecretRedaction,
   RetryTracker,
   errorMessage,
   requestsInterceptedNetwork,
@@ -183,9 +185,10 @@ class SeleniumDevToolsPlugin {
       video: options.video ?? 'off',
       emitArtifactsManifest: options.emitArtifactsManifest,
       maskInputs: options.maskInputs ?? true,
-      maskSelectors: options.maskSelectors ?? []
+      maskSelectors: options.maskSelectors ?? [],
+      secrets: options.secrets ?? []
     }
-    configureInputMasking(this.#options)
+    this.#applyCapturePolicy()
     const policyWarning = tracePolicyModeWarning(
       options.tracePolicy,
       this.#options.mode
@@ -313,6 +316,16 @@ class SeleniumDevToolsPlugin {
     return this.#uiReadyPromise
   }
 
+  // Secrets are read only when they changed, so a later configure() call never repeats their warnings.
+  #applyCapturePolicy(secretsChanged = true): void {
+    configureInputMasking(this.#options)
+    if (secretsChanged) {
+      for (const warning of configureSecretRedaction(this.#options)) {
+        log.warn(warning)
+      }
+    }
+  }
+
   configure(opts: DevToolsOptions = {}) {
     if ('rerunCommand' in opts) {
       this.#rerunManager.configure(opts.rerunCommand)
@@ -326,7 +339,7 @@ class SeleniumDevToolsPlugin {
       log.warn(warning)
     }
     // A preload already registered keeps the policy it was built with; only sessions started after this see a change.
-    configureInputMasking(this.#options)
+    this.#applyCapturePolicy('secrets' in opts || 'maskInputs' in opts)
     if (opts.screencast) {
       if (this.#options.mode === 'trace' && opts.screencast.enabled) {
         log.warn('trace mode: ignoring screencast option (live-mode feature)')
@@ -708,6 +721,12 @@ const patched = patchSelenium({
   onCommand: (cmd) => plugin.onCommand(cmd),
   afterNavigation: () => plugin.instrumentNavigationTarget(),
   beforeInput: () => plugin.focusForInput(),
+  beforeTyping: (element, args) =>
+    noteTypedIntoElement(
+      element,
+      args,
+      plugin.sessionCapturer?.isNativeAppSession === true
+    ),
   afterActions: (driver) => plugin.onActionsPerformed(driver),
   // Per-scenario cleanup ONLY here (finalizes that driver's screencast,
   // clears per-driver state). The session-wide teardown — set-finalized,

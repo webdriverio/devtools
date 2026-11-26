@@ -27,6 +27,8 @@ export interface DirectProbes {
    *  leaving this on `browser.*` would keep an in-hook call exactly where the
    *  serialising driver is guaranteed. */
   getPageSource: () => Promise<string | undefined>
+  /** A field's `type` before keys are typed into it, read for input masking. */
+  getElementType: (elementId: string) => Promise<string | undefined>
 }
 
 const orUndefined = <T>(value: T | null): T | undefined => value ?? undefined
@@ -60,6 +62,12 @@ export function directProbes(
     takeScreenshot: () =>
       webdriverGet<string>(address, sessionId, 'screenshot').then(orUndefined),
     getPageSource: () =>
-      webdriverGet<string>(address, sessionId, 'source').then(orUndefined)
+      webdriverGet<string>(address, sessionId, 'source').then(orUndefined),
+    getElementType: (elementId) =>
+      webdriverGet<string>(
+        address,
+        sessionId,
+        `element/${encodeURIComponent(elementId)}/property/type`
+      ).then(orUndefined)
   }
 }

@@ -26,6 +26,7 @@ from . import (
     capture_timing,
     element_scripts,
     input_masking,
+    secret_redaction,
     instrumentation,
     lifecycle,
     page_resources,
@@ -37,6 +38,7 @@ from ._contract import CONTRACT_VERSION
 from .capturer import SessionCapturer
 from .output_dir import resolve_adapter_output_dir
 from .run_id import reset_run_id, resolve_run_id
+from .secret_redaction import SecretEntry
 from .constants import (
     TRACE_RETENTION_POLICIES,
     TRACE_GRANULARITIES,
@@ -359,6 +361,7 @@ def enable(
     trace_resources: Optional[str] = None,
     mask_inputs: Optional[bool] = None,
     mask_selectors: Optional[Sequence[str]] = None,
+    secrets: Optional[Sequence[SecretEntry]] = None,
 ) -> Optional[SessionCapturer]:
     """Connect to the backend and instrument Selenium. Idempotent.
 
@@ -370,7 +373,12 @@ def enable(
     ``mask_inputs`` (default on, ``DEVTOOLS_MASK_INPUTS``) masks the value of
     password fields in the replayed page; ``mask_selectors``
     (``DEVTOOLS_MASK_SELECTORS``) masks the text and value of matching elements
-    there too. Command rows always carry what the test typed.
+    there too. ``mask_inputs`` also redacts, everywhere the run sends, what is
+    typed into a password field and the values of credential headers.
+
+    ``secrets`` lists more values replaced by ``••••`` in everything sent to the
+    dashboard and the trace: a string is the value, ``{"env": "NAME"}`` reads it
+    from that variable now. None reads the names in ``DEVTOOLS_SECRET_ENVS``.
     """
     if _active["capturer"] is not None:
         return _active["capturer"]
@@ -421,7 +429,8 @@ def enable(
         return None
 
     capturer = SessionCapturer(transport)
-    input_masking.configure(mask_inputs, mask_selectors)
+    masking = input_masking.configure(mask_inputs, mask_selectors)
+    secret_redaction.configure(secrets, automatic=masking["inputs"])
     instrumentation.install(
         capturer,
         webdriver_cls,

@@ -8,6 +8,7 @@
 
 import {
   captureActionSnapshot as coreCapture,
+  type CaptureCallGuard,
   type NativeApp
 } from '@wdio/devtools-core'
 import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
@@ -20,7 +21,8 @@ export function captureActionSnapshot(
   command: string,
   timestamp?: number,
   native?: NativeApp,
-  trigger?: CaptureTrigger
+  trigger?: CaptureTrigger,
+  calls?: CaptureCallGuard
 ): Promise<ActionSnapshot | null> {
   const orig = getDriverOriginals()
   // A native app serves no page script, url or title; its page source is what
@@ -30,6 +32,7 @@ export function captureActionSnapshot(
     timestamp,
     trigger,
     runner: SELENIUM_RUNNER_ID,
+    onProbeTimeout: calls && ((what) => calls.timedOut(what)),
     takeScreenshot: () =>
       orig.takeScreenshot
         ? orig.takeScreenshot(driver).catch(() => undefined)

@@ -67,6 +67,7 @@ ENV_OPEN = "DEVTOOLS_OPEN"  # "0"/"false"/"no"/"off" disables dashboard auto-ope
 ENV_CAPTURE_TIMING = "DEVTOOLS_CAPTURE_TIMING"  # times each trace capture; see capture_timing.py
 ENV_MASK_INPUTS = "DEVTOOLS_MASK_INPUTS"  # "0"/"false"/"no"/"off" leaves password fields unmasked in the replayed page
 ENV_MASK_SELECTORS = "DEVTOOLS_MASK_SELECTORS"  # comma-separated CSS selectors masked too
+ENV_SECRET_ENVS = "DEVTOOLS_SECRET_ENVS"  # comma-separated names of environment variables whose values are redacted
 
 # ── Backend launch ───────────────────────────────────────────────────────────
 # Pinned backend version fetched via npx from a published install. There is no

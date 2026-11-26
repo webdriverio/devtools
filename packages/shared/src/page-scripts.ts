@@ -79,6 +79,16 @@ export interface TraceDrainOptions {
   stored?: readonly string[]
 }
 
+/** The `type` of the field a selector names, read before text is typed into it; `arguments` are the selector and `xpath` or `css`. The first match, as a WebDriver find resolves it, and null when nothing matches. */
+export const FIELD_TYPE_SCRIPT = `var sel = arguments[0], el = null;
+if (typeof sel !== 'string' || !sel) { return null; }
+try {
+  el = arguments[1] === 'xpath'
+    ? document.evaluate(sel, document, null, 9, null).singleNodeValue
+    : document.querySelector(sel);
+} catch (e) { el = null; }
+return el && typeof el.type === 'string' ? el.type : null;`
+
 /**
  * Captures Performance API data, cookies and document info from the page under
  * test. A string so the browser-only types (PerformanceEntry, Document) never

@@ -49,7 +49,7 @@
     "@wdio/devtools-trace": "workspace:^",
     "@xmldom/xmldom": "^0.9.12",
     "stacktrace-parser": "^0.1.11",
-    "ws": "^8.22.0",
+    "ws": "^8.23.0",
     "xpath": "^0.0.36"
   }
 }

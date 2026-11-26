@@ -30,7 +30,8 @@ export async function captureFinalFrame(
             stamp.command,
             stamp.timestamp,
             capturer.nativeApp,
-            'final'
+            'final',
+            capturer.captureCalls
           )
         : Promise.resolve(null),
     (err) => log.debug(`End-of-test frame capture failed: ${errorMessage(err)}`)

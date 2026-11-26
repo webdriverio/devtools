@@ -411,6 +411,7 @@ describe('TestReporter - spec file attempt', () => {
       { logFile: '/tmp/test.log' },
       vi.fn(),
       () => {},
+      () => {},
       onSpecFileAttempt
     )
     r.onRunnerStart({ specFileAttempt: 1 } as RunnerStats)

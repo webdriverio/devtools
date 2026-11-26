@@ -70,6 +70,10 @@ _FLAG_FILTERS = (
 )
 _SHORT_VALUE_FILTERS = tuple(opt for opt in _VALUE_FILTERS if len(opt) == 2)
 
+# A literal secret never goes into a command the dashboard holds or re-runs: redacted there it would
+# rerun as the placeholder. `--devtools-secret-env` names a variable instead, which a rerun inherits.
+_SECRET_OPTION = "--devtools-secret"
+
 _options: Dict[str, object] = {"runCapabilities": dict(RUN_CAPABILITIES_NONE)}
 
 # The value we last wrote to ENV_RUNNER_CWD, or None if we never wrote one.
@@ -139,6 +143,7 @@ def configure_pytest(
     file/dir/nodeid arguments pytest resolved out of it, and `rootdir` the
     directory its nodeids are relative to.
     """
+    args = _strip_secrets(args)
     launch = _inherited_launch() or _quote(
         [sys.executable, "-m", "pytest", *_absolute_positionals(args, positionals)]
     )
@@ -229,6 +234,20 @@ def _strip_filters(args: Sequence[str]) -> List[str]:
         ):
             continue
         kept.append(arg)
+    return kept
+
+
+def _strip_secrets(args: Sequence[str]) -> List[str]:
+    """Drop every ``--devtools-secret VALUE`` and ``--devtools-secret=VALUE``."""
+    kept: List[str] = []
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+        elif arg == _SECRET_OPTION:
+            skip_value = True
+        elif not arg.startswith(f"{_SECRET_OPTION}="):
+            kept.append(arg)
     return kept
 
 
