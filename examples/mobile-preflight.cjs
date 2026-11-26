@@ -45,10 +45,13 @@ Android SDK and a system image this is a multi-gigabyte setup, so it is opt-in.
 
        adb devices
 
-  2. Appium 2.x and the Android driver:
+  2. Appium and the Android driver. On Appium 4 (Node ^22.22.2, ^24.15 or
+     26+) the default driver fits; on Appium 3 name UiAutomator2 8.x, which
+     is also what native network through appium-interceptor needs:
 
        npm i -g appium
        appium driver install uiautomator2
+       # Appium 3: appium driver install --source=npm appium-uiautomator2-driver@8
        appium --address 127.0.0.1 --port 4723
 
 To look at mobile capture WITHOUT any of that, the scratchpad harness builds

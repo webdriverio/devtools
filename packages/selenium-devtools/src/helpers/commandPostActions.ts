@@ -158,9 +158,9 @@ async function capturePerformance(
   try {
     // Brief settle so navigation entries populate before we read them.
     await new Promise((resolve) => setTimeout(resolve, 500))
-    const raw = (await exec(
-      driver as SeleniumDriverLike,
-      CAPTURE_PERFORMANCE_SCRIPT
+    const raw = (await capturer.captureCalls.read(
+      () => exec(driver as SeleniumDriverLike, CAPTURE_PERFORMANCE_SCRIPT),
+      'performance read'
     )) as CapturedPerformancePayload | undefined
     if (applyPerformanceData(entry, raw, args?.[0] as string | undefined)) {
       capturer.sendReplaceCommand(entry.timestamp ?? Date.now(), entry)
@@ -407,7 +407,8 @@ function queueActionSnapshot(
         command,
         timestamp,
         capturer.nativeApp,
-        trigger
+        trigger,
+        capturer.captureCalls
       )
   )
 }

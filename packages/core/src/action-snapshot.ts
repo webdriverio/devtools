@@ -55,6 +55,26 @@ export interface CaptureActionSnapshotInput {
   runner?: TestRunnerId
   /** Why this capture ran, for the opt-in capture timing report. Omitted → `action`. */
   trigger?: CaptureTrigger
+  /** Told when a probe loses to its ceiling; an adapter passes its `CaptureCallGuard.timedOut`. */
+  onProbeTimeout?: (what: string) => void
+}
+
+type ProbeTimeout = CaptureActionSnapshotInput['onProbeTimeout']
+
+/** `pending` under a ceiling, telling `onTimeout` when it loses. */
+function ceiling<T>(
+  pending: Promise<T>,
+  ms: number,
+  fallback: T,
+  what: string,
+  onTimeout: ProbeTimeout
+): Promise<T> {
+  return withTimeout(
+    pending,
+    ms,
+    fallback,
+    onTimeout && (() => onTimeout(`action snapshot ${what} probe`))
+  )
 }
 
 /** A session with no document, whose captures read the app's page source. */
@@ -82,13 +102,15 @@ function timed<T>(
 async function runWith<T>(
   runScript: ScriptRunner | undefined,
   scriptSrc: string,
-  fallback: T
+  fallback: T,
+  what: string,
+  onTimeout: ProbeTimeout
 ): Promise<T> {
   if (!runScript) {
     return fallback
   }
 
-  return withTimeout(
+  return ceiling(
     // A driver can answer `null` rather than reject (no-such-session, a script
     // error swallowed by the transport). Passing that through hands the
     // serializers a non-array where they expect one, which throws and loses the
@@ -97,7 +119,9 @@ async function runWith<T>(
       r === null || r === undefined ? fallback : (r as T)
     ),
     SNAPSHOT_PROBE_TIMEOUT_MS,
-    fallback
+    fallback,
+    what,
+    onTimeout
   ).catch(() => fallback)
 }
 
@@ -113,19 +137,23 @@ async function runWith<T>(
  * no DOM, no a11y tree and no element rects at all.
  */
 function probe<T>(
-  read: (() => Promise<T | null | undefined>) | undefined
+  read: (() => Promise<T | null | undefined>) | undefined,
+  what: string,
+  onTimeout: ProbeTimeout
 ): Promise<T | undefined> {
   if (!read) {
     return Promise.resolve(undefined)
   }
   // `Promise.resolve().then(read)` so a probe that throws synchronously becomes
   // a rejection this catch can absorb, rather than escaping the Promise.all.
-  return withTimeout(
+  return ceiling<T | undefined>(
     Promise.resolve()
       .then(read)
       .then((value) => value ?? undefined),
     SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
-    undefined
+    undefined,
+    what,
+    onTimeout
   ).catch(() => undefined)
 }
 
@@ -185,34 +213,31 @@ function readProbes(
   // capture different things. `elements` carries bounds: the per-action
   // element rects drive A8 input points.
   const scripts = buildElementScripts(input.runner)
-  return Promise.all([
-    timed(timer, 'url', input.getUrl, probe(input.getUrl)),
-    timed(timer, 'title', input.getTitle, probe(input.getTitle)),
-    isNativeMobile
-      ? timed(timer, 'pageSource', true, probe(input.getPageSource))
-      : undefined,
+  const onTimeout = input.onProbeTimeout
+  const driverRead = <T>(
+    name: CaptureProbe,
+    read: (() => Promise<T | null | undefined>) | undefined,
+    issued: unknown = read
+  ) => timed(timer, name, issued, probe(read, name, onTimeout))
+  const pageScript = <T>(name: CaptureProbe, src: string) =>
     timed(
       timer,
-      'accessibilityTree',
+      name,
       input.runScript,
-      runWith<AccessibilityNode[]>(
-        input.runScript,
-        scripts.accessibilityTree,
-        []
-      )
-    ),
-    timed(
-      timer,
-      'elements',
-      input.runScript,
-      runWith<BrowserElementInfo[]>(input.runScript, scripts.elements, [])
-    ),
-    timed(
-      timer,
-      'screenshot',
-      input.takeScreenshot,
-      probe(input.takeScreenshot)
+      runWith<T[]>(input.runScript, src, [], name, onTimeout)
     )
+  return Promise.all([
+    driverRead('url', input.getUrl),
+    driverRead('title', input.getTitle),
+    isNativeMobile
+      ? driverRead('pageSource', input.getPageSource, true)
+      : undefined,
+    pageScript<AccessibilityNode>(
+      'accessibilityTree',
+      scripts.accessibilityTree
+    ),
+    pageScript<BrowserElementInfo>('elements', scripts.elements),
+    driverRead('screenshot', input.takeScreenshot)
   ])
 }
 

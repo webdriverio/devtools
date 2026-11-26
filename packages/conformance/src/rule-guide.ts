@@ -165,6 +165,20 @@ export const RULE_GUIDE: Record<RuleId, RuleGuide> = {
       "The collector source was injected without core's `loadCollectorSource` (Python: `collector_source_text`), which declares the policy ahead of it, or the input command's arguments were changed before the row was captured.",
     responsibility: 'collector'
   },
+  'typed-password-never-sent': {
+    meaning:
+      'What the test typed into a password field, with no `secrets` configured, reached the dashboard: some frame carries it, raw, encoded or one key per item, or the row that typed it does not carry the placeholder. The backend builds the Python trace from these frames, and the JS adapters write theirs through the same redactor, which `packages/core/tests/secret-redaction.test.ts` proves against a written archive.',
+    cause:
+      "The input command's row was sent before the field's type was read (core `noteTypedInput`, Python `secret_redaction.note_typed_input`), the read was never issued for that command, or a frame was sent around core's `sendUpstream` (Python: `WSClient.send_json`), which redacts every frame.",
+    responsibility: 'transport'
+  },
+  'credential-headers-redacted': {
+    meaning:
+      "A credential reached the dashboard: a network row carries the value the fake's requests send in Authorization or Cookie, or its responses in Set-Cookie, or, where BiDi served headers, no row keeps the Authorization header with the placeholder as its value.",
+    cause:
+      "The network row's header map is stored under a key the redactor does not read (shared `HEADER_KEYS`; Python `redaction_walk.HEADER_KEYS`), input masking is off, or a frame was sent around core's `sendUpstream` (Python: `WSClient.send_json`).",
+    responsibility: 'transport'
+  },
   'one-row-per-browser-action': {
     meaning:
       'The rows do not match what the browser did: a navigation, click or keystroke is missing or appears twice.',

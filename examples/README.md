@@ -48,6 +48,14 @@ translates it into the plugin's own options.
 `DEVTOOLS_TRACE_GRANULARITY` and `DEVTOOLS_TRACE_POLICY` walk the rest of the
 ladder, so each runner needs only one config.
 
+The demo password is redacted on its own once a test types it into the
+password field. `DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!'` also lists it
+in `secrets` for the WebdriverIO mocha, Nightwatch and Selenium Cucumber
+examples, which redacts it from the start of the run, including the login page
+text and the test source a live dashboard receives before the typing. The
+Python adapter reads the same variable through its own setting:
+`DEVTOOLS_SECRET_ENVS=DEVTOOLS_EXAMPLE_SECRET`.
+
 ## Local fixture site
 
 `pnpm smoke:fixtures` serves a copy of the-internet's login flow (`/`, `/login`,
@@ -64,7 +72,7 @@ Every desktop login example reads it (WebdriverIO, Nightwatch and Selenium in
 each runner, and both Python login cases; a trailing slash is ignored). Unset,
 they drive the public site as before. `web_form.py` drives selenium.dev's form
 page instead and the mobile examples read `DEVTOOLS_MOBILE_URL`. CI's `examples-smoke` job runs one
-of each in trace mode against the fixture and checks the zips with
+of each, plus the WebdriverIO Cucumber one, in trace mode against the fixture and checks the zips with
 `pnpm smoke:assert`; the expected rows per test live in
 `packages/conformance/smoke/expectations/`, so a change to one of those
 examples' steps updates its expectation file too.

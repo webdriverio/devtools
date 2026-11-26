@@ -159,6 +159,8 @@ export interface DriverPatcherHooks {
   afterNavigation?: (command: string) => Promise<void>
   // Awaited before an element click, sendKeys, clear or submit is sent.
   beforeInput?: () => Promise<void>
+  // Awaited before an element sendKeys is sent, with the element and the keys.
+  beforeTyping?: (element: unknown, args: unknown[]) => Promise<void>
   // Fired after perform() settles, failed too: a partly performed sequence may already have moved the page.
   afterActions?: (driver: SeleniumDriverLike) => void
   // False in telemetry: onCommand still runs for its test lifecycle, but each command's args, result and stack are not read.

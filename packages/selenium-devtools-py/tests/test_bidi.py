@@ -827,6 +827,30 @@ class TestTheEventManagerPath(unittest.TestCase):
         })
         self.assertTrue(bidi.network_serving(stats))
 
+    def test_a_subscription_abandoned_at_its_ceiling_never_serves(self):
+        # A request delivered before the ceiling must not withhold the page's own rows once the setup is abandoned.
+        module = fake_network_module()
+        network = module.Network()
+        stats = {}
+        cancelled = threading.Event()
+
+        with mock.patch.dict(
+            sys.modules, {"selenium.webdriver.common.bidi.network": module}
+        ):
+            bidi._attach_network(
+                NewSeleniumDriver(network, []),
+                SessionCapturer(RecordingTransport()),
+                stats,
+                cancelled,
+            )
+        self._dispatch(network, "network.beforeRequestSent", {
+            "request": {"request": "R1", "url": "https://x/a.js", "method": "GET"},
+            "timestamp": 1000,
+        })
+        self.assertTrue(bidi.network_serving(stats))
+        cancelled.set()
+        self.assertFalse(bidi.network_serving(stats))
+
     def test_both_events_are_subscribed_and_counted(self):
         # Registering on the connection directly bypasses selenium's own
         # bookkeeping, so the subscribe and the callback count are done

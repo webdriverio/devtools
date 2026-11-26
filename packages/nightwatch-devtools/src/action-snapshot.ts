@@ -11,6 +11,7 @@ import {
   captureActionSnapshot as coreCapture,
   type NativeApp
 } from '@wdio/devtools-core'
+import { captureCallsFor } from './capture-calls.js'
 import type { ActionSnapshot, CaptureTrigger } from '@wdio/devtools-shared'
 import { webdriverExecute, webdriverGet } from './helpers/webdriverHttp.js'
 import type { NightwatchBrowser, TestRunnerId } from './types.js'
@@ -30,6 +31,7 @@ export function captureActionSnapshot(
     timestamp,
     runner,
     trigger,
+    onProbeTimeout: (what) => captureCallsFor(browser).timedOut(what),
     takeScreenshot: () => webdriverGet<string>(browser, 'screenshot'),
     ...(native
       ? {

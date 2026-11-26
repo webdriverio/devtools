@@ -5,6 +5,7 @@ import {
   ADAPTER_TESTS,
   DOM_RULES,
   FAILED_TEST_RULES,
+  MASKING_RULES,
   NETWORK_RULES,
   allCovered,
   allTested,
@@ -237,9 +238,9 @@ export const FEATURES = [
   },
   {
     id: 'input-masking',
-    name: 'Password fields masked in the replayed page (`maskInputs`, `maskSelectors`)',
+    name: 'Typed passwords and credential headers masked and redacted (`maskInputs`, `maskSelectors`, `secrets`)',
     tables: ['readme-trace', 'cross-framework'],
-    cells: allTested([RULES.passwordMaskedInPage])
+    cells: allTested(MASKING_RULES)
   },
   {
     id: 'actions-list',

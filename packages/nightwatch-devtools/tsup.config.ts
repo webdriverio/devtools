@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsup'
 
+import { INLINE_PRIVATE_TYPES } from '../../tsup.dts.js'
+
 // Two outputs:
 //  1. The plugin itself (ESM) — src/index.ts. Same as the original build.
 //  2. The Cucumber hooks. Cucumber loads dist/helpers/cucumberHooks.cjs itself
@@ -13,7 +15,7 @@ export default defineConfig([
   {
     entry: ['src/index.ts'],
     format: ['esm'],
-    dts: true,
+    dts: INLINE_PRIVATE_TYPES,
     sourcemap: true,
     clean: true
   },

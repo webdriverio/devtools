@@ -20,6 +20,7 @@ import {
 } from '@wdio/devtools-shared'
 import { mobilePlatform } from './mobile.js'
 import { directProbes } from './direct-probes.js'
+import { captureCallsFor, pollWithin } from './capture-calls.js'
 import { wdioRunnerId } from './wdio-runner-id.js'
 
 function reviveScript(src: string): () => unknown {
@@ -94,10 +95,14 @@ export async function settleAfterLastAction(
     // pause exists to avoid capturing.
     await browser
       .waitUntil(
+        // WDIO's waitUntil timeout only arms once a poll has returned, so each poll needs its own ceiling.
         async () =>
-          (await browser
-            .execute(() => document.readyState === 'complete')
-            .catch(() => false)) === true,
+          (await pollWithin(
+            browser,
+            () => browser.execute(() => document.readyState === 'complete'),
+            false,
+            'end-of-test settle'
+          ).catch(() => false)) === true,
         { timeout: FINAL_SETTLE_TIMEOUT_MS, interval: 150 }
       )
       .catch(() => undefined)
@@ -168,6 +173,7 @@ export function captureActionSnapshot(
       ? (direct?.getPageSource ??
         (() => browser.getPageSource().catch(() => undefined)))
       : undefined,
-    platform: native ? mobilePlatform(browser) : undefined
+    platform: native ? mobilePlatform(browser) : undefined,
+    onProbeTimeout: (what) => captureCallsFor(browser).timedOut(what)
   })
 }

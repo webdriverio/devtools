@@ -1,6 +1,6 @@
 import type { DevToolsOptions, ServerLock } from '../types.js'
 
-type OptionKind = 'boolean' | 'choice' | 'port' | 'host' | 'strings'
+type OptionKind = 'boolean' | 'choice' | 'port' | 'host' | 'strings' | 'secrets'
 
 // A Record over every option, so a key added to DevToolsOptions fails to compile here instead of being silently ignored.
 const OPTION_KIND = {
@@ -12,6 +12,7 @@ const OPTION_KIND = {
   emitArtifactsManifest: 'boolean',
   maskInputs: 'boolean',
   maskSelectors: 'strings',
+  secrets: 'secrets',
   mode: 'choice',
   traceFormat: 'choice',
   traceGranularity: 'choice',
@@ -31,7 +32,8 @@ const EXPECTED: Record<OptionKind, string> = {
   choice: 'a non-empty string',
   port: 'an integer between 1 and 65535',
   host: 'a non-empty string',
-  strings: 'an array of strings'
+  strings: 'an array of strings',
+  secrets: 'an array of strings and { env: string } objects'
 }
 
 type ConfigurableKey = keyof typeof OPTION_KIND
@@ -74,10 +76,16 @@ function hasExpectedShape(kind: OptionKind, value: unknown): boolean {
       return (
         Array.isArray(value) && value.every((item) => typeof item === 'string')
       )
+    case 'secrets':
+      return Array.isArray(value)
   }
 }
 
-function describeValue(value: unknown): string {
+// A refused secrets value is never echoed: it is the text the option exists to keep out of logs.
+function describeValue(kind: OptionKind, value: unknown): string {
+  if (kind === 'secrets') {
+    return typeof value
+  }
   return typeof value === 'string' ? `'${value}'` : String(value)
 }
 
@@ -107,7 +115,7 @@ export function applyConfigureOptions(
       accepted.push(key)
     } else {
       warnings.push(
-        `configure: ignoring ${key}: expected ${EXPECTED[kind]}, got ${describeValue(value)}`
+        `configure: ignoring ${key}: expected ${EXPECTED[kind]}, got ${describeValue(kind, value)}`
       )
     }
   }

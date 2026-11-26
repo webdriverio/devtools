@@ -45,6 +45,13 @@ export const config = {
 }
 ```
 
+### Test tree
+
+The sidebar lists each spec's suites and tests (each Cucumber feature's scenarios and steps) as they run, the same on WebdriverIO 9 and 10.
+
+- **Retries.** A retried test is one row. Its next attempt replaces the failed one in place, and the row shows the final attempt's result with its retry count; for a Cucumber scenario retried with `cucumberOpts.retry`, the count is on the scenario. The failed attempt is still recorded, so the retry-aware `tracePolicy` values see it.
+- **Failed Cucumber hooks.** A hook fails no step, so a failed `BeforeAll` or `AfterAll` shows as a failed row of its feature (an `AfterAll` below the scenarios), and a failed `Before` or `After` as a failed row of its scenario, carrying the hook's error. Each failed hook is a row of its own, titled with its position among the hooks of that kind on the same feature or scenario, whether those passed or failed: the second `After` hook is `After #2` even when the first passed. When a retried scenario runs again, the failed hooks of the earlier attempt leave the tree with the rest of that attempt. Mocha and Jasmine hooks are left to the framework's own reporting.
+
 ### Standalone
 
 ```ts
@@ -257,6 +264,8 @@ capabilities: [{
 
 The service starts a listener when the session starts and reads what the proxy recorded at most every 2 seconds between commands (each read returns the whole history), and always before each test's trace slice is written and at the end of the session, in both live and trace mode. Each request shows its method, URL, status, headers and bodies. The plugin records no timing, so a request is placed at the moment it was first read and shows no duration. Without the plugin the service logs a warning and the session runs as usual. This applies to native sessions only; a mobile browser session already captures its network through the page.
 
+Appium 3 only: appium-interceptor 1.0.x declares a peer of `appium@^3.0.1`, so on an Appium 4 server the listener does not start and the warning described above is logged. Stay on Appium 3.x with UiAutomator2 8.x for native network until the plugin supports Appium 4 ([examples/MOBILE.md](https://github.com/webdriverio/devtools/blob/main/examples/MOBILE.md#appium-3-or-appium-4) lists which driver pairs with which Appium).
+
 The plugin supports Android. For HTTPS traffic the app has to trust the certificate the plugin installs on the device, which a release build usually does not (see Android's network security configuration).
 
 ## Reference
@@ -281,8 +290,9 @@ services: [['devtools', options]]
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Trace mode only. `'styles'` stores the stylesheets and fonts each archive's pages used, once each by content hash, so the player replays them from the archive rather than the site; `'none'` stores nothing. Images always replay from the site. See the [root README](../../README.md#options) for caps and how the reads are kept out of the network rows. |
 | `emitArtifactsManifest` | `boolean` | `false` | Ignored in live mode; trace mode honours it and `mode: 'telemetry'` always writes it. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when a reporter whose name contains `allure` (such as `@wdio/allure-reporter`) is in the config**, unless set to `false`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as command/action rows — `node:assert` plus passing *and* failing expect-webdriverio matchers, folded into single `expect.<matcher>` rows (e.g. `toHaveText`, `toExist`). Set `false` to opt out. |
-| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), live and trace mode alike. `false` records them as typed. Command rows always keep the typed text. See [Password masking](../../README.md#-password-masking) for what is and is not covered. |
+| `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), and redact what was typed into them, and the values of `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie` headers, from command rows, network, console and the trace, live and trace mode alike. `false` turns both off. See [Password masking](../../README.md#-password-masking) and [Secret redaction](../../README.md#-secret-redaction). |
 | `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |
+| `secrets` | `Array<string \| { env: string }>` | `[]` | Values replaced by `••••` in everything the dashboard and the trace receive, on top of the typed passwords `maskInputs` redacts: command rows, console, network, DOM, sources. `{ env: 'NAME' }` reads the value from that variable at start; a value under 4 characters is ignored with a warning. See [Secret redaction](../../README.md#-secret-redaction). |
 
 ## How It Works
 

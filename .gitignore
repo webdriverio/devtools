@@ -35,6 +35,7 @@ __pycache__/
 /*.ts
 /*.json
 !/vitest.config.ts
+!/tsup.dts.ts
 !/tsconfig.dts.json
 !/vercel.json
 *.tgz
