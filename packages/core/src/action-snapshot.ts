@@ -168,6 +168,18 @@ function fromPageSource(
   platform: 'android' | 'ios'
 ): { snapshotText: string; elements: unknown[] } {
   const jsonTree = xmlToJSON(pageSource)
+  let elements: unknown[] = []
+  try {
+    elements = generateAllElementLocators(pageSource, {
+      platform,
+      viewportSize: { width: 9999, height: 9999 },
+      filters: getDefaultFilters(platform, false),
+      inViewportOnly: false,
+      tree: jsonTree ?? undefined
+    })
+  } catch {
+    // Non-fatal — snapshot text is the primary deliverable.
+  }
   let snapshotText = `[${platform}]`
   if (jsonTree) {
     jsonTree.attributes._sourceXML = pageSource
@@ -176,21 +188,7 @@ function fromPageSource(
       sourceXML: pageSource
     })
   }
-  try {
-    const filters = getDefaultFilters(platform, false)
-    return {
-      snapshotText,
-      elements: generateAllElementLocators(pageSource, {
-        platform,
-        viewportSize: { width: 9999, height: 9999 },
-        filters,
-        inViewportOnly: false
-      })
-    }
-  } catch {
-    // Non-fatal — snapshot text is the primary deliverable.
-    return { snapshotText, elements: [] }
-  }
+  return { snapshotText, elements }
 }
 
 /**

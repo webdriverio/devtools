@@ -363,6 +363,25 @@ export function flattenElementTree(root: JSONElement): JSONElement[] {
   return result
 }
 
+// Appium escapes & < " (&amp; &lt; &quot;), but WebView sources carry bare & and a literal > or ' may appear, so both forms match.
+const XML_ATTRIBUTE_CHAR_PATTERNS: Record<string, string> = {
+  '&': '(?:&amp;|&)',
+  '<': '&lt;',
+  '>': '(?:>|&gt;)',
+  '"': '(?:"|&quot;)',
+  "'": "(?:'|&apos;)"
+}
+
+function attributeValuePattern(value: string): string {
+  return [...value]
+    .map(
+      (char) =>
+        XML_ATTRIBUTE_CHAR_PATTERNS[char] ??
+        char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    )
+    .join('')
+}
+
 /**
  * Count occurrences of an attribute value in the source XML
  */
@@ -371,8 +390,10 @@ export function countAttributeOccurrences(
   attribute: string,
   value: string
 ): number {
-  const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const pattern = new RegExp(`${attribute}=["']${escapedValue}["']`, 'g')
+  const pattern = new RegExp(
+    `${attribute}=["']${attributeValuePattern(value)}["']`,
+    'g'
+  )
   const matches = sourceXML.match(pattern)
   return matches ? matches.length : 0
 }

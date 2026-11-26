@@ -47,4 +47,15 @@ describe('getSuggestedLocators platform branch', () => {
     expect(strategies).toContain('accessibility-id')
     expect(strategies).not.toContain('uiautomator')
   })
+
+  it('keeps the accessibility id for a name with an XML-escaped ampersand', () => {
+    const xml =
+      '<AppiumAUT><XCUIElementTypeButton name="Tom &amp; Jerry"/></AppiumAUT>'
+    const [best] = getSuggestedLocators(
+      { ...element, attributes: { name: 'Tom & Jerry' } },
+      xml,
+      'XCUITest'
+    )
+    expect(best).toEqual(['accessibility-id', '~Tom & Jerry'])
+  })
 })

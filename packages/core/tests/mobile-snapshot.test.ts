@@ -1,7 +1,16 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { serializeMobileSnapshot } from '../src/element-snapshot.js'
+import { generateAllElementLocators } from '../src/locators/index.js'
+import type * as LocatorGeneration from '../src/locators/locator-generation.js'
+import { getSuggestedLocators } from '../src/locators/locator-generation.js'
 import type { JSONElement } from '../src/locators/types.js'
+import { xmlToJSON } from '../src/locators/xml-parsing.js'
+
+vi.mock('../src/locators/locator-generation.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof LocatorGeneration>()
+  return { ...actual, getSuggestedLocators: vi.fn(actual.getSuggestedLocators) }
+})
 
 function mobileEl(
   tagName: string,
@@ -96,5 +105,42 @@ describe('serializeMobileSnapshot', () => {
     const out = serializeMobileSnapshot(root, { platform: 'android' })
     expect(out).toContain('FrameLayout')
     expect(out).not.toContain('→')
+  })
+})
+
+describe('serializeMobileSnapshot with stamped selectors', () => {
+  const IOS_XML =
+    '<XCUIElementTypeApplication name="App" x="0" y="0" width="390" height="844"><XCUIElementTypeWindow x="0" y="0" width="390" height="844"><XCUIElementTypeButton name="Accept All Cookies" label="Accept All Cookies" enabled="true" visible="true" accessible="true" x="10" y="20" width="200" height="44"/><XCUIElementTypeButton name="Tom &amp; Jerry" label="Tom &amp; Jerry" enabled="true" visible="true" accessible="true" x="10" y="80" width="200" height="44"/></XCUIElementTypeWindow></XCUIElementTypeApplication>'
+
+  it('renders the same snapshot without recomputing stamped locators', () => {
+    const unstamped = serializeMobileSnapshot(xmlToJSON(IOS_XML)!, {
+      platform: 'ios',
+      sourceXML: IOS_XML
+    })
+
+    const stamped = xmlToJSON(IOS_XML)!
+    generateAllElementLocators(IOS_XML, {
+      platform: 'ios',
+      inViewportOnly: false,
+      tree: stamped
+    })
+    vi.mocked(getSuggestedLocators).mockClear()
+    const out = serializeMobileSnapshot(stamped, {
+      platform: 'ios',
+      sourceXML: IOS_XML
+    })
+
+    expect(getSuggestedLocators).not.toHaveBeenCalled()
+    expect(out).toBe(unstamped)
+    expect(out).toContain('~Tom & Jerry')
+  })
+
+  it('recomputes locators when the tree was not stamped', () => {
+    vi.mocked(getSuggestedLocators).mockClear()
+    serializeMobileSnapshot(xmlToJSON(IOS_XML)!, {
+      platform: 'ios',
+      sourceXML: IOS_XML
+    })
+    expect(getSuggestedLocators).toHaveBeenCalled()
   })
 })

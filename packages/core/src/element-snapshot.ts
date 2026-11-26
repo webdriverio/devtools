@@ -364,12 +364,13 @@ function collectMobileNodes(
     }
   }
 
-  // Generate a selector for every interactive element.
-  // Use the full locator pipeline when source XML is available;
-  // otherwise fall back to the simplified attribute-based heuristics.
+  // Prefer the selector generateAllElementLocators stamped on the node. Otherwise
+  // run the full locator pipeline when source XML is available, else the simplified heuristics.
   let locator = ''
   if (interactive) {
-    if (walkOpts.sourceXML && walkOpts.automationName) {
+    if (attrs._selector) {
+      locator = attrs._selector
+    } else if (walkOpts.sourceXML && walkOpts.automationName) {
       // Full pipeline: accessible-id, id, text, uiautomator, xpath, class-name
       const suggested = getSuggestedLocators(
         element,
@@ -618,8 +619,9 @@ export interface MobileSnapshotOptions {
   inViewportOnly?: boolean
   /**
    * Raw XML page source string.  When provided the full locator pipeline
-   * (getSuggestedLocators) runs on every interactive node, producing the same
-   * selectors that getElements() returns.  Omit to use simplified heuristics.
+   * (getSuggestedLocators) runs on every interactive node without a stamped
+   * `_selector`, producing the same selectors that getElements() returns.
+   * Omit to use simplified heuristics.
    */
   sourceXML?: string
 }

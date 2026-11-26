@@ -176,6 +176,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentTestStartWallTime = 0
   #awaitingInitialCapture = true
   #initialCaptureAttempts = 0
+  #lastFinalSnapshot?: ActionSnapshot
+  #userCommandsSinceFinal = 0
 
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
@@ -258,6 +260,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     this.#sessionCapturer = new SessionCapturer(
       wdioCaps['wdio:devtoolsOptions']
     )
+    this.#forgetFinalFrame()
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
     this.#sessionCapturer.pageResourceStore.configure(this.#options)
     // The dashboard window took the front; Safari clicks reach nothing there.
@@ -673,6 +676,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         // richer screenshot so a blank end-of-scenario frame cannot clobber it.
         upsertRichestSnapshot(this.#actionSnapshots, snap)
         this.#finalizedSlot = { command, timestamp }
+        this.#lastFinalSnapshot = snap
+        this.#userCommandsSinceFinal = 0
       }
     }
   }
@@ -867,14 +872,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       const previousEnd =
         this.#lastCommandWhere((cmd) => !skipsCapture(cmd))?.timestamp ??
         Date.now()
-      const snap = await captureActionSnapshot(
+      const snap = await this.#preActionSnapshot(
         this.#browser,
         command,
-        previousEnd >= this.#currentTestStartWallTime
-          ? previousEnd
-          : Date.now(),
-        this.#sessionCapturer.currentContext,
-        this.#assertionTracker.matcherPolling ? 'matcher-poll' : 'action'
+        previousEnd
       )
       if (snap) {
         upsertRichestSnapshot(this.#actionSnapshots, snap)
@@ -887,6 +888,45 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         this.#awaitingInitialCapture = false
       }
     }
+    this.#countScreenChange(command, issuedByService)
+  }
+
+  /** Waits count because they exist to watch the page change underneath. */
+  #countScreenChange(command: string, issuedByService: boolean) {
+    if (
+      !issuedByService &&
+      (!skipsCapture(command) || isWaitCommand(command))
+    ) {
+      this.#userCommandsSinceFinal++
+    }
+  }
+
+  #forgetFinalFrame() {
+    this.#lastFinalSnapshot = undefined
+    this.#userCommandsSinceFinal = 0
+  }
+
+  /** No command has changed the page since the previous test's end frame, so re-probing it is redundant. */
+  async #preActionSnapshot(
+    browser: WebdriverIO.Browser,
+    command: string,
+    previousEnd: number
+  ): Promise<ActionSnapshot | null> {
+    const startsTest = previousEnd < this.#currentTestStartWallTime
+    if (
+      startsTest &&
+      this.#lastFinalSnapshot?.screenshot &&
+      this.#userCommandsSinceFinal === 0
+    ) {
+      return { ...this.#lastFinalSnapshot, command, timestamp: Date.now() }
+    }
+    return captureActionSnapshot(
+      browser,
+      command,
+      startsTest ? Date.now() : previousEnd,
+      this.#sessionCapturer.currentContext,
+      this.#assertionTracker.matcherPolling ? 'matcher-poll' : 'action'
+    )
   }
 
   afterCommand(
@@ -1035,6 +1075,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // prior session's last DOM. Re-arm capture for the new session here,
     // independent of screencast, so it runs before that early-returns.
     this.#sessionCapturer.resetScriptInjection()
+    this.#forgetFinalFrame()
     await this.#ensureInjected('reloadSession')
     await this.#nativeNetwork?.start(this.#browser)
 
