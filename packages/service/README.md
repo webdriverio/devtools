@@ -72,6 +72,8 @@ Set `mode: 'trace'` to skip the live UI window and write a portable `trace.zip`
 `test-results/` directory at session end — meant for CI, offline replay, and
 agentic diffing. See the [full trace mode docs](https://webdriver.io/docs/devtools/wdio/trace-mode).
 
+Set `mode: 'telemetry'` to record nothing but the run's outcome: no backend, UI window, screencast, per-action capture or zip. It still runs the test lifecycle and writes a `devtools-artifacts-<sessionId>.json` manifest at session end, with each test's state and the trace id of every attempt, so reporters and CI can link a run to its traces without paying for them.
+
 Open a trace in the first-party player:
 
 ```sh
@@ -119,8 +121,9 @@ These apply in live mode and in the trace player alike.
 ## Allure integration
 
 When `@wdio/allure-reporter` is installed, trace-mode artifacts are attached to
-the Allure report automatically (and `emitArtifactsManifest` is auto-enabled, so
-the run also writes the `devtools-artifacts-<sessionId>.json` index):
+the Allure report automatically (and `emitArtifactsManifest` is auto-enabled for
+any reporter whose name contains `allure`, so the run also writes the
+`devtools-artifacts-<sessionId>.json` index):
 
 - **`traceGranularity: 'test'`** — each test's trace (`application/zip`, a
   download that opens in `pnpm show-trace`), screenshot (`image/png`, inline)
@@ -130,7 +133,8 @@ the run also writes the `devtools-artifacts-<sessionId>.json` index):
   `trace.zip` is written to disk and enumerated in
   `devtools-artifacts-<sessionId>.json` (the artifacts manifest, listing every
   artifact + each test's state), but it is **not** attached to individual test
-  cards.
+  cards. Each test entry also carries `startTime`/`endTime` (epoch ms),
+  `durationMs` and the final attempt's `error` message when available.
 
 ### Why session/spec traces aren't attached per test
 
@@ -276,7 +280,7 @@ services: [['devtools', options]]
 | `hostname` | `string` | `'localhost'` | Hostname the DevTools UI server binds to |
 | `devtoolsCapabilities` | `Capabilities` | Chrome 1600×1200 | Capabilities used to open the DevTools UI window |
 | `screencast` | `ScreencastOptions` | — | Session video recording (live mode only — see below; for trace mode use `video`) |
-| `mode` | `'live' \| 'trace'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` under a `test-results/` directory (base dir resolved from the test file's dir → config dir → cwd) at session end. See [Trace mode](../../README.md#-trace-mode-tracezip) |
+| `mode` | `'live' \| 'trace' \| 'telemetry'` | `'live'` | `'live'` opens the DevTools UI window; `'trace'` skips the UI and writes a `trace-<sessionId>.zip` under a `test-results/` directory (base dir resolved from the test file's dir → config dir → cwd) at session end. `'telemetry'` skips the UI and captures nothing per action, writing only the artifacts manifest (per-attempt trace ids, no zips). See [Trace mode](../../README.md#-trace-mode-tracezip) |
 | `traceFormat` | `'zip' \| 'ndjson-directory'` | `'zip'` | Trace mode only. Output layout — `'zip'` writes a single archive; `'ndjson-directory'` unpacks the same files into `trace-<id>/` (one less unzip step for scripted/agentic consumers). The `zip` opens in `show-trace`; a directory opens in other compatible viewers, or zip it first. |
 | `traceGranularity` | `'session' \| 'spec' \| 'test'` | `'session'` | Trace mode only. How traces are partitioned — one per worker session / spec file / test. `'test'` is required for per-test Allure attachments (trace, screenshot, video). |
 | `tracePolicy` | `TraceRetentionPolicy` | `'on'` | Trace mode only. Which traces to keep: `'on'` \| `'retain-on-failure'` \| `'retain-on-first-failure'` \| `'on-first-retry'` \| `'on-all-retries'` \| `'retain-on-failure-and-retries'`. The retry-aware policies pair best with `traceGranularity: 'test'`. |
@@ -284,7 +288,7 @@ services: [['devtools', options]]
 | `video` | `'off' \| TraceRetentionPolicy` | `'off'` | Trace mode + `traceGranularity: 'test'`. Per-test screencast video, retained per the given policy, attached inline to Allure (`video/webm`). WDIO-service-specific. |
 | `filmstrip` | `boolean` | `true` | Trace mode only. Records a dense, continuous screencast filmstrip *into* the trace so the player scrubs smooth playback: dense frames are added alongside the per-action frames (not one frame per action). Frames are thinned (≥100 ms apart, ~600 max) and content-addressed (identical frames, such as a static wait, collapse to one resource); windowed per slice at any `traceGranularity`. Runs the screencast recorder (CDP push on Chrome, polling elsewhere). The polling recorder skips a tick while a command or a per-action capture holds the driver (once the newest frame is three intervals old it polls anyway, so the longest gap is about three intervals plus one screenshot; never during a click, typing or a capture), and keeps each per-action capture's screenshot as a frame, so its polls do not queue in front of the test. |
 | `traceResources` | `'styles'` \| `'none'` | `'styles'` | Trace mode only. `'styles'` stores the stylesheets and fonts each archive's pages used, once each by content hash, so the player replays them from the archive rather than the site; `'none'` stores nothing. Images always replay from the site. See the [root README](../../README.md#options) for caps and how the reads are kept out of the network rows. |
-| `emitArtifactsManifest` | `boolean` | `false` | Trace mode only. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when `@wdio/allure-reporter` is in the config**. |
+| `emitArtifactsManifest` | `boolean` | `false` | Ignored in live mode; trace mode honours it and `mode: 'telemetry'` always writes it. Writes `devtools-artifacts-<sessionId>.json` next to the trace — a generic index of every produced artifact (trace/screenshot/video) plus each test's state, for reporters/CI to consume. Off by default; **auto-enabled when a reporter whose name contains `allure` (such as `@wdio/allure-reporter`) is in the config**, unless set to `false`. |
 | `captureAssertions` | `boolean` | `true` | Capture assertions as command/action rows — `node:assert` plus passing *and* failing expect-webdriverio matchers, folded into single `expect.<matcher>` rows (e.g. `toHaveText`, `toExist`). Set `false` to opt out. |
 | `maskInputs` | `boolean` | `true` | Replace the value of password fields with `••••` in the replayed page (DOM anchor, field state, value mutations), and redact what was typed into them, and the values of `Authorization`, `Proxy-Authorization`, `Cookie` and `Set-Cookie` headers, from command rows, network, console and the trace, live and trace mode alike. `false` turns both off. See [Password masking](../../README.md#-password-masking) and [Secret redaction](../../README.md#-secret-redaction). |
 | `maskSelectors` | `string[]` | `[]` | Also mask the text and value of every element these CSS selectors match, and everything inside it, in the replayed page. |

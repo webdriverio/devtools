@@ -12,7 +12,12 @@ import * as os from 'node:os'
 import logger from '@wdio/logger'
 import { remote } from 'webdriverio'
 import { errorMessage } from '@wdio/devtools-core'
-import { REUSE_ENV, RUNNER_ENV, encodeInitialArgs } from '@wdio/devtools-shared'
+import {
+  REUSE_ENV,
+  RUNNER_ENV,
+  encodeInitialArgs,
+  startsBackend
+} from '@wdio/devtools-shared'
 import { start, stop } from '@wdio/devtools-backend'
 
 import type { SessionCapturer } from './session.js'
@@ -96,11 +101,12 @@ export async function runPluginBefore(ctx: PluginBeforeCtx): Promise<void> {
     return
   }
   try {
-    // Trace mode: skip backend port-bind and UI entirely — matches the WDIO
+    // Modes without a backend skip port-bind and UI entirely — matches the WDIO
     // launcher gate. SessionCapturer construction in session-init also gates
-    // its WS init off in trace mode.
-    if (ctx.options.mode === 'trace') {
-      log.info('Trace mode — skipping backend port-bind and UI window')
+    // its WS init off in those modes.
+    const mode = ctx.options.mode ?? 'live'
+    if (!startsBackend(mode)) {
+      log.info(`${mode} mode — skipping backend port-bind and UI window`)
     } else {
       ctx.options.port = await findFreePort(
         ctx.options.port,
@@ -199,7 +205,11 @@ export function logRunSummary(ctx: RunLifecycleCtx): void {
     .filter(Boolean)
     .join('  ')
   log.info(`${ctx.failCount > 0 ? '❌' : '✅'} Tests complete!  ${summary}`)
-  log.info(`   DevTools UI: http://${ctx.options.hostname}:${ctx.options.port}`)
+  if (startsBackend(ctx.options.mode)) {
+    log.info(
+      `   DevTools UI: http://${ctx.options.hostname}:${ctx.options.port}`
+    )
+  }
 }
 
 export async function waitForDevtoolsBrowserClose(

@@ -31,8 +31,11 @@ export enum TraceType {
 
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'pending' | 'running'
 
-/** `live` opens the DevTools UI window; `trace` skips it and lets a downstream exporter consume captured state. */
-export type DevToolsMode = 'live' | 'trace'
+/** `live` starts the backend and opens the DevTools UI window. `trace` skips
+ *  both and writes trace zips for a downstream exporter. `telemetry` skips both
+ *  and captures no per-action state: it writes only the artifacts manifest,
+ *  which carries per-test lifecycle, run id and attempt trace context. */
+export type DevToolsMode = 'live' | 'trace' | 'telemetry'
 
 /** `zip` (default) writes a single `trace-<id>.zip`; `ndjson-directory` writes
  *  the same `trace.trace` + `trace.network` + `resources/` layout unpacked
@@ -81,6 +84,13 @@ export interface TestMetadataEntry {
   state?: TestStatus
   attempt?: number
   ancestry?: TestAncestor[]
+  /** Wall-clock epoch ms of the attempt this entry describes. */
+  startTime?: number
+  endTime?: number
+  /** Framework-reported duration, when the runner provides one. */
+  durationMs?: number
+  /** Failure message of the final attempt; absent unless it failed. */
+  error?: string
 }
 
 /** Test metadata keyed by testUid — maps stable test IDs to human-readable
@@ -196,6 +206,8 @@ export interface CommandLog {
   callSource?: string
   screenshot?: string
   testUid?: string
+  /** 0-based retry attempt of `testUid` this row ran in; unset for a first attempt. */
+  attempt?: number
   performance?: PerformanceData
   cookies?: string
   documentInfo?: DocumentInfo
@@ -447,7 +459,8 @@ export interface BaseDevToolsOptions {
   /** Capture node:assert assertions (and framework `expect` matchers where
    *  supported) as first-class commands. Default true. */
   captureAssertions?: boolean
-  /** `live` (default) launches the DevTools UI; `trace` skips it. */
+  /** `live` (default) launches the DevTools UI; `trace` writes zips; `telemetry`
+   *  writes only the artifacts manifest. */
   mode?: DevToolsMode
   /** Trace output layout — `zip` (default) writes a single archive,
    *  `ndjson-directory` unpacks into `trace-<id>/`. Only applies in trace mode. */
@@ -470,7 +483,8 @@ export interface BaseDevToolsOptions {
    *  Off by default; auto-enabled when an Allure reporter is detected (WDIO:
    *  `@wdio/allure-reporter` in config; Selenium: an active `allure-js-commons`
    *  runtime). Nightwatch has no live Allure signal, so it stays opt-in there.
-   *  Only applies in trace mode. */
+   *  Telemetry mode always writes the manifest; otherwise this only applies in
+   *  trace mode. */
   emitArtifactsManifest?: boolean
   /** Mask password fields in the replayed page and redact typed passwords, credential headers and cookies from what is sent and written. Default true. */
   maskInputs?: boolean

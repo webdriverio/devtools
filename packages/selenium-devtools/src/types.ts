@@ -163,6 +163,8 @@ export interface DriverPatcherHooks {
   beforeTyping?: (element: unknown, args: unknown[]) => Promise<void>
   // Fired after perform() settles, failed too: a partly performed sequence may already have moved the page.
   afterActions?: (driver: SeleniumDriverLike) => void
+  // False in telemetry: onCommand still runs for its test lifecycle, but each command's args, result and stack are not read.
+  observesPage?: () => boolean
 }
 
 // Unwrapped WebDriver methods used by the plugin's own internal calls
@@ -198,6 +200,9 @@ export interface MochaTestCtx {
   parent?: { title?: string }
   /** Mocha's authoritative retry index — 0 on the first run, +1 per retry. */
   _currentRetry?: number
+  /** Configured retry count — -1 when unset. */
+  _retries?: number
+  err?: { message?: string }
 }
 
 /** The four root hooks, in the shape of a mocha root hook plugin's `mochaHooks`. */
@@ -216,12 +221,15 @@ export interface RunnerHookCallbacks {
     suiteName?: string,
     suiteCallSource?: string,
     // Authoritative per-test retry index when the runner exposes one (Mocha's
-    // `_currentRetry`); undefined leaves the heuristic tracker to decide.
+    // `_currentRetry`); undefined makes a same-named test a separate test.
     attempt?: number
   ) => void
   // Async so the runner's afterEach/After awaits the full per-test artifact
   // emit (trace slice + screenshot + video attach) before Allure closes the test.
-  onTestEnd: (state: Exclude<TestStatus, 'running'>) => void | Promise<void>
+  onTestEnd: (
+    state: Exclude<TestStatus, 'running'>,
+    error?: string
+  ) => void | Promise<void>
   // Cucumber-only: scenario boundary creates a sub-suite under the feature
   // rootSuite; subsequent onTestStart/onTestEnd attach as Gherkin steps inside.
   onScenarioStart?: (
@@ -232,7 +240,8 @@ export interface RunnerHookCallbacks {
     featureCallSource?: string
   ) => void
   onScenarioEnd?: (
-    state: Exclude<TestStatus, 'running'>
+    state: Exclude<TestStatus, 'running'>,
+    error?: string
   ) => void | Promise<void>
   // Fires from the runner's after-all hook so the dashboard suite header
   // updates without waiting for process exit.

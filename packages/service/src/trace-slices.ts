@@ -11,6 +11,7 @@ import {
   type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
+import { capturesTrace } from '@wdio/devtools-shared'
 import type { SessionCapturer } from './session.js'
 import type { ServiceOptions } from './types.js'
 
@@ -21,6 +22,7 @@ export interface TraceSliceContext {
   options: ServiceOptions
   getCapturer: () => SessionCapturer
   getBrowser: () => WebdriverIO.Browser | undefined
+  getAttemptBase: () => number
   buildExportContext: (browser: WebdriverIO.Browser) => TraceExportContext
 }
 
@@ -50,7 +52,8 @@ export class TraceSliceTracker {
       {
         specRanges: this.ranges,
         flushedSpecs: this.flushed,
-        capturer: this.#ctx.getCapturer()
+        capturer: this.#ctx.getCapturer(),
+        attemptBase: this.#ctx.getAttemptBase()
       },
       this.#ctx.options.traceGranularity,
       specFile,
@@ -73,7 +76,7 @@ export class TraceSliceTracker {
     const browser = this.#ctx.getBrowser()
     if (
       this.#ctx.options.traceGranularity !== 'test' ||
-      this.#ctx.options.mode !== 'trace' ||
+      !capturesTrace(this.#ctx.options.mode) ||
       !browser
     ) {
       return undefined

@@ -64,6 +64,11 @@ describe('ScreencastLifecycle.start', () => {
   it.each([
     ['live, no options', {}, false],
     ['live, screencast enabled', { screencast: { enabled: true } }, true],
+    [
+      'telemetry, screencast enabled',
+      { mode: 'telemetry', screencast: { enabled: true } },
+      false
+    ],
     ['trace, filmstrip default-on', { mode: 'trace' }, true],
     [
       'trace, filmstrip off + no video',
@@ -276,22 +281,7 @@ describe('ScreencastLifecycle.finalize', () => {
   })
 })
 
-describe('ScreencastLifecycle option warnings', () => {
-  it('warns that screencast.enabled is ignored in trace mode', () => {
-    const log = vi.fn()
-    makeLifecycle({ mode: 'trace', screencast: { enabled: true } }, { log })
-    expect(log).toHaveBeenCalledWith(
-      'warn',
-      expect.stringContaining('`screencast.enabled` is ignored')
-    )
-  })
-
-  it('stays quiet in live mode', () => {
-    const log = vi.fn()
-    makeLifecycle({ screencast: { enabled: true } }, { log })
-    expect(log).not.toHaveBeenCalled()
-  })
-
+describe('ScreencastLifecycle markStart', () => {
   it('markStart forwards to the recorder only while one exists', async () => {
     const { lifecycle } = makeLifecycle({ screencast: { enabled: true } })
     lifecycle.markStart()

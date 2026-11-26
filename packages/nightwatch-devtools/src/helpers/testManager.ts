@@ -17,7 +17,9 @@ export class TestManager {
   constructor(
     private testReporter: TestReporter,
     /** Stamps a test's resolved terminal state onto the retry ledger. */
-    private recordOutcome?: (uid: string, state: TestStats['state']) => void
+    private recordOutcome?: (uid: string, state: TestStats['state']) => void,
+    /** Opens an attempt for a test starting on its first command; `specFile` enables spec-scoped retention. */
+    private recordAttempt?: (uid: string, specFile?: string) => number
   ) {}
 
   /**
@@ -163,6 +165,7 @@ export class TestManager {
 
     const test = this.findTestInSuite(currentSuite, currentTestName)
     if (test && test.state === TEST_STATE.PENDING) {
+      test.retries = this.recordAttempt?.(test.uid, currentSuite.file) ?? 0
       test.start = new Date()
       test.end = null
       this.updateTestState(test, TEST_STATE.RUNNING as TestStats['state'])

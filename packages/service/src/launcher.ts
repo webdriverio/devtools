@@ -3,7 +3,12 @@ import http from 'node:http'
 import { remote } from 'webdriverio'
 import { start } from '@wdio/devtools-backend'
 import logger from '@wdio/logger'
-import { REUSE_ENV, RUNNER_ENV } from '@wdio/devtools-shared'
+import {
+  assertDevToolsMode,
+  REUSE_ENV,
+  RUNNER_ENV,
+  startsBackend
+} from '@wdio/devtools-shared'
 import { resolveRunId } from '@wdio/devtools-core'
 import { DEFAULT_LAUNCH_CAPS } from './constants.js'
 import { configPathFromArgv, detectInvocationSpecs } from './invocation-args.js'
@@ -43,6 +48,7 @@ export class DevToolsAppLauncher {
   #browser?: WebdriverIO.Browser
 
   constructor(options: ServiceOptions) {
+    assertDevToolsMode(options.mode)
     this.#options = options
   }
 
@@ -70,8 +76,9 @@ export class DevToolsAppLauncher {
     // every worker this run forks then reports the same run id, which is what
     // stops the backend reading the next spec's worker as a new run.
     resolveRunId()
-    if (this.#options.mode === 'trace') {
-      log.info('Trace mode — skipping backend and Chrome window')
+    const mode = this.#options.mode ?? 'live'
+    if (!startsBackend(mode)) {
+      log.info(`${mode} mode — skipping backend and Chrome window`)
       return
     }
     try {

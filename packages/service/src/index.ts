@@ -15,7 +15,6 @@ import {
   resolveAdapterOutputDir,
   stepMetadataUid,
   TestAttemptTracker,
-  tracePolicyModeWarning,
   upsertRichestSnapshot,
   type TraceArtifact,
   type TraceExportContext,
@@ -28,7 +27,6 @@ import { AssertionTracker } from './assertion-tracker.js'
 import {
   cucumberScenarioUid,
   isFailedResult,
-  resolveTestAttempt,
   recordRetriedAttempt,
   stampTestState,
   testMetadataUid,
@@ -42,10 +40,15 @@ import {
   settleAfterLastAction
 } from './action-snapshot.js'
 import {
+  assertDevToolsMode,
+  capturesTrace,
+  ignoredOptionsWarning,
   isWaitCommand,
   skipsCapture,
+  startsBackend,
   type ActionSnapshot,
-  type TestMetadataMap
+  type TestMetadataMap,
+  observesPage
 } from '@wdio/devtools-shared'
 import { SevereServiceError } from 'webdriverio'
 import type { Services, Capabilities, Options, Reporters } from '@wdio/types'
@@ -93,7 +96,7 @@ export { setupForDevtools } from './standalone.js'
 
 export default class DevToolsHookService implements Services.ServiceInstance {
   #testReporters: TestReporter[] = []
-  #sessionCapturer = new SessionCapturer()
+  #sessionCapturer: SessionCapturer
   #browser?: WebdriverIO.Browser
   #options: ServiceOptions
   #actionSnapshots: ActionSnapshot[] = []
@@ -110,11 +113,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #slices: TraceSliceTracker
 
   constructor(serviceOptions: ServiceOptions = {}) {
+    assertDevToolsMode(serviceOptions.mode)
     this.#options = serviceOptions
     configureInputMasking(serviceOptions)
     for (const warning of configureSecretRedaction(serviceOptions)) {
       log.warn(warning)
     }
+    this.#sessionCapturer = new SessionCapturer({
+      captureOutput: observesPage(serviceOptions.mode)
+    })
     this.#assertionTracker = new AssertionTracker({
       getCapturer: () => this.#sessionCapturer,
       getBrowser: () => this.#browser,
@@ -123,8 +130,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       options: this.#options,
       actionSnapshots: this.#actionSnapshots
     })
-    const policyWarning = tracePolicyModeWarning(
-      serviceOptions.tracePolicy,
+    const policyWarning = ignoredOptionsWarning(
+      serviceOptions,
       serviceOptions.mode
     )
     if (policyWarning) {
@@ -144,6 +151,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       options: this.#options,
       getBrowser: () => this.#browser,
       getCapturer: () => this.#sessionCapturer,
+      getAttemptBase: () => this.#attemptTracker.base,
       buildExportContext: (browser) => this.#traceContext(browser)
     })
   }
@@ -166,7 +174,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   #currentStepUid?: string
   /** Per-scenario step counter for stable, collision-free step uids. */
   #currentStepIndex = 0
-  /** True when @wdio/allure-reporter is in the WDIO config (detected in
+  /** True when a reporter whose name contains "allure" is in the WDIO config (detected in
    *  beforeSession) — auto-enables the artifacts manifest even if the option
    *  isn't set, since session/spec-scoped Allure attach reads it. */
   #allureReporterConfigured = false
@@ -180,9 +188,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   /** Map of testUid → metadata for trace group events and per-spec partitioning. */
   #testMetadata: TestMetadataMap = new Map()
 
-  /** Per-test attempt counter. specFileRetries spawns a fresh worker (hence a
-   *  fresh instance) per retry, so this only reflects same-process retries
-   *  (Mocha this.retries(n)); cross-worker attempts rely on the WDIO result. */
+  /** Per-test attempt ledger. A specFileRetries rerun is a fresh worker, so its
+   *  numbering starts at the attempt its runner reports (see TestReporter). */
   #attemptTracker = new TestAttemptTracker()
 
   /** Every trace/video artifact seen this run (retained or not), for the
@@ -255,13 +262,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     const wdioCaps = caps as Capabilities.W3CCapabilities & {
       'wdio:devtoolsOptions'?: ServiceOptions
     }
-    this.#sessionCapturer = new SessionCapturer(
-      wdioCaps['wdio:devtoolsOptions']
-    )
+    this.#sessionCapturer = new SessionCapturer({
+      ...wdioCaps['wdio:devtoolsOptions'],
+      captureOutput: observesPage(this.#options.mode)
+    })
     this.#sessionCapturer.traceMode = this.#options.mode ?? 'live'
     this.#sessionCapturer.pageResourceStore.configure(this.#options)
     // The dashboard window took the front; Safari clicks reach nothing there.
-    if ((this.#options.mode ?? 'live') === 'live') {
+    if (startsBackend(this.#options.mode)) {
       const caps = browser.capabilities as
         { browserName?: string; platformName?: string } | undefined
       restoreBrowserFocus({
@@ -274,7 +282,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     stampRunnerMetadata(this.#sessionCapturer, browser, this.captureType)
     publishConfigFile(this.#sessionCapturer)
 
-    if (this.#options.captureAssertions !== false) {
+    if (
+      this.#options.captureAssertions !== false &&
+      observesPage(this.#options.mode)
+    ) {
       wireAssertCapture(
         () => this.#sessionCapturer,
         () => this.#currentTestUid
@@ -286,7 +297,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
      * Skip on native mobile — Appium sessions don't support WebDriver BiDi
      * and the injection always fails with SevereServiceError.
      */
-    if (!isAppiumSession(browser)) {
+    if (!isAppiumSession(browser) && observesPage(this.#options.mode)) {
       try {
         await this.#injectScriptSync(browser)
       } catch (err) {
@@ -298,13 +309,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
     // WDIO has already subscribed the BiDi events by now, so attaching here
     // issues no mid-run protocol traffic and misses no early events.
-    if (browser.isBidi) {
+    if (browser.isBidi && observesPage(this.#options.mode)) {
       attachBidiListeners(browser, this.#sessionCapturer)
     }
 
     await this.#screencast.start(browser)
-    this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
-    await this.#nativeNetwork.start(browser)
+    if (observesPage(this.#options.mode)) {
+      this.#nativeNetwork = new InterceptedNetwork(caps, this.#sessionCapturer)
+      await this.#nativeNetwork.start(browser)
+    }
 
     /**
      * Propagate session metadata at the beginning of the session. Not awaited
@@ -346,7 +359,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   async #captureSessionMetadata(browser: WebdriverIO.Browser): Promise<void> {
     try {
       this.#sessionCapturer.mergeMetadata(
-        await resolveSessionMetadata(browser, this.captureType)
+        await resolveSessionMetadata(
+          browser,
+          this.captureType,
+          observesPage(this.#options.mode)
+        )
       )
     } catch (err) {
       log.warn(`Could not capture session metadata: ${errorMessage(err)}`)
@@ -392,7 +409,9 @@ export default class DevToolsHookService implements Services.ServiceInstance {
                 recordRetriedAttempt(self.#attemptTracker, self.#testMetadata, {
                   retried: test,
                   current: self.#currentTestUid
-                })
+                }),
+              (attempt: number) =>
+                self.#attemptTracker.startNumberingAt(attempt)
             )
             self.#testReporters.push(this)
           }
@@ -433,7 +452,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, featureFile)
       this.#testMetadata.set(uid, {
         title: scenarioName,
-        specFile: featureFile
+        specFile: featureFile,
+        startTime: Date.now()
       })
     }
   }
@@ -460,7 +480,8 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       this.#attemptTracker.recordStart(uid, test?.file)
       this.#testMetadata.set(uid, {
         title: testTitle,
-        specFile: test?.file ?? ''
+        specFile: test?.file ?? '',
+        startTime: Date.now()
       })
     }
   }
@@ -491,23 +512,28 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _scenario?: unknown,
     result?: { error?: unknown }
   ) {
-    await this.#closeOpenWaits(result?.error)
+    await this.#closeOpenWaits(result?.error, Date.now())
     this.#currentStepUid = undefined
     this.#assertionTracker.handleOutcome(result?.error)
   }
 
-  /** Stamp final state + the resolved 0-based attempt onto the test's metadata
-   *  entry, taking the max of the tracker count and WDIO's retry field. */
-  #stampOutcome(uid: string, result?: TestOutcomeResult): void {
-    const fallback = this.#attemptTracker.attemptFor(uid) ?? 0
-    const attempt = resolveTestAttempt(result, fallback)
-    stampTestState(this.#testMetadata, uid, result, attempt)
+  /** Stamp final state + the tracker's 0-based attempt onto the test's metadata
+   *  entry, so the entry and the manifest's attempt record name the same attempt. */
+  #stampOutcome(
+    uid: string,
+    result: TestOutcomeResult | undefined,
+    endTime: number
+  ): void {
+    const attempt = this.#attemptTracker.attemptFor(uid)
+    stampTestState(this.#testMetadata, uid, result, attempt, endTime)
     // Feed the per-attempt ledger so session/spec retention sees this attempt's
     // real outcome, not just the final state that overwrites #testMetadata.
+    const metadata = this.#testMetadata.get(uid)
     this.#attemptTracker.recordOutcome(
       uid,
-      this.#testMetadata.get(uid)?.state,
-      attempt
+      metadata?.state,
+      metadata?.error,
+      endTime
     )
   }
 
@@ -517,12 +543,20 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     },
     result?: TestOutcomeResult
   ) {
-    await this.#closeOpenWaits(result?.error)
+    // Read before the hook settle below, which is the service's teardown, not the scenario's.
+    const endTime = Date.now()
+    await this.#closeOpenWaits(result?.error, endTime)
     const { uri, name, astNodeIds } = world?.pickle ?? {}
     const uid =
       uri && name ? cucumberScenarioUid(uri, name, astNodeIds) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      // WDIO's cucumber result.duration is only the nanos field of the worst step's
+      // Duration (seconds dropped), not the scenario's span, so wall time stands in.
+      this.#stampOutcome(
+        uid,
+        result && { ...result, duration: undefined },
+        endTime
+      )
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
@@ -533,12 +567,13 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     _context?: unknown,
     result?: TestOutcomeResult
   ) {
-    await this.#closeOpenWaits(result?.error)
+    const endTime = Date.now()
+    await this.#closeOpenWaits(result?.error, endTime)
     this.#assertionTracker.handleOutcome(result?.error)
     const testTitle = test?.fullTitle || test?.title
     const uid = testTitle ? testMetadataUid(test?.file, testTitle) : undefined
     if (uid) {
-      this.#stampOutcome(uid, result)
+      this.#stampOutcome(uid, result, endTime)
     }
     await this.#finalizePerScenario()
     await this.#emitTestArtifacts(uid, isFailedResult(result))
@@ -562,6 +597,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         await attachTraceArtifact(artifact, attach, onLog)
       }
     }
+    // Authoritative attempt for this test (stamped into metadata by
+    // #stampOutcome, which ran just before this). Scopes retention + the video
+    // filename to this attempt so retries don't overwrite each other.
+    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await captureAndAttachScreenshot({
       mode: this.#options.mode,
       granularity: this.#options.traceGranularity,
@@ -574,13 +613,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
       sessionId: this.#browser?.sessionId,
       outputDir: this.#outputDir,
       testUid: uid,
+      attempt,
       attach,
       onArtifact: (a) => this.#artifacts.push(a)
     })
-    // Authoritative attempt for this test (stamped into metadata by
-    // #stampOutcome, which ran just before this). Scopes retention + the video
-    // filename to this attempt so retries don't overwrite each other.
-    const attempt = uid ? this.#testMetadata.get(uid)?.attempt : undefined
     await this.#screencast.attachTestVideo({
       testUid: uid,
       attempt,
@@ -613,7 +649,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   async #finalizePerScenario() {
-    if (this.#options.mode !== 'trace' || !this.#browser) {
+    if (!capturesTrace(this.#options.mode) || !this.#browser) {
       return
     }
     // Drain the collector one final time while the session is still alive, so the
@@ -710,14 +746,14 @@ export default class DevToolsHookService implements Services.ServiceInstance {
   }
 
   /** Before the outcome marks a row and the slice is flushed, so the wait carries the failure rather than its last poll. */
-  async #closeOpenWaits(error: unknown) {
+  async #closeOpenWaits(error: unknown, endedAt: number) {
     if (!(await this.#hooksInFlight.settled(HOOKS_SETTLE_TIMEOUT_MS))) {
       log.warn(
         `a command hook was still running ${HOOKS_SETTLE_TIMEOUT_MS} ms after its test ended`
       )
     }
     for (const id of this.#commandStack.takeOpenWaits()) {
-      this.#sessionCapturer.closeOpenWait(id, error)
+      this.#sessionCapturer.closeOpenWait(id, error, endedAt)
     }
   }
 
@@ -802,6 +838,15 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#browser || isServiceProbe(command)) {
       return
     }
+    // `url` is the one start-of-recording signal every runner reaches (Mocha,
+    // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
+    if (command === 'url') {
+      this.#screencast.markStart()
+      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
+    }
+    if (!observesPage(this.#options.mode)) {
+      return
+    }
     this.#typedInput.read(this.#browser, command, args)
     // Holds the filmstrip poll off the driver for the whole command (see
     // driver-activity.ts); opened before the pre-action probes so it spans them.
@@ -810,12 +855,6 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     if (!this.#injecting) {
       this.#closeCommandWindow?.()
       this.#closeCommandWindow = beginDriverCommand(command)
-    }
-    // `url` is the one start-of-recording signal every runner reaches (Mocha,
-    // Jasmine, Cucumber, standalone), so the video's start marker hangs off it.
-    if (command === 'url') {
-      this.#screencast.markStart()
-      this.#sessionCapturer.sendUpstream('metadata', { url: args[0] })
     }
     // Synchronous, and settled BEFORE any await below: afterCommand pops exactly
     // what this pushed, so a push stranded behind an await would let a same-tick
@@ -848,7 +887,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     // session is captured normally.
     if (
       topLevelUserCommand &&
-      this.#options.mode === 'trace' &&
+      capturesTrace(this.#options.mode) &&
       this.#browser &&
       !inPageProbesDeadlock(
         this.#browser,
@@ -910,6 +949,10 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     error: Error | undefined,
     issuedByService: boolean
   ) {
+    // Pairs with #beforeCommand, which pushes no command frame without observesPage.
+    if (!observesPage(this.#options.mode)) {
+      return
+    }
     // Skip bookkeeping for internal injection calls and the snapshot's own probes
     if (this.#injecting || isServiceProbe(command)) {
       return
@@ -951,7 +994,7 @@ export default class DevToolsHookService implements Services.ServiceInstance {
         )
         // Trace mode captures nothing here: the state this action produced is
         // taken by the NEXT action's pre-capture, when the app has settled.
-        if (this.#options.mode !== 'trace') {
+        if (startsBackend(this.#options.mode)) {
           await this.#drainAfterLiveCommand(command)
         }
         await this.#nativeNetwork?.forward({ throttle: true })
@@ -1079,7 +1122,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
 
   async #ensureInjected(reason: string) {
     // Keep this for re-injection after context changes
-    if (!this.#browser || this.#injecting) {
+    if (
+      !this.#browser ||
+      this.#injecting ||
+      !observesPage(this.#options.mode)
+    ) {
       return
     }
     try {

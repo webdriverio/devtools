@@ -10,6 +10,8 @@ const log = logger('@wdio/selenium-devtools:driverMetadata')
 export interface DriverMetadataInput {
   driver: SeleniumDriverLike
   driverReadyTs: number
+  /** Telemetry mode reads no page; skipping the viewport saves a driver round-trip the manifest never uses. */
+  observePage: boolean
   /** The JS test runner `detectRunner` found (mocha/jest/cucumber). Distinct
    *  from `Metadata.runner`, which names this adapter for every one of them. */
   detectedRunner: string | null
@@ -140,7 +142,9 @@ export async function buildDriverMetadata(
     const capGet = makeCapGet(capabilities)
     logBrowserBoot(capGet, sessionId, driverReadyTs)
     const caps = serializeCapabilities(capabilities)
-    const viewport = await readViewport(driver, caps)
+    const viewport = input.observePage
+      ? await readViewport(driver, caps)
+      : undefined
     return {
       sessionId,
       metadata: {

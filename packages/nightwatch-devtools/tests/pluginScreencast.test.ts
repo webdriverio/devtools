@@ -44,10 +44,9 @@ describe('resolveScreencastOptions', () => {
       screencast: { pollIntervalMs: 500 }
     })
     expect(resolved.options).toEqual({ pollIntervalMs: 500, enabled: true })
-    expect(resolved.warning).toBeUndefined()
   })
 
-  it('drops a bare trace-mode screencast and says why', () => {
+  it('drops a bare trace-mode screencast', () => {
     // Screencast with neither filmstrip nor video is a live-mode feature; left
     // enabled it would record a session .webm nothing in the trace references.
     const resolved = resolveScreencastOptions({
@@ -57,7 +56,17 @@ describe('resolveScreencastOptions', () => {
       screencast: { enabled: true }
     })
     expect(resolved.options.enabled).toBeUndefined()
-    expect(resolved.warning).toContain('live-mode feature')
+  })
+
+  it('records nothing in telemetry mode, whatever the options say', () => {
+    expect(
+      resolveScreencastOptions({
+        mode: 'telemetry',
+        filmstrip: true,
+        video: 'retain-on-failure',
+        screencast: { enabled: true }
+      })
+    ).toEqual({ options: {} })
   })
 
   it('leaves live mode to the user options', () => {

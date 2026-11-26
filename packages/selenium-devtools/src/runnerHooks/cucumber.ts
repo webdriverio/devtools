@@ -179,7 +179,7 @@ interface GherkinFeature {
 interface CucumberTestCase {
   gherkinDocument?: { feature?: GherkinFeature }
   pickle?: CucumberPickle
-  result?: { status?: string }
+  result?: { status?: string; message?: string }
 }
 interface CucumberStepArg {
   pickleStep?: CucumberPickleStep
@@ -305,7 +305,7 @@ async function handleScenarioEnd(
   } else {
     counters.pending++
   }
-  await callbacks.onScenarioEnd?.(scenarioState)
+  await callbacks.onScenarioEnd?.(scenarioState, testCase?.result?.message)
 }
 
 function registerScenarioHooks(

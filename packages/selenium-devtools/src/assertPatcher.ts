@@ -26,7 +26,8 @@ export function resolveAssertTarget(args: unknown[]): string | undefined {
  * adapter's namespace.
  */
 export function patchNodeAssert(
-  onCommand: (cmd: CapturedCommand) => void
+  onCommand: (cmd: CapturedCommand) => void,
+  isActive: () => boolean
 ): boolean {
   return patchNodeAssertCore(
     (cmd: CapturedAssert) =>
@@ -39,6 +40,7 @@ export function patchNodeAssert(
         fromElement: false
       }),
     (level, message) => log[level](message),
-    resolveAssertTarget
+    resolveAssertTarget,
+    isActive
   )
 }

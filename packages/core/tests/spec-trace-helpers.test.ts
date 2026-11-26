@@ -272,6 +272,13 @@ describe('recordSliceBoundary (test granularity)', () => {
     expect(ctx.specRanges.every((r) => r.testUid === 'u1')).toBe(true)
   })
 
+  it('numbers retry keys from attemptBase when the run resumes an earlier numbering', () => {
+    const ctx = boundaryCtx({ attemptBase: 2 })
+    recordSliceBoundary(ctx, 'test', '/a.js', 'u1')
+    recordSliceBoundary(ctx, 'test', '/a.js', 'u1')
+    expect(ctx.specRanges.map((r) => r.key)).toEqual(['u1-retry2', 'u1-retry3'])
+  })
+
   it('returns null when no testUid is provided', () => {
     const ctx = boundaryCtx()
     expect(recordSliceBoundary(ctx, 'test', '/a.js')).toBeNull()

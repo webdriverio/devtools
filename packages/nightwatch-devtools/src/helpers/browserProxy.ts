@@ -23,7 +23,7 @@ import {
   rememberReadValue,
   toError
 } from '@wdio/devtools-core'
-import { isWaitCommand } from '@wdio/devtools-shared'
+import { isWaitCommand, observesPage } from '@wdio/devtools-shared'
 import type { SessionCapturer } from '../session.js'
 import type { TestManager } from './testManager.js'
 import type {
@@ -158,12 +158,11 @@ export class BrowserProxy {
     return this.currentTestFullPath
   }
 
-  setCurrentTestFullPath(path: string | null): void {
-    this.currentTestFullPath = path
-  }
-
   /** Inject the DevTools script after every navigation; see {@link wrapNavigation}. */
   wrapUrlMethod(browser: NightwatchBrowser): void {
+    if (!observesPage(this.sessionCapturer.traceMode)) {
+      return
+    }
     wrapNavigation(browser, this.sessionCapturer)
   }
 
@@ -223,7 +222,10 @@ export class BrowserProxy {
 
     // captureAssertions:false → leave assert/verify original so no native
     // assertion rows are recorded (the finalize paths are gated to match).
-    if (this.captureAssertions) {
+    if (
+      this.captureAssertions &&
+      observesPage(this.sessionCapturer.traceMode)
+    ) {
       this.assertRecorder.wrapNamespaces(browser)
     }
     this.proxiedBrowsers.add(browser as object)
@@ -528,9 +530,6 @@ export class BrowserProxy {
     args: unknown[]
   ): CommandInvocation {
     const callInfo = getCallSourceFromStack()
-    if (callInfo.filePath && !this.currentTestFullPath) {
-      this.currentTestFullPath = callInfo.filePath
-    }
     const lastArg = args[args.length - 1]
     // `waitUntil`'s first argument is its condition, never a result callback.
     const hasUserCallback =
@@ -570,6 +569,11 @@ export class BrowserProxy {
       )
     )
 
+    // Before the mode gate: the spec path picks the output dir, so telemetry's manifest lands where trace mode's does.
+    this.currentTestFullPath ??= getCallSourceFromStack().filePath ?? null
+    if (!observesPage(this.sessionCapturer.traceMode)) {
+      return originalMethod(...args)
+    }
     const cmd = this.pendingCommand(methodName, args)
     const captureCallback = this.makeCaptureCallback(browser, cmd)
     // Opened at enqueue, Nightwatch's only hook; a command queued behind a long wait can outlive its bounded window.

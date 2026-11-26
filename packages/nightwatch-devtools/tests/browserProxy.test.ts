@@ -948,3 +948,31 @@ describe('BrowserProxy driver-activity window', () => {
     expect(isDriverBusy()).toBe(false)
   })
 })
+
+describe('BrowserProxy spec path', () => {
+  beforeEach(() => {
+    getCallSourceFromStack.mockReset()
+    getCallSourceFromStack.mockReturnValue({
+      filePath: '/tests/spec.js',
+      callSource: '/tests/spec.js:9'
+    })
+  })
+
+  // The path picks the manifest's output dir, so both modes must record the same one.
+  it.each(['trace', 'telemetry'] as const)(
+    'records the spec file of the first command in %s mode',
+    (mode) => {
+      const { capturer } = makeCapturer()
+      ;(capturer as { traceMode?: string }).traceMode = mode
+      const proxy = new BrowserProxy(capturer, makeTestManager(), () => null)
+      const browser = makeBrowser()
+      proxy.wrapBrowserCommands(browser)
+      ;(
+        browser as unknown as {
+          titleContains: (a: string, cb: () => void) => void
+        }
+      ).titleContains('x', () => {})
+      expect(proxy.getCurrentTestFullPath()).toBe('/tests/spec.js')
+    }
+  )
+})
