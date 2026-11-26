@@ -395,6 +395,38 @@ describe('finalizeTraceExport', () => {
       ])
     })
 
+    it('writes the manifest in telemetry mode with no zips, even when emitManifest is unset', async () => {
+      const tracker = new TestAttemptTracker()
+      tracker.recordStart('u1', '/a.js')
+      tracker.recordOutcome('u1', 'passed')
+      const result = await finalizeTraceExport(
+        baseCtx({
+          mode: 'telemetry',
+          outcomes: tracker,
+          testMetadata: meta([
+            [
+              'u1',
+              { title: 'T1', specFile: '/a.js', state: 'passed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      expect(result).toEqual([])
+      expect(await fs.readdir(outputDir)).toEqual([
+        'devtools-artifacts-abcd1234.json'
+      ])
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest.runId).toEqual(expect.any(String))
+      expect(manifest.tests[0].attempts).toEqual([
+        expect.objectContaining({
+          attempt: 0,
+          state: 'passed',
+          traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+          spanId: expect.stringMatching(/^[0-9a-f]{16}$/)
+        })
+      ])
+    })
+
     it('records browser identity', async () => {
       await finalizeTraceExport(
         baseCtx({

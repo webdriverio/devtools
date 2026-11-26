@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  shouldRetainTrace,
-  tracePolicyModeWarning
-} from '../src/trace-retention.js'
+import { shouldRetainTrace } from '../src/trace-retention.js'
 import type { TestOutcome } from '../src/trace-retention.js'
 import type { TraceRetentionPolicy } from '@wdio/devtools-shared'
 
@@ -257,21 +254,5 @@ describe('shouldRetainTrace groups a test’s attempts by uid', () => {
   it('retry-count policies see the grouped attempts', () => {
     expect(retain('on-first-retry', failThenPass)).toBe(true)
     expect(retain('on-all-retries', passThenFail)).toBe(true)
-  })
-})
-
-describe('tracePolicyModeWarning', () => {
-  it('warns when a policy is set outside trace mode', () => {
-    expect(tracePolicyModeWarning('retain-on-failure', 'live')).toMatch(
-      /trace mode/
-    )
-    expect(tracePolicyModeWarning('retain-on-failure', undefined)).toMatch(
-      /trace mode/
-    )
-  })
-
-  it('stays silent in trace mode or when no policy is set', () => {
-    expect(tracePolicyModeWarning('retain-on-failure', 'trace')).toBeUndefined()
-    expect(tracePolicyModeWarning(undefined, 'live')).toBeUndefined()
   })
 })

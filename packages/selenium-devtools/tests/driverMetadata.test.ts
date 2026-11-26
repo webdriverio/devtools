@@ -42,6 +42,7 @@ async function metadataFor(detectedRunner: string | null) {
   const { metadata } = await buildDriverMetadata({
     driver: driverStub(),
     driverReadyTs: Date.now(),
+    observePage: true,
     detectedRunner
   })
   return metadata as {
@@ -89,6 +90,7 @@ describe('buildDriverMetadata', () => {
         getSession: () => Promise.reject(new Error('no such session'))
       } as unknown as SeleniumDriverLike,
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
 
@@ -113,6 +115,7 @@ describe('buildDriverMetadata capability serialization', () => {
     const { metadata } = await buildDriverMetadata({
       driver: driverStub('sess-1', NATIVE),
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
 
@@ -123,6 +126,7 @@ describe('buildDriverMetadata capability serialization', () => {
     const { metadata } = await buildDriverMetadata({
       driver: driverStub('sess-1', NATIVE),
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
 
@@ -139,6 +143,7 @@ describe('buildDriverMetadata capability serialization', () => {
         getCapabilities: () => Promise.resolve({ browserName: 'firefox' })
       } as unknown as SeleniumDriverLike,
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
 
@@ -161,6 +166,7 @@ describe('buildDriverMetadata viewport', () => {
     const { metadata } = await buildDriverMetadata({
       driver: driverStub(),
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
     expect((metadata as { viewport?: unknown }).viewport).toEqual({
@@ -184,6 +190,7 @@ describe('buildDriverMetadata viewport', () => {
         'appium:automationName': 'UiAutomator2'
       }),
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
     expect((metadata as { viewport?: unknown }).viewport).toEqual({
@@ -203,9 +210,29 @@ describe('buildDriverMetadata viewport', () => {
     const { metadata } = await buildDriverMetadata({
       driver: driverStub(),
       driverReadyTs: Date.now(),
+      observePage: true,
       detectedRunner: 'mocha'
     })
     expect(metadata).toBeDefined()
     expect('viewport' in (metadata as object)).toBe(false)
+  })
+})
+
+describe('buildDriverMetadata without a page to observe', () => {
+  it('reads no viewport and sends no page command', async () => {
+    const executeScript = vi.fn().mockResolvedValue({ width: 1, height: 1 })
+    const getRect = vi.fn()
+    const manage = vi.fn().mockReturnValue({ window: () => ({ getRect }) })
+    setDriverOriginalsForTest({ executeScript, manage })
+    const { metadata } = await buildDriverMetadata({
+      driver: driverStub(),
+      driverReadyTs: Date.now(),
+      observePage: false,
+      detectedRunner: 'mocha'
+    })
+    expect('viewport' in (metadata as object)).toBe(false)
+    expect(executeScript).not.toHaveBeenCalled()
+    expect(manage).not.toHaveBeenCalled()
+    expect(getRect).not.toHaveBeenCalled()
   })
 })

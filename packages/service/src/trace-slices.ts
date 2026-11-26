@@ -11,6 +11,7 @@ import {
   type TraceArtifact,
   type TraceExportContext
 } from '@wdio/devtools-core'
+import { capturesTrace } from '@wdio/devtools-shared'
 import type { SessionCapturer } from './session.js'
 import type { ServiceOptions } from './types.js'
 
@@ -75,7 +76,7 @@ export class TraceSliceTracker {
     const browser = this.#ctx.getBrowser()
     if (
       this.#ctx.options.traceGranularity !== 'test' ||
-      this.#ctx.options.mode !== 'trace' ||
+      !capturesTrace(this.#ctx.options.mode) ||
       !browser
     ) {
       return undefined

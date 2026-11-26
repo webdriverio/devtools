@@ -1,5 +1,6 @@
 import logger from '@wdio/logger'
 import { errorMessage } from '@wdio/devtools-core'
+import { capturesTrace } from '@wdio/devtools-shared'
 import { captureActionSnapshot } from '../action-snapshot.js'
 import type { SessionLifecycleCtx } from '../session-lifecycle.js'
 
@@ -11,7 +12,7 @@ export async function captureFinalFrame(
 ): Promise<void> {
   const capturer = ctx.sessionCapturer
   if (
-    ctx.options.mode !== 'trace' ||
+    !capturesTrace(ctx.options.mode) ||
     ctx.finalized ||
     !ctx.driver ||
     !capturer

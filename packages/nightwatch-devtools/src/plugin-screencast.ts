@@ -10,7 +10,11 @@
  */
 
 import { accumulatedScreencastFrames } from '@wdio/devtools-core'
-import { SCREENCAST_DEFAULTS } from '@wdio/devtools-shared'
+import {
+  SCREENCAST_DEFAULTS,
+  capturesTrace,
+  startsBackend
+} from '@wdio/devtools-shared'
 import { finalizeCurrentScreencast } from './session-init.js'
 import type { SessionInitCtx } from './session-init.js'
 import type { ScreencastRecorder } from './screencast.js'
@@ -35,30 +39,29 @@ export interface ScreencastResolutionInput {
 export interface ResolvedScreencast {
   /** What the plugin exposes as `options.screencast`. */
   options: ScreencastOptions
-  /** Config warning to log, when the mode makes the option meaningless. */
-  warning?: string
 }
 
 /**
  * Whether this run records a screencast, and under which options. Filmstrip OR a
  * produce-only per-test video drives the recorder in trace mode; bare screencast
- * with neither is a live-mode feature and is dropped there.
+ * with neither is a live-mode feature and is dropped there. The caller's
+ * `ignoredOptionsWarning` names that drop.
  */
 export function resolveScreencastOptions(
   input: ScreencastResolutionInput
 ): ResolvedScreencast {
   const screencast = input.screencast ?? {}
-  if (input.mode !== 'trace') {
+  if (startsBackend(input.mode)) {
     return { options: screencast }
+  }
+  if (!capturesTrace(input.mode)) {
+    return { options: {} }
   }
   if (input.filmstrip || input.video !== 'off') {
     return { options: { ...screencast, enabled: true } }
   }
   if (screencast.enabled === true) {
-    return {
-      options: {},
-      warning: 'trace mode: ignoring screencast option (live-mode feature)'
-    }
+    return { options: {} }
   }
   return { options: screencast }
 }

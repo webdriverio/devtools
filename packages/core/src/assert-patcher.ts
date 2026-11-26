@@ -123,20 +123,25 @@ function describeAssertFailure(err: unknown): {
   }
 }
 
+interface AssertEmitters {
+  passed: () => void
+  failed: (err: unknown) => void
+}
+
 function makeAssertEmitters(
   methodName: string,
   args: unknown[],
   onCommand: (cmd: CapturedAssert) => void,
   callerStack: string | undefined,
   resolveAssertTarget?: (args: unknown[]) => string | undefined
-): { passed: () => void; failed: (err: unknown) => void } {
+): AssertEmitters {
   const callInfo = getCallSourceFromStack(callerStack)
   // Drop asserts the user's test didn't fire directly: either no user-code frame
   // on the stack at all, or the assert's immediate caller is a dependency (a
   // framework/library assert firing during a user operation) — both are noise.
   // callerStack is captured in patchedAssert so the frame offsets line up.
   if (callInfo.filePath === undefined || !isAssertFromUserCode(callerStack)) {
-    return { passed: () => {}, failed: () => {} }
+    return NO_EMITTERS
   }
   const startedAt = Date.now()
   // Resolved from the RAW args: sanitizing loses the object identity an element
@@ -167,24 +172,31 @@ function makeAssertEmitters(
   }
 }
 
+const NO_EMITTERS: AssertEmitters = { passed: () => {}, failed: () => {} }
+
 function makePatchedAssertMethod(
   methodName: string,
   assertObj: Record<string | symbol, unknown>,
   original: (...a: unknown[]) => unknown,
   onCommand: (cmd: CapturedAssert) => void,
-  resolveAssertTarget?: (args: unknown[]) => string | undefined
+  resolveAssertTarget?: (args: unknown[]) => string | undefined,
+  isActive?: () => boolean
 ): (...args: unknown[]) => unknown {
   return function patchedAssert(this: unknown, ...args: unknown[]) {
     // Captured HERE so frames[0] is this wrapper and frames[1] is the assert's
     // caller — a fixed offset isAssertFromUserCode reads (minification-robust).
     const callerStack = new Error().stack
-    const { passed, failed } = makeAssertEmitters(
-      methodName,
-      args,
-      onCommand,
-      callerStack,
-      resolveAssertTarget
-    )
+    // Inactive, the call neither records a row nor rewrites the thrown error's message.
+    const { passed, failed } =
+      isActive?.() === false
+        ? NO_EMITTERS
+        : makeAssertEmitters(
+            methodName,
+            args,
+            onCommand,
+            callerStack,
+            resolveAssertTarget
+          )
     let result: unknown
     // Node's internalMatch dispatches on `fn === assert.match` (Node ≤20), so
     // a wrapper installed on that property silently inverts `match` into
@@ -305,7 +317,8 @@ export function matcherAssertionToCommandLog(
 function patchAssertNamespace(
   nsObj: Record<string | symbol, unknown>,
   onCommand: (cmd: CapturedAssert) => void,
-  resolveAssertTarget?: (args: unknown[]) => string | undefined
+  resolveAssertTarget?: (args: unknown[]) => string | undefined,
+  isActive?: () => boolean
 ): number {
   let count = 0
   for (const methodName of TRACKED_ASSERT_METHODS) {
@@ -318,7 +331,8 @@ function patchAssertNamespace(
       nsObj,
       original as (...a: unknown[]) => unknown,
       onCommand,
-      resolveAssertTarget
+      resolveAssertTarget,
+      isActive
     )
     count++
   }
@@ -345,11 +359,13 @@ function patchAssertNamespace(
  *                  from its raw args. node:assert takes values, not elements, so
  *                  only the adapter that captured the reads can make the link;
  *                  the result rides along as `CapturedAssert.selector`.
+ * @param isActive  Optional gate read on every call, for an adapter that patches before its mode is known; false makes the call a plain node:assert.
  */
 export function patchNodeAssert(
   onCommand: (cmd: CapturedAssert) => void,
   onLog?: (level: 'info' | 'warn', message: string) => void,
-  resolveAssertTarget?: (args: unknown[]) => string | undefined
+  resolveAssertTarget?: (args: unknown[]) => string | undefined,
+  isActive?: () => boolean
 ): boolean {
   const log = (level: 'info' | 'warn', message: string) =>
     onLog?.(level, message)
@@ -370,7 +386,12 @@ export function patchNodeAssert(
   }
   assertObj[ASSERT_PATCHED_SYMBOL] = true
 
-  let patched = patchAssertNamespace(assertObj, onCommand, resolveAssertTarget)
+  let patched = patchAssertNamespace(
+    assertObj,
+    onCommand,
+    resolveAssertTarget,
+    isActive
+  )
   // `import { strict as assert }` and `assert.strict.*` reference a separate
   // object with its own method identities; patch it too so strict-mode
   // assertions are captured the same as the default ones. `assert.strict` is a
@@ -381,7 +402,8 @@ export function patchNodeAssert(
     patched += patchAssertNamespace(
       strict as Record<string | symbol, unknown>,
       onCommand,
-      resolveAssertTarget
+      resolveAssertTarget,
+      isActive
     )
   }
 
