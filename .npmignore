@@ -5,3 +5,4 @@ index.html
 tsconfig.json
 vite.config.ts
 *.tgz
+tsup.config.ts

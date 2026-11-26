@@ -34,7 +34,7 @@
     "dev": "run-p dev:*",
     "dev:ts": "tsup src/index.ts src/show-trace.ts src/server.ts --format esm --dts --watch",
     "dev:app": "nodemon --watch ./dist ./dist/server.js",
-    "build": "tsup src/index.ts src/show-trace.ts src/server.ts --format esm --dts --clean",
+    "build": "tsup",
     "lint": "eslint .",
     "prepublishOnly": "pnpm build"
   },
