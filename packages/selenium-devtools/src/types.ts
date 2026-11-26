@@ -219,7 +219,7 @@ export interface RunnerHookCallbacks {
     suiteName?: string,
     suiteCallSource?: string,
     // Authoritative per-test retry index when the runner exposes one (Mocha's
-    // `_currentRetry`); undefined leaves the heuristic tracker to decide.
+    // `_currentRetry`); undefined makes a same-named test a separate test.
     attempt?: number
   ) => void
   // Async so the runner's afterEach/After awaits the full per-test artifact
