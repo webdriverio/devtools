@@ -25,6 +25,7 @@ import {
 } from '../../../../script/src/mutations.js'
 import { REF_ATTR } from '../../../../script/src/utils.js'
 import { mutationForCommand } from '@components/browser/mutation-at-command.js'
+import { announceScreencastReset } from '@components/browser/screencast-recordings.js'
 import '@components/browser/snapshot.js'
 
 import { commandLog, mutation } from '../../support/builders.js'
@@ -1257,6 +1258,78 @@ describe('wdio-devtools-browser', () => {
 
       revealFromA11y('//button[contains(., "Log out")]')
       expect(boxesIn(el, HIGHLIGHT_BOX)).toHaveLength(0)
+    })
+  })
+
+  describe('screencast reset', () => {
+    it('clears accumulated recordings and starts the next run fresh', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadataBySession: recordedSessionMetadata
+      })
+      await replayedPage(el)
+
+      recordingArrives()
+      recordingArrives()
+      await settle(el)
+
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(1)
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(2)
+
+      announceScreencastReset()
+      await settle(el)
+
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(0)
+      expect(shadowAll(el, VIEW_BUTTON)).toHaveLength(0)
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(0)
+
+      recordingArrives()
+      await settle(el)
+
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(1)
+      expect(shadowAll(el, VIEW_BUTTON)).toHaveLength(2)
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(0)
+    })
+
+    it('clears recordings across a disconnect and reconnect cycle', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadataBySession: recordedSessionMetadata
+      })
+      await replayedPage(el)
+
+      recordingArrives()
+      recordingArrives()
+      await settle(el)
+
+      const parent = el.parentElement
+      el.remove()
+      parent?.appendChild(el)
+      await settle(el)
+
+      announceScreencastReset()
+      await settle(el)
+
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(0)
+      expect(shadowAll(el, RECORDING_OPTION)).toHaveLength(0)
+    })
+
+    it('repopulates the snapshot iframe when returning from video after a reset', async () => {
+      const el = await mountBrowser({
+        ...loginTrace,
+        metadataBySession: recordedSessionMetadata
+      })
+      await replayedPage(el)
+
+      recordingArrives()
+      await settle(el)
+      expect(shadowAll(el, SCREENCAST)).toHaveLength(1)
+      expect(el.iframe).toBeNull()
+
+      announceScreencastReset()
+      const doc = await replayedPage(el)
+
+      expect(doc.body.textContent).toContain(LOGIN_LABEL)
     })
   })
 

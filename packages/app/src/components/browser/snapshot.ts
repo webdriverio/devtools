@@ -47,7 +47,15 @@ import {
   playerArchiveContext,
   type PlayerArchive
 } from '../../controller/context.js'
-import { OPEN_DOCK_TAB_EVENT } from '../../controller/constants.js'
+import {
+  OPEN_DOCK_TAB_EVENT,
+  SCREENCAST_READY_EVENT,
+  SCREENCAST_RESET_EVENT
+} from '../../controller/constants.js'
+import {
+  ScreencastRecordings,
+  type ScreencastReadyDetail
+} from './screencast-recordings.js'
 import type {
   DeviceInfo,
   Metadata,
@@ -76,16 +84,6 @@ const textChildren = (el: Node) =>
     (node): node is Text => node.nodeType === Node.TEXT_NODE
   )
 
-declare global {
-  interface WindowEventMap {
-    'screencast-ready': CustomEvent<{
-      sessionId: string
-      startTime?: number
-      duration?: number
-    }>
-  }
-}
-
 const COMPONENT = 'wdio-devtools-browser'
 @customElement(COMPONENT)
 export class DevtoolsBrowser extends Element {
@@ -99,26 +97,7 @@ export class DevtoolsBrowser extends Element {
   #screenshotData: string | null = null
   /** A player trace's frame for the selected command, read from its zip. */
   #playerFrames = new PlayerFrames(() => this.requestUpdate())
-  /**
-   * All recorded videos received from the backend, in arrival order. A new
-   * entry is pushed for every browser session (initial + after every
-   * reloadSession() call). `startTime`/`duration` (recording first-frame
-   * timestamp and total span in ms) drive the scrubber's action markers.
-   */
-  #videos: Array<{
-    sessionId: string
-    url: string
-    startTime?: number
-    duration?: number
-  }> = []
-  /** Index into #videos of the currently displayed video. */
-  #activeVideoIdx = 0
-  /**
-   * Which view is active in the browser panel.
-   * 'video'    — always show the screencast player (default when a recording exists)
-   * 'snapshot' — show DOM mutations replay and per-command screenshots
-   */
-  #viewMode: 'snapshot' | 'video' = 'snapshot'
+  #recordings = new ScreencastRecordings()
   /** When on, outline the elements the test interacted with (their command
    *  target selectors) on the replayed page; click a box to copy its locator. */
   #overlayOn = false
@@ -171,7 +150,8 @@ export class DevtoolsBrowser extends Element {
       ['app-mutation-select', this.#handleMutationSelect],
       ['a11y-highlight', this.#highlightBySelector],
       ['show-command', this.#handleShowCommand],
-      ['screencast-ready', this.#handleScreencastReady]
+      [SCREENCAST_READY_EVENT, this.#handleScreencastReady],
+      [SCREENCAST_RESET_EVENT, this.#handleScreencastReset]
     ]
   }
 
@@ -280,7 +260,7 @@ export class DevtoolsBrowser extends Element {
     // inside it, so the frame spans the column like the mockup regardless of
     // the captured window's aspect ratio. Snapshot mode keeps its aspect-lock
     // (the DOM-replay iframe is scaled to the captured viewport).
-    if (this.#viewMode === 'video') {
+    if (this.#recordings.viewMode === 'video') {
       this.section.style.width = '100%'
       this.section.style.height = '100%'
       return
@@ -307,7 +287,7 @@ export class DevtoolsBrowser extends Element {
         !this.section ||
         !this.header ||
         !capture ||
-        this.#viewMode === 'video'
+        this.#recordings.viewMode === 'video'
       ) {
         return
       }
@@ -441,51 +421,39 @@ export class DevtoolsBrowser extends Element {
     )
 
   #handleScreencastReady = (event: Event) => {
-    const { sessionId, startTime, duration } = (
-      event as CustomEvent<{
-        sessionId: string
-        startTime?: number
-        duration?: number
-      }>
-    ).detail
-    this.#videos.push({
-      sessionId,
-      url: `/api/video/${sessionId}`,
-      startTime,
-      duration
-    })
-    // Always show the latest video and switch to video mode automatically
-    this.#activeVideoIdx = this.#videos.length - 1
-    this.#viewMode = 'video'
+    const detail = (event as CustomEvent<ScreencastReadyDetail>).detail
+    this.#recordings.add(detail)
     this.requestUpdate()
+  }
+
+  #handleScreencastReset = () => {
+    const recordingsReset = this.#recordings.reset()
+    const hadActiveState =
+      this.#activeUrl !== undefined || this.#screenshotData !== null
+    this.#activeUrl = undefined
+    this.#screenshotData = null
+    if (recordingsReset || hadActiveState) {
+      this.requestUpdate()
+    }
   }
 
   #setViewMode(mode: 'snapshot' | 'video') {
-    this.#viewMode = mode
-    this.requestUpdate()
+    if (this.#recordings.setViewMode(mode)) {
+      this.requestUpdate()
+    }
   }
 
   #setActiveVideo(idx: number) {
-    this.#activeVideoIdx = idx
-    this.requestUpdate()
-  }
-
-  /** URL of the currently selected video, or null when no videos exist. */
-  get #activeVideoUrl(): string | null {
-    return this.#videos[this.#activeVideoIdx]?.url ?? null
-  }
-
-  /** Recording window of the active video — feeds the scrubber's markers. */
-  get #activeRecording(): { startTime?: number; duration?: number } {
-    const v = this.#videos[this.#activeVideoIdx]
-    return { startTime: v?.startTime, duration: v?.duration }
+    if (this.#recordings.select(idx)) {
+      this.requestUpdate()
+    }
   }
 
   /** URL for the address bar: in video mode the selected recording's page URL
    *  (looked up by its sessionId), else the snapshot's resolved URL. */
   get #displayUrl(): string | undefined {
-    if (this.#viewMode === 'video') {
-      const sessionId = this.#videos[this.#activeVideoIdx]?.sessionId
+    if (this.#recordings.viewMode === 'video') {
+      const sessionId = this.#recordings.active?.sessionId
       const sessionUrl = sessionId
         ? this.metadataBySession?.[sessionId]?.url
         : undefined
@@ -516,7 +484,7 @@ export class DevtoolsBrowser extends Element {
     // this method requested had finally created the iframe. A recording arriving
     // switches the view on its own (`#handleScreencastReady`), so the very first
     // row clicked after any run with a screencast hit it.
-    this.#viewMode = 'snapshot'
+    this.#recordings.setViewMode('snapshot')
     this.requestUpdate()
     await this.updateComplete
     // DOM time-travel: rebuild the iframe DOM to the command's RESULT state (see
@@ -1002,41 +970,39 @@ export class DevtoolsBrowser extends Element {
   }
 
   #renderViewToggle() {
-    if (this.#videos.length === 0) {
+    const videos = this.#recordings.items
+    if (videos.length === 0) {
       return nothing
     }
+    const { viewMode, activeIndex } = this.#recordings
     return html`
       <div class="view-toggle">
         <button
-          class=${this.#viewMode === 'snapshot' ? 'active' : ''}
+          class=${viewMode === 'snapshot' ? 'active' : ''}
           @click=${() => this.#setViewMode('snapshot')}
         >
           Snapshot
         </button>
         <button
-          class=${this.#viewMode === 'video' ? 'active' : ''}
+          class=${viewMode === 'video' ? 'active' : ''}
           @click=${() => this.#setViewMode('video')}
         >
           Screencast
         </button>
         ${
-          this.#videos.length > 1
+          videos.length > 1
             ? html`<select
                 class="compact-select video-select"
-                ?disabled=${this.#viewMode !== 'video'}
+                ?disabled=${viewMode !== 'video'}
                 @change=${(e: Event) => {
                   this.#setActiveVideo(
                     Number((e.target as HTMLSelectElement).value)
                   )
-                  this.#setViewMode('video')
                 }}
               >
-                ${this.#videos.map(
+                ${videos.map(
                   (_v, i) =>
-                    html`<option
-                      value=${i}
-                      ?selected=${this.#activeVideoIdx === i}
-                    >
+                    html`<option value=${i} ?selected=${activeIndex === i}>
                       Recording ${i + 1}
                     </option>`
                 )}
@@ -1048,13 +1014,13 @@ export class DevtoolsBrowser extends Element {
   }
 
   #renderViewport(hasMutations: number | null) {
-    if (this.#viewMode === 'video' && this.#activeVideoUrl) {
-      const rec = this.#activeRecording
+    const active = this.#recordings.active
+    if (this.#recordings.viewMode === 'video' && active) {
       return html`<div class="iframe-wrapper">
         <wdio-devtools-screencast-player
-          src=${this.#activeVideoUrl}
-          .startTime=${rec.startTime}
-          .duration=${rec.duration}
+          src=${active.url}
+          .startTime=${active.startTime}
+          .duration=${active.duration}
         ></wdio-devtools-screencast-player>
       </div>`
     }
