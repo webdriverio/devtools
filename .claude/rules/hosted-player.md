@@ -1,6 +1,8 @@
 ---
 paths:
   - "packages/app/src/components/browser/replay-safety.ts"
+  - "packages/app/src/components/browser/snapshot.ts"
+  - "packages/app/src/components/browser/vnode-transform.ts"
   - "packages/app/src/controller/trace-link.ts"
   - "packages/app/src/controller/trace-open.ts"
   - "packages/app/src/utils/trace-link.ts"

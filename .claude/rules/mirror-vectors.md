@@ -1,6 +1,10 @@
 ---
 paths:
   - "packages/shared/mirror-vectors.json"
+  - "packages/shared/src/{device,input-mask,page-resources,secret-redaction,redaction-walk,trace-actions,typed-secrets}.ts"
+  - "packages/core/src/{capture-call-guard,capture-timing,final-frame,output-dir,performance-capture,run-id,session-capturer,read-value-locators}.ts"
+  - "packages/selenium-devtools/src/wait-tracking.ts"
+  - "packages/selenium-devtools/src/helpers/element-locators.ts"
   - "packages/selenium-devtools-py/src/**"
   - "packages/selenium-devtools-py/tests/test_mirror_vectors.py"
   - "packages/selenium-devtools/tests/mirror-vectors.test.ts"
