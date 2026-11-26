@@ -1,5 +1,6 @@
 import WebdriverIOReporter, {
   type HookStats,
+  type RunnerStats,
   type SuiteStats,
   type TestStats
 } from '@wdio/reporter'
@@ -26,6 +27,7 @@ import {
   readFeatureScenarios
 } from './reporter-helpers.js'
 import type { FeatureScenario } from './types.js'
+import { specFileAttemptOf } from './test-metadata.js'
 
 // True when the stats object is a Cucumber scenario. The `type` field on
 // @wdio/reporter's SuiteStats/TestStats is a literal union ('suite' | 'test'),
@@ -114,18 +116,27 @@ export class TestReporter extends WebdriverIOReporter {
   /** Pickle indices seen for each file and scenario title, in the order they started. */
   #titledPickles = new Map<string, number[]>()
 
+  #onSpecFileAttempt: (attempt: number) => void
+
   constructor(
     options: Reporters.Options,
     report: (data: Record<string, SuiteStats>[]) => void,
     loadSource: (location: string) => void = () => {},
-    onRetry: (testStats: TestStats) => void = () => {}
+    onRetry: (testStats: TestStats) => void = () => {},
+    onSpecFileAttempt: (attempt: number) => void = () => {}
   ) {
     super(options)
     this.#report = report
     this.#loadSource = loadSource
+    this.#onSpecFileAttempt = onSpecFileAttempt
     this.#onRetry = onRetry
     // Reset signature counters for each new reporter instance (new test run)
     resetSignatureCounters()
+  }
+
+  onRunnerStart(runnerStats: RunnerStats): void {
+    super.onRunnerStart(runnerStats)
+    this.#onSpecFileAttempt(specFileAttemptOf(runnerStats))
   }
 
   onSuiteStart(suiteStats: SuiteStats): void {

@@ -148,6 +148,7 @@ describe('captureAndAttachScreenshot', () => {
       sessionId: 'sess1234',
       outputDir: dir,
       testUid: 'u1',
+      attempt: 0,
       attach: sink as unknown as AllureAttachSink,
       onArtifact: (a) => collected.push(a),
       ...over
@@ -161,6 +162,14 @@ describe('captureAndAttachScreenshot', () => {
     expect(collected[0]!.kind).toBe('screenshot')
     expect(sink).toHaveBeenCalledOnce()
     expect(await readdir(dir)).toHaveLength(1)
+  })
+
+  it('gives each attempt of a retried test its own file and manifest entry', async () => {
+    const dir = await run({ failed: true, attempt: 0 })
+    await run({ failed: true, attempt: 1, outputDir: dir })
+    expect(collected.map((a) => a.key)).toEqual(['u1', 'u1-retry1'])
+    expect(new Set(collected.map((a) => a.path)).size).toBe(2)
+    expect(await readdir(dir)).toHaveLength(2)
   })
 
   it('produces without attaching when the sink is absent', async () => {

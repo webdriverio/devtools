@@ -221,6 +221,35 @@ describe('buildActionEvents — tracingGroup (testUid boundaries)', () => {
     expect(groupAfters).toHaveLength(2)
   })
 
+  it('keeps one tracingGroup for a test whose commands share a testUid', () => {
+    const commands = [
+      cmd('url', { testUid: 'uid-1', timestamp: 1200, startTime: 1150 }),
+      cmd('click', { testUid: 'uid-1', timestamp: 1500, startTime: 1450 })
+    ]
+    const groups = buildActionEvents(commands, pageId, wallTime, testMeta)
+      .filter(isBefore)
+      .filter(isTracingGroup)
+    expect(groups).toHaveLength(1)
+  })
+
+  it('opens a new tracingGroup for a retried attempt of the same testUid', () => {
+    const commands = [
+      cmd('url', { testUid: 'uid-1', timestamp: 1200, startTime: 1150 }),
+      cmd('click', {
+        testUid: 'uid-1',
+        attempt: 1,
+        timestamp: 1500,
+        startTime: 1450
+      })
+    ]
+    const groups = buildActionEvents(commands, pageId, wallTime, testMeta)
+      .filter(isBefore)
+      .filter(isTracingGroup)
+    expect(groups).toHaveLength(2)
+    expect(groups[0]!.params).toEqual({ name: 'test A' })
+    expect(groups[1]!.params).toEqual({ name: 'test A' })
+  })
+
   it('uses raw testUid as fallback name when testMetadata is missing', () => {
     const commands = [cmd('url', { testUid: 'unknown-uid' })]
     const events = buildActionEvents(commands, pageId, wallTime)

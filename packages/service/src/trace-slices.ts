@@ -21,6 +21,7 @@ export interface TraceSliceContext {
   options: ServiceOptions
   getCapturer: () => SessionCapturer
   getBrowser: () => WebdriverIO.Browser | undefined
+  getAttemptBase: () => number
   buildExportContext: (browser: WebdriverIO.Browser) => TraceExportContext
 }
 
@@ -50,7 +51,8 @@ export class TraceSliceTracker {
       {
         specRanges: this.ranges,
         flushedSpecs: this.flushed,
-        capturer: this.#ctx.getCapturer()
+        capturer: this.#ctx.getCapturer(),
+        attemptBase: this.#ctx.getAttemptBase()
       },
       this.#ctx.options.traceGranularity,
       specFile,

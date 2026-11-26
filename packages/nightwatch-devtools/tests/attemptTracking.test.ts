@@ -6,6 +6,8 @@ import {
 import { buildCucumberScenarioSuite } from '../src/helpers/cucumberScenarioBuilder.js'
 import { buildTraceContext } from '../src/trace-context.js'
 import { startNextTest, type TestLifecycleCtx } from '../src/test-lifecycle.js'
+import { TestManager } from '../src/helpers/testManager.js'
+import type { TestReporter } from '../src/reporter.js'
 import { TEST_STATE } from '../src/constants.js'
 import type { SessionCapturer } from '../src/session.js'
 import type { SuiteStats, TestStats } from '../src/types.js'
@@ -115,6 +117,79 @@ describe('regular test retry attempt via startNextTest', () => {
 
     await startNextTest(ctx, suite, 'my test', new Set(['my test']), null)
     expect(test.retries).toBe(1)
+  })
+})
+
+describe('BDD module tests past the first `it` record their attempt', () => {
+  function moduleFixture() {
+    const tests = [
+      makeTest('uid-1', 'first'),
+      makeTest('uid-2', 'second'),
+      makeTest('uid-3', 'third')
+    ]
+    const suite = {
+      uid: 'suite-uid',
+      file: '/spec.ts',
+      tests
+    } as unknown as SuiteStats
+    const reporter = {
+      getCurrentSuite: () => suite,
+      onTestStart: vi.fn(),
+      onTestEnd: vi.fn()
+    } as unknown as TestReporter
+    const tracker = new TestAttemptTracker()
+    const manager = new TestManager(
+      reporter,
+      (uid, state) => tracker.recordOutcome(uid, state),
+      (uid, specFile) => tracker.recordStart(uid, specFile)
+    )
+    const ctx = {
+      suiteManager: { markSuiteAsRunning: vi.fn() },
+      testManager: manager,
+      testReporter: reporter,
+      setCurrentTest: vi.fn(),
+      recordAttempt: (uid: string) => tracker.recordStart(uid)
+    } as unknown as TestLifecycleCtx
+    return { tests, suite, tracker, manager, ctx }
+  }
+
+  it('gives every `it` of a module exactly one attempt slot and keeps a failed state', async () => {
+    const { tests, suite, tracker, manager, ctx } = moduleFixture()
+    const [first, second, third] = tests
+
+    await startNextTest(ctx, suite, 'first', new Set(), null)
+    manager.detectTestBoundary({ name: 'second', module: 'spec.js' } as never)
+    manager.startTestIfPending('second')
+    manager.updateTestState(
+      second,
+      TEST_STATE.FAILED as TestStats['state'],
+      new Date(),
+      0
+    )
+    manager.detectTestBoundary({ name: 'third', module: 'spec.js' } as never)
+    manager.startTestIfPending('third')
+
+    expect(tests.map((t) => tracker.forTest(t.uid).length)).toEqual([1, 1, 1])
+    expect(tracker.forTest(second.uid)).toEqual([
+      { uid: second.uid, attempt: 0, state: 'failed' }
+    ])
+    expect(second.state).toBe(TEST_STATE.FAILED)
+    expect(third.state).toBe(TEST_STATE.RUNNING)
+    expect(tests.map((t) => t.retries)).toEqual([0, 0, 0])
+    expect(first.state).toBe(TEST_STATE.RUNNING)
+  })
+
+  it('does not record a second attempt for the first `it` when its command runs', async () => {
+    const { tests, suite, tracker, manager, ctx } = moduleFixture()
+    const [first] = tests
+
+    await startNextTest(ctx, suite, 'first', new Set(), null)
+    manager.detectTestBoundary({ name: 'first', module: 'spec.js' } as never)
+    manager.startTestIfPending('first')
+
+    expect(tracker.forTest(first.uid)).toEqual([
+      { uid: first.uid, attempt: 0, state: undefined }
+    ])
   })
 })
 

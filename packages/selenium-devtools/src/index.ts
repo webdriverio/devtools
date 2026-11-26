@@ -503,9 +503,9 @@ class SeleniumDevToolsPlugin {
   // Async + awaited by the runner's afterEach so the per-test artifact emit
   // (trace slice + screenshot + video attach) completes while the test is still
   // open; otherwise allure closes the test before attachment() runs.
-  async endTest(state: TestStats['state'] = 'passed') {
+  async endTest(state: TestStats['state'] = 'passed', error?: string) {
     const ended = this.#testManager?.getCurrentTest() ?? null
-    tmEndTest(this.#getInternals(), state)
+    tmEndTest(this.#getInternals(), state, error)
     await settlePageResources(this.#getInternals())
     await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
@@ -518,9 +518,9 @@ class SeleniumDevToolsPlugin {
     recordTraceBoundary(this.#getInternals(), meta.file)
   }
 
-  async endScenario(state: TestStats['state'] = 'passed') {
+  async endScenario(state: TestStats['state'] = 'passed', error?: string) {
     const ended = this.#testManager?.getCurrentTest() ?? null
-    tmEndScenario(this.#getInternals(), state)
+    tmEndScenario(this.#getInternals(), state, error)
     await settlePageResources(this.#getInternals())
     await captureFinalFrame(this.#getInternals())
     const flushed = flushCurrentTestTrace(this.#getInternals())
@@ -759,7 +759,8 @@ const runnerHookCallbacks: RunnerHookCallbacks = {
       buildStartTestMeta(file, callSource, suiteName, suiteCallSource, attempt)
     ),
   // Return the promise so the runner hook awaits the full attach chain.
-  onTestEnd: (state) => plugin.endTest(state === 'pending' ? 'skipped' : state),
+  onTestEnd: (state, error) =>
+    plugin.endTest(state === 'pending' ? 'skipped' : state, error),
   onScenarioStart: (name, file, callSource, featureName, featureCallSource) => {
     plugin.startScenario(name, {
       file,
@@ -768,8 +769,8 @@ const runnerHookCallbacks: RunnerHookCallbacks = {
       featureCallSource
     })
   },
-  onScenarioEnd: (state) =>
-    plugin.endScenario(state === 'pending' ? 'skipped' : state),
+  onScenarioEnd: (state, error) =>
+    plugin.endScenario(state === 'pending' ? 'skipped' : state, error),
   onTestRunComplete: () => {
     void plugin.finalizeTestRun()
   }

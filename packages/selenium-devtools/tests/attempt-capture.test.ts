@@ -1,10 +1,18 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
+  buildArtifactsManifest,
   collectSuiteTestMetadata,
+  RetryTracker,
   shouldRetainTrace
 } from '@wdio/devtools-core'
 
 import { resetSignatureCounters } from '../src/helpers/utils.js'
+import {
+  endScenario,
+  ensureSuiteAndTestManager,
+  startScenario,
+  type TestManagementCtx
+} from '../src/test-management.js'
 import { TestManager } from '../src/helpers/testManager.js'
 import { SuiteManager } from '../src/helpers/suiteManager.js'
 import { TestReporter } from '../src/reporter.js'
@@ -24,18 +32,18 @@ function makeManager() {
 }
 
 describe('retry/attempt capture', () => {
-  it('re-entering the start hook for the same test increments retries (heuristic)', () => {
+  it('a re-entry carrying the runner attempt index increments retries', () => {
     const { mgr } = makeManager()
 
-    const first = mgr.startMarkedTest('flaky')
+    const first = mgr.startMarkedTest('flaky', { attempt: 0 })
     expect(first.retries).toBe(0)
 
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     expect(retry.retries).toBe(1)
 
     mgr.endCurrent('failed')
-    const retry2 = mgr.startMarkedTest('flaky')
+    const retry2 = mgr.startMarkedTest('flaky', { attempt: 2 })
     expect(retry2.retries).toBe(2)
   })
 
@@ -55,9 +63,9 @@ describe('retry/attempt capture', () => {
   it('flows retries into metadata attempt and the trace ctx flags attempt info', () => {
     const { mgr, suiteManager, rootSuite } = makeManager()
 
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
     expect(retry.retries).toBe(1)
 
@@ -156,19 +164,105 @@ describe('artifacts manifest gating', () => {
   })
 })
 
+describe('a Cucumber scenario is the attempt-ledger unit', () => {
+  it('records one attempt for the scenario, not one per step', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const rootSuite = suiteManager.getOrCreateRootSuite('/work', 'Cart')
+    const testManager = new TestManager(rootSuite, testReporter, suiteManager)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager,
+      testManager,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    testManager.startMarkedTest('Given a cart')
+    testManager.endCurrent('passed')
+    testManager.startMarkedTest('When I pay')
+    testManager.endCurrent('passed')
+    endScenario(ctx, 'passed')
+
+    const scenarioUid = rootSuite.suites[0]!.uid
+    expect(testManager.attemptOutcomes.forTest(scenarioUid)).toMatchObject([
+      { uid: scenarioUid, attempt: 0, state: 'passed' }
+    ])
+  })
+
+  it('records a scenario queued before the session existed', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager: undefined,
+      testManager: undefined,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    ctx.suiteManager = suiteManager
+    ensureSuiteAndTestManager(ctx, 'Cart')
+    endScenario(ctx, 'failed', 'boom')
+
+    const scenarioUid = suiteManager.getRootSuite()!.suites[0]!.uid
+    expect(ctx.testManager!.attemptOutcomes.forTest(scenarioUid)).toMatchObject(
+      [{ uid: scenarioUid, attempt: 0, state: 'failed' }]
+    )
+  })
+
+  it('stamps the .feature file on a scenario queued before the session existed', () => {
+    const testReporter = new TestReporter(vi.fn())
+    const suiteManager = new SuiteManager(testReporter)
+    const ctx: TestManagementCtx = {
+      retryTracker: new RetryTracker(),
+      testReporter,
+      sessionCapturer: undefined,
+      suiteManager: undefined,
+      testManager: undefined,
+      testFilePath: undefined,
+      pendingTestActions: [],
+      pendingScenario: null
+    }
+
+    startScenario(ctx, 'checkout', { file: '/work/cart.feature' })
+    ctx.suiteManager = suiteManager
+    ensureSuiteAndTestManager(ctx, 'Cart')
+    endScenario(ctx, 'passed')
+
+    const root = suiteManager.getRootSuite()!
+    const scenarioUid = root.suites[0]!.uid
+    const metadata = collectSuiteTestMetadata([root])
+    expect(root.featureFile).toBe('/work/cart.feature')
+    expect(metadata.get(scenarioUid)).toMatchObject({
+      title: 'checkout',
+      specFile: '/work/cart.feature'
+    })
+    expect(metadata.size).toBe(1)
+  })
+})
+
 describe('retry outcome ledger feeds retry-aware retention', () => {
   it('groups a fail-then-pass retry under one retry-stable uid', () => {
     const { mgr } = makeManager()
 
-    const first = mgr.startMarkedTest('flaky')
+    const first = mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
 
-    // Selenium gives each attempt its own suite-node uid…
-    expect(first.uid).not.toBe(retry.uid)
+    // Each attempt is the same suite-node tests[] entry…
+    expect(first.uid).toBe(retry.uid)
 
-    // …but the ledger records both attempts under ONE retry-stable uid.
+    // …and the ledger records both attempts under that one uid.
     const ledger = mgr.attemptOutcomes.all()
     expect(ledger).toHaveLength(2)
     expect(ledger[0]).toMatchObject({ attempt: 0, state: 'failed' })
@@ -179,9 +273,9 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
   it('exposes outcomes on the ctx so retain-on-failure drops a fail-then-pass but retain-on-first-failure keeps it', () => {
     const { mgr, suiteManager } = makeManager()
 
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
 
     const capturer = new SessionCapturer()
@@ -229,5 +323,91 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
     } finally {
       capturer.cleanup()
     }
+  })
+})
+
+describe('one tests[] entry per test across retries', () => {
+  it('a Mocha retry keeps one tests[] entry whose last attempt is final', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('login', { attempt: 0 })
+    mgr.endCurrent('failed')
+    mgr.startMarkedTest('login', { attempt: 1 })
+    mgr.endCurrent('passed')
+
+    const manifest = buildArtifactsManifest({
+      sessionId: 'sess-1',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([rootSuite]),
+      attemptsFor: (uid) => mgr.attemptOutcomes.attemptsFor(uid)
+    })
+
+    expect(manifest.tests).toHaveLength(1)
+    expect(manifest.tests[0]).toMatchObject({ attempt: 1 })
+    expect(manifest.tests[0].attempts).toHaveLength(2)
+    expect(manifest.tests[0].attempts?.[0].final).toBeFalsy()
+    expect(manifest.tests[0].attempts?.[1].final).toBe(true)
+  })
+
+  it('a repeated step text is not a retry', () => {
+    const { mgr, suiteManager, rootSuite } = makeManager()
+    suiteManager.startScenarioSuite('scenario', '/spec.feature')
+
+    const first = mgr.startMarkedTest('I open the page')
+    mgr.endCurrent('passed')
+    const second = mgr.startMarkedTest('I open the page')
+    mgr.endCurrent('passed')
+
+    expect(second.uid).not.toBe(first.uid)
+    expect(second.retries).toBe(0)
+    expect(mgr.attemptOutcomes.forTest(second.uid)).toHaveLength(1)
+    expect(rootSuite.suites).toHaveLength(1)
+  })
+})
+
+describe('same-named tests without a runner attempt are distinct', () => {
+  // Jest exposes no retry index to hooks, so a retryTimes re-run is also recorded as its own attempt-0 test.
+  it('keeps a failed test and a same-named passing test as two attempt-0 entries', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('case')
+    mgr.endCurrent('failed', 'expected 1 to equal 2')
+    mgr.startMarkedTest('case')
+    mgr.endCurrent('passed')
+
+    expect(rootSuite.tests).toMatchObject([
+      { title: 'case', state: 'failed', retries: 0 },
+      { title: 'case', state: 'passed', retries: 0 }
+    ])
+  })
+})
+
+describe('failure message reaches the manifest', () => {
+  it('a failed test carries its error, timing and failed attempt error', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('boom')
+    mgr.endCurrent('failed', 'expected 1 to equal 2')
+
+    const manifest = buildArtifactsManifest({
+      sessionId: 'sess-1',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: collectSuiteTestMetadata([rootSuite]),
+      attemptsFor: (uid) => mgr.attemptOutcomes.attemptsFor(uid)
+    })
+
+    expect(manifest.tests[0]).toMatchObject({
+      state: 'failed',
+      error: 'expected 1 to equal 2'
+    })
+    expect(manifest.tests[0].startTime).toEqual(expect.any(Number))
+    expect(manifest.tests[0].endTime).toEqual(expect.any(Number))
+    expect(manifest.tests[0].durationMs).toEqual(expect.any(Number))
+    expect(manifest.tests[0].attempts?.[0]).toMatchObject({
+      state: 'failed',
+      error: 'expected 1 to equal 2'
+    })
   })
 })

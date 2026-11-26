@@ -5,10 +5,17 @@ import type { CapturedCommand, CommandLog, TestStats } from '../types.js'
 /** Fields the capturer's positional API doesn't carry. An absent `selector`
  *  leaves the previous one standing: `replaceCommand` mutates the row in place,
  *  so a retry must not blank the locator its first attempt resolved. */
-function applyCapturedFields(entry: CommandLog, cmd: CapturedCommand): void {
+function applyCapturedFields(
+  entry: CommandLog,
+  cmd: CapturedCommand,
+  attempt: number | undefined
+): void {
   entry.startTime = cmd.startTime
   if (cmd.selector) {
     entry.selector = cmd.selector
+  }
+  if (attempt) {
+    entry.attempt = attempt
   }
   // Captures run in issue order, so the wait's own row already has its id when a row its condition issued arrives.
   const parentId = cmd.waitScope?.rowId
@@ -89,7 +96,7 @@ async function captureOrReplaceSerially(opts: {
     cmd.callSource,
     cmd.timestamp
   )) as CommandLog & { _id?: number }
-  applyCapturedFields(entry, cmd)
+  applyCapturedFields(entry, cmd, test.retries)
   capturer.sendCommand(entry)
   if (!ofWait) {
     retryTracker.recordCapture(cmdSig, entry._id ?? null)
@@ -118,7 +125,7 @@ function replaceRow(
     cmd.timestamp
   )
   const entry = replaced.entry as CommandLog & { _id?: number }
-  applyCapturedFields(entry, cmd)
+  applyCapturedFields(entry, cmd, test.retries)
   capturer.sendReplaceCommand(replaced.oldTimestamp, entry)
   return entry
 }
