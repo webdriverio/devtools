@@ -37,6 +37,14 @@ export class FakeMaskPolicy {
     this.#maskInputs = !source.includes(MASK_INPUTS_OFF)
   }
 
+  /** A field's `type` as the page reports it: the login form's password field, every other one a text field. */
+  static fieldType(selector: unknown): string | null {
+    if (typeof selector !== 'string') {
+      return null
+    }
+    return PASSWORD_FIELDS.has(selector) ? 'password' : 'text'
+  }
+
   /** Records what `selector` received and returns the value its `value` mutation reports. */
   type(selector: string, text: string): string {
     this.typed.push({ selector, text })

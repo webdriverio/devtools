@@ -385,6 +385,7 @@ class TestStats(_TestStatsRequired, total=False):
     hooks: List[Any]
     callSource: str
     order: float
+    hook: bool
 
 
 class _TestStoppedWsPayloadRequired(TypedDict):

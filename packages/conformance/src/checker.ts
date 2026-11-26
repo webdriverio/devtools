@@ -16,6 +16,10 @@ import {
 import { ACTION_METHODS, LOAD_MS, RULES, SCOPES } from './constants.js'
 import { checkCallSites } from './call-site.js'
 import { checkPasswordMasking } from './password-masking.js'
+import {
+  checkCredentialHeaders,
+  checkSecretRedaction
+} from './secret-redaction.js'
 import { checkPageLevelAssertions, checkTestRows } from './scenario-tests.js'
 import { checkWaitNesting } from './wait-nesting.js'
 import type {
@@ -48,7 +52,9 @@ export function checkConformance(
     ...checkTestRows(stream),
     ...checkPageLevelAssertions(stream),
     ...checkWaitNesting(stream),
-    ...checkPasswordMasking(stream, truth)
+    ...checkPasswordMasking(stream, truth),
+    ...checkSecretRedaction(stream, truth),
+    ...checkCredentialHeaders(stream, truth)
   ]
 }
 

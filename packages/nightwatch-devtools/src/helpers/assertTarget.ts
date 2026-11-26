@@ -117,7 +117,7 @@ function baseMethod(method: string): string {
  * built from an already-resolved handle carries no selector at all — such a row
  * gets none rather than a wrong one.
  */
-function definitionSelector(definition: unknown): string | undefined {
+export function definitionSelector(definition: unknown): string | undefined {
   if (typeof definition === 'string') {
     return definition || undefined
   }

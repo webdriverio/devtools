@@ -2,6 +2,7 @@ import type { IncomingMessage } from 'node:http'
 
 import logger from '@wdio/logger'
 import {
+  CaptureCallGuard,
   collectorDrainExpression,
   SessionCapturerBase,
   drainCollectorWithRecovery,
@@ -14,6 +15,7 @@ import {
   PENDING_SETTLE_TIMEOUT_MS,
   serializeError,
   settlePending,
+  CAPTURE_CALL_TIMED_OUT,
   type SessionCapturerOptions
 } from '@wdio/devtools-core'
 import {
@@ -23,6 +25,7 @@ import {
 } from '@wdio/devtools-shared'
 import { NAVIGATION_COMMANDS } from './constants.js'
 import { getDriverOriginals } from './driverPatcher.js'
+import { pageScript } from './capture-calls.js'
 import type { CommandLog, SeleniumDriverLike } from './types.js'
 
 const log = logger('@wdio/selenium-devtools:SessionCapturer')
@@ -45,6 +48,12 @@ export class SessionCapturer extends SessionCapturerBase {
    *  which makes the `<script>`-append paths (eager injection on navigation,
    *  post-navigation re-injection) unreachable rather than merely redundant. */
   preloadRegistered = false
+
+  /** Ceilings on the capture calls this capturer issues, so a tab that never answers cannot hang the test. */
+  readonly captureCalls = new CaptureCallGuard(
+    () => this.metadata,
+    (level, message) => log[level](message)
+  )
 
   /** Native app network from appium-interceptor's proxy; started per driver. */
   readonly nativeNetwork = new NativeNetworkCapture(this, (level, message) =>
@@ -255,7 +264,10 @@ export class SessionCapturer extends SessionCapturerBase {
       return null
     }
     try {
-      const data = await fn(driver)
+      const data = await this.captureCalls.read(
+        () => fn(driver),
+        'command screenshot'
+      )
       return data || null
     } catch (err) {
       const level = this.#endingDrivers.has(driver) ? 'debug' : 'warn'
@@ -274,7 +286,7 @@ export class SessionCapturer extends SessionCapturerBase {
 
   async injectScript(): Promise<void> {
     const driver = this.#driver
-    const exec = getDriverOriginals().executeScript
+    const exec = pageScript(this.captureCalls, driver, 'collector injection')
     if (!driver || !exec || this.isNativeAppSession) {
       return
     }
@@ -282,26 +294,31 @@ export class SessionCapturer extends SessionCapturerBase {
       // Three call paths reach the same document (navigation trace,
       // post-command drain recovery, explicit re-inject); a bundle that finds
       // a collector keeps it, so this probe only saves the round trips.
-      const present = await exec(driver, COLLECTOR_READY_SCRIPT)
-      if (present === true) {
+      // A call cut off by its ceiling ends this injection: the next would wait it out again.
+      const present = await exec(COLLECTOR_READY_SCRIPT)
+      if (present === true || present === CAPTURE_CALL_TIMED_OUT) {
         return
       }
       const scriptContent = await loadInjectableScript()
       // The appended script runs synchronously, so this usually answers ready.
-      const injected = await exec(
-        driver,
-        COLLECTOR_INJECT_SCRIPT,
-        scriptContent
-      )
+      const injected = await exec(COLLECTOR_INJECT_SCRIPT, scriptContent)
+      if (injected === CAPTURE_CALL_TIMED_OUT) {
+        return
+      }
+      let cutOff = false
       const ready =
         injected === true ||
         (await pollUntilReady(
           async () => {
-            const r = await exec(driver, COLLECTOR_READY_SCRIPT)
-            return r === true
+            const r = await exec(COLLECTOR_READY_SCRIPT)
+            cutOff = r === CAPTURE_CALL_TIMED_OUT
+            return r === true || cutOff
           },
           { checkFirst: true }
         ))
+      if (cutOff) {
+        return
+      }
       if (ready) {
         log.info('✓ Script injected and collector ready')
       } else {
@@ -323,7 +340,7 @@ export class SessionCapturer extends SessionCapturerBase {
    *  not from this call — see `reattributeDomAnchors`. */
   async captureTrace(forceAnchor = false): Promise<void> {
     const driver = this.#driver
-    const exec = getDriverOriginals().executeScript
+    const exec = pageScript(this.captureCalls, driver, 'collector drain')
     // A native app has no document, so the drain, its recovery injection and
     // the url read are round trips that can only fail. Inside the method
     // rather than at its call sites, which are the live drain, the navigation
@@ -340,7 +357,6 @@ export class SessionCapturer extends SessionCapturerBase {
       const traceData = await drainCollectorWithRecovery({
         drain: () =>
           exec(
-            driver,
             collectorDrainExpression(
               forceAnchor,
               this.pageResourceStore.mode,
@@ -351,8 +367,10 @@ export class SessionCapturer extends SessionCapturerBase {
           recovered = true
           await this.injectScript()
         },
-        currentUrl: async () =>
-          (await exec(driver, 'return location.href;')) as string | undefined,
+        currentUrl: async () => {
+          const url = await exec('return location.href;')
+          return typeof url === 'string' ? url : undefined
+        },
         log: (level, message) => log[level](message)
       })
       if (!traceData) {
@@ -426,13 +444,13 @@ export class SessionCapturer extends SessionCapturerBase {
    */
   async reinjectIfNavigated(): Promise<void> {
     const driver = this.#driver
-    const exec = getDriverOriginals().executeScript
+    const exec = pageScript(this.captureCalls, driver, 'collector probe')
     if (!driver || !exec || this.isNativeAppSession) {
       return
     }
     try {
-      const hasCollector = await exec(driver, COLLECTOR_READY_SCRIPT)
-      if (hasCollector === true) {
+      const hasCollector = await exec(COLLECTOR_READY_SCRIPT)
+      if (hasCollector === true || hasCollector === CAPTURE_CALL_TIMED_OUT) {
         return
       }
       await this.injectScript()

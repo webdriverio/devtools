@@ -16,6 +16,7 @@ import { NativeAssertRecorder } from './nativeAssertRecorder.js'
 import { WaitRows } from './waitRows.js'
 import { beginCommandWindow } from './commandWindow.js'
 import { wrapNavigation } from './navigationWrap.js'
+import { observeTyping } from './typed-input.js'
 import {
   RetryTracker,
   clearReadValues,
@@ -582,6 +583,7 @@ export class BrowserProxy {
       return captureCallback(callbackResult)
     }
     const modifiedArgs = [...this.waits.args(cmd), gatedCallback]
+    observeTyping(browser, cmd, this.sessionCapturer)
     try {
       return originalMethod(...modifiedArgs)
     } catch (error) {

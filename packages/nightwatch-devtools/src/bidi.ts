@@ -1,6 +1,7 @@
 import logger from '@wdio/logger'
 import {
   type BidiHandlerSinks,
+  type CaptureCallGuard,
   attachBidiHandlers as attachBidiHandlersCore
 } from '@wdio/devtools-core'
 
@@ -20,9 +21,13 @@ export { buildBidiSinks } from '@wdio/devtools-core'
  */
 export async function attachBidiHandlers(
   driver: unknown,
-  sinks: BidiHandlerSinks
+  sinks: BidiHandlerSinks,
+  guard: CaptureCallGuard
 ): Promise<boolean> {
-  return attachBidiHandlersCore(driver, sinks, (level, message) =>
-    log[level](message)
+  return attachBidiHandlersCore(
+    driver,
+    sinks,
+    (level, message) => log[level](message),
+    guard
   )
 }

@@ -12,17 +12,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
   captureMaskPrelude,
+  createSecretRedactor,
+  isPasswordFieldType,
+  isRedactableValue,
   deviceFromCapabilities,
   isNativeAppSession,
   resolveCaptureMask,
+  resolveSecrets,
   resourceUrlKey,
   RUNNER_ENV,
   skipsCapture,
+  typedText,
   type CaptureMaskOptions
 } from '@wdio/devtools-shared'
 import {
   applyPerformanceData,
+  captureCeilingsApply,
+  chromeMajorVersion,
   finalFrameStamp,
+  hasPopupBidiHang,
   formatCaptureTimingSummary,
   resolveAdapterOutputDir,
   resolveRunId,
@@ -90,7 +98,11 @@ const RUNNERS = [
   'captureTimingSummary',
   'collectorMaskPrelude',
   'resourceUrlKey',
-  'captureGate'
+  'captureGate',
+  'secretResolution',
+  'secretRedaction',
+  'typedSecret',
+  'popupBidiHang'
 ]
 
 it('runs every section the vectors file declares', () => {
@@ -166,6 +178,23 @@ describe('nativeSession', () => {
       expect({
         nativeApp: isNativeAppSession(c.capabilities),
         platform: deviceFromCapabilities(c.capabilities)?.platform ?? null
+      }).toEqual(c.expect)
+    })
+  }
+})
+
+describe('popupBidiHang', () => {
+  for (const c of section<
+    Named & {
+      capabilities: unknown
+      expect: { major: number | null; affected: boolean; ceilings: boolean }
+    }
+  >('popupBidiHang').cases) {
+    it(c.name, () => {
+      expect({
+        major: chromeMajorVersion(c.capabilities) ?? null,
+        affected: hasPopupBidiHang(c.capabilities),
+        ceilings: captureCeilingsApply(c.capabilities)
       }).toEqual(c.expect)
     })
   }
@@ -469,6 +498,58 @@ describe('collectorMaskPrelude', () => {
   >('collectorMaskPrelude').cases) {
     it(c.name, () => {
       expect(captureMaskPrelude(resolveCaptureMask(c.options))).toBe(c.expect)
+    })
+  }
+})
+
+describe('secretResolution', () => {
+  for (const c of section<
+    Named & {
+      entries: unknown[]
+      env: Record<string, string>
+      expect: { secrets: string[]; warnings: string[] }
+    }
+  >('secretResolution').cases) {
+    it(c.name, () => {
+      expect(resolveSecrets(c.entries, c.env)).toEqual(c.expect)
+    })
+  }
+})
+
+describe('secretRedaction', () => {
+  for (const c of section<
+    Named & {
+      secrets: string[]
+      typed: string[]
+      authHeaders?: boolean
+      value: unknown
+      expect: unknown
+    }
+  >('secretRedaction').cases) {
+    it(c.name, () => {
+      const redactor = createSecretRedactor(c.secrets, {
+        authHeaders: c.authHeaders,
+        typed: c.typed
+      })
+      expect(redactor ? redactor.redact(c.value) : c.value).toEqual(c.expect)
+    })
+  }
+})
+
+describe('typedSecret', () => {
+  for (const c of section<
+    Named & {
+      parts: unknown
+      fieldType: unknown
+      expect: { text: string; redacts: boolean }
+    }
+  >('typedSecret').cases) {
+    it(c.name, () => {
+      const text = typedText(c.parts)
+      expect({
+        text,
+        redacts: isRedactableValue(text) && isPasswordFieldType(c.fieldType)
+      }).toEqual(c.expect)
     })
   }
 })

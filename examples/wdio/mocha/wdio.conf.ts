@@ -70,7 +70,11 @@ export const config: WebdriverIO.Config = {
         ...(process.env.DEVTOOLS_MODE === 'trace' ||
         process.env.DEVTOOLS_MODE === 'telemetry'
           ? { emitArtifactsManifest: true }
-          : {})
+          : {}),
+        // DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!' redacts the demo password from the dashboard and the trace.
+        secrets: process.env.DEVTOOLS_EXAMPLE_SECRET
+          ? [{ env: 'DEVTOOLS_EXAMPLE_SECRET' }]
+          : []
       }
     ]
   ],

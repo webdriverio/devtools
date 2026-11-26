@@ -14,6 +14,7 @@ import {
   type BidiHandlerSinks
 } from '../src/bidi.js'
 import type { NetworkRequest } from '@wdio/devtools-shared'
+import { CaptureCallGuard } from '../src/capture-call-guard.js'
 
 function makeSinks() {
   const consoleLogs: any[] = []
@@ -581,8 +582,14 @@ describe('attachBidiHandlers — graceful degradation', () => {
       replaceNetworkRequest: () => {}
     }
     const logs: Array<[string, string]> = []
-    const ok = await attachBidiHandlers({}, sinks, (lvl, msg) =>
-      logs.push([lvl, msg])
+    const ok = await attachBidiHandlers(
+      {},
+      sinks,
+      (lvl, msg) => logs.push([lvl, msg]),
+      new CaptureCallGuard(
+        () => undefined,
+        () => {}
+      )
     )
     expect(ok).toBe(false)
     // Either the submodule was missing OR the inspector attach threw —

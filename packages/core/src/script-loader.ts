@@ -8,6 +8,7 @@ import {
   withCaptureMask
 } from '@wdio/devtools-shared'
 
+import { CAPTURE_CALL_TIMED_OUT } from './capture-call-guard.js'
 import { errorMessage } from './error.js'
 import { captureMask } from './capture-mask.js'
 
@@ -99,12 +100,16 @@ function isInstrumentableDocument(url: string | undefined): boolean {
  * to keep recovery off documents that aren't worth instrumenting.
  */
 export async function drainCollectorWithRecovery<T>(opts: {
-  drain: () => Promise<T | null>
+  drain: () => Promise<T | null | typeof CAPTURE_CALL_TIMED_OUT>
   injectIntoCurrentDocument: () => Promise<void>
   currentUrl?: () => Promise<string | undefined>
   log?: (level: 'info' | 'warn', message: string) => void
 }): Promise<T | null> {
   const payload = await opts.drain()
+  // A drain cut off by its ceiling found a collector that did not answer, not a missing one: re-injecting would wait again.
+  if (payload === CAPTURE_CALL_TIMED_OUT) {
+    return null
+  }
   if (payload) {
     return payload
   }
@@ -125,7 +130,8 @@ export async function drainCollectorWithRecovery<T>(opts: {
     opts.log?.('warn', `Collector re-injection failed: ${errorMessage(err)}`)
     return null
   }
-  const recovered = await opts.drain()
+  const answer = await opts.drain()
+  const recovered = answer === CAPTURE_CALL_TIMED_OUT ? null : answer
   if (!recovered) {
     opts.log?.(
       'warn',

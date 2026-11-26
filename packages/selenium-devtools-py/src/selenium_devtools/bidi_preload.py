@@ -18,9 +18,10 @@ without it, so this reports False and the caller keeps the ``<script>`` path.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Optional, Tuple
 
 from .bidi import bidi_enabled
+from .capture_calls import BIDI_SETUP_TIMEOUT_S, Cancellation, call_with_timeout
 from .constants import BIDI_CAPABILITY, LOGGER_NAME
 
 _log = logging.getLogger(f"{LOGGER_NAME}.preload")
@@ -55,14 +56,34 @@ def register_collector_preload(driver: Any, source: str) -> bool:
             BIDI_CAPABILITY,
         )
         return False
-    try:
+
+    # Boxed, so a driver whose pin answers None still reads as registered.
+    def pin(cancelled: Cancellation) -> Optional[Tuple[Any]]:
         script = driver.script
-        script.pin(as_function_declaration(source))
+        if cancelled.is_set():
+            return None
+        return (script.pin(as_function_declaration(source)),)
+
+    def unpin(pinned: Optional[Tuple[Any]]) -> None:
+        # Answered after its ceiling, when capture has already fallen back to injection.
+        if pinned is None:
+            return
+        try:
+            driver.script.unpin(pinned[0])
+        except Exception as exc:  # noqa: BLE001, the fallback already covers this document
+            _log.debug("late BiDi preload could not be removed: %s", exc)
+
+    try:
+        pinned = call_with_timeout(
+            driver, pin, BIDI_SETUP_TIMEOUT_S, None, "BiDi preload registration", unpin
+        )
     except Exception as exc:  # noqa: BLE001 — any selenium/BiDi failure degrades
         _log.warning(
             "BiDi preload unavailable, falling back to per-document injection: %s",
             exc,
         )
+        return False
+    if pinned is None:
         return False
     _log.info("collector registered at document-start (BiDi preload)")
     return True

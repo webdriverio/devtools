@@ -72,9 +72,10 @@ describe('directProbes', () => {
     expect(directProbes(browser({ sessionId: undefined }))).toBeUndefined()
   })
 
-  it('exposes the four probes beforeCommand issues', () => {
+  it('exposes the probes beforeCommand issues', () => {
     const probes = directProbes(browser())
     expect(Object.keys(probes ?? {}).sort()).toEqual([
+      'getElementType',
       'getPageSource',
       'getTitle',
       'getUrl',

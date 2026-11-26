@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { MASKED_VALUE } from '@wdio/devtools-shared'
 
 import { checkConformance } from '../src/checker.js'
-import { LOAD_MS, REPO_ROOT, RULES } from '../src/constants.js'
+import {
+  CREDENTIAL,
+  LOAD_MS,
+  REPO_ROOT,
+  RULES,
+  SCENARIO_SECRET
+} from '../src/constants.js'
 import type { GroundTruth, WireFrame } from '../src/types.js'
 
 const LOGIN = 'http://fake/login'
@@ -640,11 +646,11 @@ describe(RULES.passwordMaskedInPage, () => {
     { selector: '#password', text: 'secret' }
   ]
 
-  it('accepts rows carrying what was typed and a page masking only the password', () => {
+  it('accepts rows carrying what was typed, the listed secret as its placeholder, and a page masking only the password', () => {
     const frames = [
       ...conformingStream(),
       fill(['tom']),
-      fill(['secret']),
+      fill([MASKED_VALUE]),
       valueMutation('#username', 'tom'),
       valueMutation('#password', MASKED_VALUE)
     ]
@@ -655,7 +661,7 @@ describe(RULES.passwordMaskedInPage, () => {
     const frames = [
       ...conformingStream(),
       fill([{ text: 'tom', value: ['t', 'o', 'm'] }]),
-      fill(['secret\uE007'])
+      fill([`${MASKED_VALUE}\uE007`])
     ]
     expect(check(frames, typed)).toEqual([])
   })
@@ -664,18 +670,116 @@ describe(RULES.passwordMaskedInPage, () => {
     const frames = [
       ...conformingStream(),
       fill(['tom']),
-      fill(['secret']),
+      fill([MASKED_VALUE]),
       valueMutation('#password', 'secret')
     ]
     expect(check(frames, typed)).toHaveLength(1)
   })
 
-  it('flags a row that masked what it typed', () => {
-    const frames = [...conformingStream(), fill(['tom']), fill([MASKED_VALUE])]
+  it('flags a row that masked text the run did not list as a secret', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      fill([MASKED_VALUE])
+    ]
     expect(check(frames, typed)).toHaveLength(1)
   })
 
   it('flags a collector loaded without the run’s mask policy', () => {
     expect(check(conformingStream(), [], 1)).toHaveLength(1)
+  })
+})
+
+describe(RULES.credentialHeadersRedacted, () => {
+  const live: GroundTruth = { ...truth, bidi: 'live' }
+  const network = (requestHeaders: Record<string, string>) => ({
+    scope: 'networkRequests',
+    data: [{ id: 'r1', url: 'http://x/', requestHeaders }]
+  })
+  const check = (frames: WireFrame[]) =>
+    checkConformance(frames, live).filter(
+      (v) => v.rule === RULES.credentialHeadersRedacted
+    )
+
+  it('accepts a row that keeps Authorization with the placeholder', () => {
+    expect(
+      check([...conformingStream(), network({ Authorization: MASKED_VALUE })])
+    ).toEqual([])
+  })
+
+  it('flags a row carrying the credential, and rows that dropped the header', () => {
+    expect(
+      check([
+        ...conformingStream(),
+        network({ Cookie: `sid=${CREDENTIAL}`, Accept: '*/*' })
+      ]).map((v) => v.message)
+    ).toEqual([
+      'a networkRequests frame carries a credential header value',
+      'no network row keeps the Authorization header, with the placeholder as its value'
+    ])
+  })
+})
+
+describe(RULES.typedPasswordNeverSent, () => {
+  const check = (frames: WireFrame[]) =>
+    checkConformance(frames, {
+      ...truth,
+      typed: [{ selector: '#password', text: SCENARIO_SECRET }]
+    }).filter((v) => v.rule === RULES.typedPasswordNeverSent)
+  const fill = (args: unknown[]) => ({
+    scope: 'commands',
+    data: [row('sendKeys', args, 400, 410)]
+  })
+
+  it('accepts a stream that carries the placeholder, and the option naming the variable', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      { scope: 'metadata', data: { options: { secrets: [{ env: 'X' }] } } }
+    ]
+    expect(check(frames)).toEqual([])
+  })
+
+  it('flags any frame carrying the secret, raw, encoded or spelled one key per item', () => {
+    const frames = [
+      ...conformingStream(),
+      fill([MASKED_VALUE]),
+      { scope: 'consoleLogs', data: [{ args: [`pw=${SCENARIO_SECRET}`] }] },
+      {
+        scope: 'commands',
+        data: [
+          row('sendKeysToElement', [{ value: [...SCENARIO_SECRET] }], 420, 430)
+        ]
+      }
+    ]
+    expect(check(frames).map((v) => v.message)).toEqual([
+      'a consoleLogs frame carries the typed password',
+      'a commands frame carries the typed password'
+    ])
+  })
+
+  it('allows the spec source and suite tree sent before the password was typed, and nothing after', () => {
+    const source = {
+      scope: 'sources',
+      data: { '/spec.js': `type('${SCENARIO_SECRET}')` }
+    }
+    expect(
+      check([...conformingStream(), source, fill([MASKED_VALUE])])
+    ).toEqual([])
+    expect(
+      check([...conformingStream(), fill([MASKED_VALUE]), source]).map(
+        (v) => v.message
+      )
+    ).toEqual(['a sources frame carries the typed password'])
+  })
+
+  it('flags a run whose typing row carries no placeholder', () => {
+    expect(check([...conformingStream(), fill(['other'])])).toEqual([
+      {
+        rule: RULES.typedPasswordNeverSent,
+        message:
+          'no row carries the placeholder where the test typed the password'
+      }
+    ])
   })
 })

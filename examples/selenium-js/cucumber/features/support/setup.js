@@ -21,5 +21,9 @@ DevTools.configure({
     maxWidth: 1280,
     maxHeight: 720
   },
-  headless: true
+  headless: true,
+  // DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!' redacts the demo password from the dashboard and the trace.
+  secrets: process.env.DEVTOOLS_EXAMPLE_SECRET
+    ? [{ env: 'DEVTOOLS_EXAMPLE_SECRET' }]
+    : []
 })

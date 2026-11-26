@@ -19,6 +19,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from selenium_devtools import (
     _contract,
+    capture_calls,
     capture_timing,
     capturer,
     device,
@@ -29,6 +30,7 @@ from selenium_devtools import (
     performance,
     read_value_locators,
     run_id,
+    secret_redaction,
     wait_tracking,
 )
 
@@ -59,6 +61,10 @@ RUNNERS = {
     "collectorMaskPrelude",
     "resourceUrlKey",
     "captureGate",
+    "secretResolution",
+    "secretRedaction",
+    "typedSecret",
+    "popupBidiHang",
 }
 
 UUID4 = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
@@ -117,6 +123,21 @@ class TestAssertionTarget(unittest.TestCase):
                             read_value_locators.assertion_target(*operands), step["expect"], step
                         )
         read_value_locators.reset()
+
+
+class TestPopupBidiHang(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("popupBidiHang"):
+            with self.subTest(case["name"]):
+                caps = case["capabilities"]
+                self.assertEqual(
+                    {
+                        "major": capture_calls.chrome_major_version(caps),
+                        "affected": capture_calls.has_popup_bidi_hang(caps),
+                        "ceilings": capture_calls.capture_ceilings_apply(caps),
+                    },
+                    case["expect"],
+                )
 
 
 class TestNativeSession(unittest.TestCase):
@@ -400,6 +421,36 @@ class TestCollectorMaskPrelude(unittest.TestCase):
             with self.subTest(case["name"]):
                 _fresh_mask(case["options"])
                 self.assertEqual(input_masking.capture_mask_prelude(), case["expect"])
+
+
+class TestSecretResolution(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("secretResolution"):
+            with self.subTest(case["name"]):
+                secrets, warnings = secret_redaction.resolve_secrets(case["entries"], case["env"])
+                self.assertEqual({"secrets": secrets, "warnings": warnings}, case["expect"])
+
+
+class TestSecretRedaction(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("secretRedaction"):
+            with self.subTest(case["name"]):
+                redactor = secret_redaction.create_secret_redactor(
+                    case["secrets"], auth_headers=case["authHeaders"], typed=case["typed"]
+                )
+                value = case["value"] if redactor is None else redactor.redact(case["value"])
+                self.assertEqual(value, case["expect"])
+
+
+class TestTypedSecret(unittest.TestCase):
+    def test_cases(self):
+        for case in _cases("typedSecret"):
+            with self.subTest(case["name"]):
+                text = secret_redaction.typed_text(case["parts"])
+                redacts = secret_redaction.is_redactable_value(text) and secret_redaction.is_password_field_type(
+                    case["fieldType"]
+                )
+                self.assertEqual({"text": text, "redacts": redacts}, case["expect"])
 
 
 class TestResourceUrlKey(unittest.TestCase):
