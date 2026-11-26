@@ -116,7 +116,11 @@ export default class DevToolsHookService implements Services.ServiceInstance {
     assertDevToolsMode(serviceOptions.mode)
     this.#options = serviceOptions
     configureInputMasking(serviceOptions)
-    for (const warning of configureSecretRedaction(serviceOptions)) {
+    for (const warning of configureSecretRedaction(
+      serviceOptions,
+      process.env,
+      (message) => log.warn(message)
+    )) {
       log.warn(warning)
     }
     this.#sessionCapturer = new SessionCapturer({

@@ -1564,10 +1564,10 @@
     },
     "typedSecret": {
       "mirrors": {
-        "ts": "shared/typed-secrets.ts typedText + isRedactableValue + isPasswordFieldType",
-        "py": "secret_redaction.py typed_text + is_redactable_value + is_password_field_type"
+        "ts": "shared/typed-secrets.ts typedText + redactsTypedText",
+        "py": "secret_redaction.py typed_text + redacts_typed_text"
       },
-      "notes": "What input masking adds to the run's secrets when a key-sending command types into a field: the typed text (string and number parts joined, WebDriver's special keys U+E000..U+F8FF removed) when it is at least 4 characters after trimming and the field's type reads `password` (trimmed, any case). `redacts` is that decision; each adapter only supplies the field-type read.",
+      "notes": "What input masking adds to the run's secrets when a key-sending command types into a field: the typed text (string and number parts joined, WebDriver's special keys U+E000..U+F8FF removed) when it is at least 4 characters after trimming and the field's type reads `password` (trimmed, any case) or the read did not answer (`answered: false`: it failed, hung past its ceiling, or the field could not be located), since redacting a non-password is the safer error. A read that answered with no type (`fieldType: null`) is not a password. `redacts` is that decision; each adapter only supplies the field-type read.",
       "cases": [
         {
           "name": "typed text joins its parts",
@@ -1645,11 +1645,31 @@
           }
         },
         {
-          "name": "a field whose type could not be read is not one",
+          "name": "a field that answered with no type is not one",
           "parts": "tomsmith",
           "fieldType": null,
           "expect": {
             "text": "tomsmith",
+            "redacts": false
+          }
+        },
+        {
+          "name": "a field whose type read did not answer counts as one",
+          "parts": "tomsmith",
+          "fieldType": null,
+          "answered": false,
+          "expect": {
+            "text": "tomsmith",
+            "redacts": true
+          }
+        },
+        {
+          "name": "an unanswered read never makes a short value one",
+          "parts": "abc",
+          "fieldType": null,
+          "answered": false,
+          "expect": {
+            "text": "abc",
             "redacts": false
           }
         },

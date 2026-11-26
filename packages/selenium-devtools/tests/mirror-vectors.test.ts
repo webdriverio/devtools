@@ -13,8 +13,7 @@ import type { CaptureTimingRecord, CommandLog } from '@wdio/devtools-shared'
 import {
   captureMaskPrelude,
   createSecretRedactor,
-  isPasswordFieldType,
-  isRedactableValue,
+  redactsTypedText,
   deviceFromCapabilities,
   isNativeAppSession,
   resolveCaptureMask,
@@ -541,6 +540,7 @@ describe('typedSecret', () => {
     Named & {
       parts: unknown
       fieldType: unknown
+      answered?: boolean
       expect: { text: string; redacts: boolean }
     }
   >('typedSecret').cases) {
@@ -548,7 +548,7 @@ describe('typedSecret', () => {
       const text = typedText(c.parts)
       expect({
         text,
-        redacts: isRedactableValue(text) && isPasswordFieldType(c.fieldType)
+        redacts: redactsTypedText(text, c.fieldType, c.answered ?? true)
       }).toEqual(c.expect)
     })
   }

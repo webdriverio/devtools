@@ -94,6 +94,52 @@ describe('readFieldBeforeTyping', () => {
     expect(redactSecrets(`typed ${SECRET}`)).toBe('typed ••••')
   })
 
+  it('takes setPassword as a password without reading its field', async () => {
+    const { browser, run } = queuedBrowser()
+    readFieldBeforeTyping(browser, 'setPassword', ['#pw', SECRET], false)
+    await run(() => undefined)
+    expect(webdriverExecute).not.toHaveBeenCalled()
+    expect(redactSecrets(SECRET)).toBe('••••')
+  })
+
+  it('redacts what is typed into a field the script cannot locate, since its type is never read', async () => {
+    const { browser, run } = queuedBrowser()
+    readFieldBeforeTyping(
+      browser,
+      'setValue',
+      ['id', 'password', 'by-id-secret'],
+      false
+    )
+    readFieldBeforeTyping(browser, 'sendKeys', [{}, 'no-selector'], false)
+    await run(() => undefined)
+    expect(webdriverExecute).not.toHaveBeenCalled()
+    expect(redactSecrets('by-id-secret no-selector')).toBe('•••• ••••')
+  })
+
+  it('redacts what is typed when the transport answers null, as it does for any failure or no match', async () => {
+    webdriverExecute.mockResolvedValue(null)
+    const { browser, run } = queuedBrowser()
+    readFieldBeforeTyping(browser, 'setValue', ['#pw', SECRET], false)
+    await run(() => undefined)
+    expect(redactSecrets(SECRET)).toBe('••••')
+  })
+
+  it('keeps what is typed into a match the script reads an empty type for', async () => {
+    webdriverExecute.mockResolvedValue('')
+    const { browser, run } = queuedBrowser()
+    readFieldBeforeTyping(browser, 'setValue', ['#editor', 'tomsmith'], false)
+    await run(() => undefined)
+    expect(redactSecrets('tomsmith')).toBe('tomsmith')
+  })
+
+  it('redacts what is typed when the field read fails', async () => {
+    webdriverExecute.mockRejectedValue(new Error('socket hang up'))
+    const { browser, run } = queuedBrowser()
+    readFieldBeforeTyping(browser, 'setValue', ['#pw', SECRET], false)
+    await run(() => undefined)
+    expect(redactSecrets(SECRET)).toBe('••••')
+  })
+
   it('takes a bare selector as CSS unless the config sets use_xpath', async () => {
     webdriverExecute.mockResolvedValue('text')
     const { browser, run } = queuedBrowser()
