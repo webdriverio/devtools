@@ -32,18 +32,18 @@ function makeManager() {
 }
 
 describe('retry/attempt capture', () => {
-  it('re-entering the start hook for the same test increments retries (heuristic)', () => {
+  it('a re-entry carrying the runner attempt index increments retries', () => {
     const { mgr } = makeManager()
 
-    const first = mgr.startMarkedTest('flaky')
+    const first = mgr.startMarkedTest('flaky', { attempt: 0 })
     expect(first.retries).toBe(0)
 
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     expect(retry.retries).toBe(1)
 
     mgr.endCurrent('failed')
-    const retry2 = mgr.startMarkedTest('flaky')
+    const retry2 = mgr.startMarkedTest('flaky', { attempt: 2 })
     expect(retry2.retries).toBe(2)
   })
 
@@ -63,9 +63,9 @@ describe('retry/attempt capture', () => {
   it('flows retries into metadata attempt and the trace ctx flags attempt info', () => {
     const { mgr, suiteManager, rootSuite } = makeManager()
 
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
     expect(retry.retries).toBe(1)
 
@@ -254,9 +254,9 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
   it('groups a fail-then-pass retry under one retry-stable uid', () => {
     const { mgr } = makeManager()
 
-    const first = mgr.startMarkedTest('flaky')
+    const first = mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    const retry = mgr.startMarkedTest('flaky')
+    const retry = mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
 
     // Each attempt is the same suite-node tests[] entry…
@@ -273,9 +273,9 @@ describe('retry outcome ledger feeds retry-aware retention', () => {
   it('exposes outcomes on the ctx so retain-on-failure drops a fail-then-pass but retain-on-first-failure keeps it', () => {
     const { mgr, suiteManager } = makeManager()
 
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 0 })
     mgr.endCurrent('failed')
-    mgr.startMarkedTest('flaky')
+    mgr.startMarkedTest('flaky', { attempt: 1 })
     mgr.endCurrent('passed')
 
     const capturer = new SessionCapturer()
@@ -363,6 +363,22 @@ describe('one tests[] entry per test across retries', () => {
     expect(second.retries).toBe(0)
     expect(mgr.attemptOutcomes.forTest(second.uid)).toHaveLength(1)
     expect(rootSuite.suites).toHaveLength(1)
+  })
+})
+
+describe('same-named tests without a runner attempt are distinct', () => {
+  it('keeps a failed test and a same-named passing test as two entries', () => {
+    const { mgr, rootSuite } = makeManager()
+
+    mgr.startMarkedTest('case')
+    mgr.endCurrent('failed', 'expected 1 to equal 2')
+    mgr.startMarkedTest('case')
+    mgr.endCurrent('passed')
+
+    expect(rootSuite.tests).toMatchObject([
+      { title: 'case', state: 'failed' },
+      { title: 'case', state: 'passed' }
+    ])
   })
 })
 

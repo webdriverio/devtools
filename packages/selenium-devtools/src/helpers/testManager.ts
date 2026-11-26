@@ -132,7 +132,7 @@ export class TestManager {
     // Scope by parent so two suites with the same test/step name don't
     // collide on signatureCounter disambiguation across rerun processes.
     const signature = `${this.suite.uid}::${name}`
-    const retriedUid = this.#retriedUid(name, file, signature, opts.attempt)
+    const retriedUid = this.#retriedUid(name, opts.attempt)
     const uid = retriedUid ?? generateStableUid(file, signature)
     const ledgerAttempt = this.#attemptTracker.recordStart(uid, file)
     const test = createTestStats({
@@ -164,32 +164,14 @@ export class TestManager {
     return test
   }
 
-  /** The uid of the attempt a re-entry retries, so one tests[] entry carries every attempt. A cucumber step is never a retry. */
-  #retriedUid(
-    name: string,
-    file: string,
-    signature: string,
-    attempt: number | undefined
-  ): string | undefined {
+  /** The uid of the attempt a runner's retry index re-enters, so one tests[] entry carries every attempt. Without that index a same-named test is another test (Jest test.each, duplicate names). */
+  #retriedUid(name: string, attempt: number | undefined): string | undefined {
     const prior = this.#lastMarkedTest
-    if (attempt !== undefined) {
-      return attempt > 0 &&
-        prior?.title === name &&
-        prior.parent === this.suite.uid
-        ? prior.uid
-        : undefined
-    }
-    const stableUid = deterministicUid(file, signature)
-    const isStep = this.suite !== this.rootSuite
-    if (isStep) {
-      return undefined
-    }
-    const earlier = this.suite.tests.find(
-      (t) => typeof t !== 'string' && t.uid === stableUid
-    )
-    // A retry only follows a failure, so a passed namesake is another test.
-    return typeof earlier === 'object' && earlier.state !== 'passed'
-      ? stableUid
+    return attempt !== undefined &&
+      attempt > 0 &&
+      prior?.title === name &&
+      prior.parent === this.suite.uid
+      ? prior.uid
       : undefined
   }
 
