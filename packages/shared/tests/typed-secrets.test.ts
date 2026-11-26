@@ -9,7 +9,7 @@ import {
 } from '../src/typed-secrets.js'
 
 interface FakeField {
-  type: string
+  type?: string
 }
 
 /** Runs the script as WebDriver's execute/sync would, against a page whose selectors resolve to the given fields, first match first. */
