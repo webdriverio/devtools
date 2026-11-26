@@ -367,7 +367,8 @@ describe('one tests[] entry per test across retries', () => {
 })
 
 describe('same-named tests without a runner attempt are distinct', () => {
-  it('keeps a failed test and a same-named passing test as two entries', () => {
+  // Jest exposes no retry index to hooks, so a retryTimes re-run is also recorded as its own attempt-0 test.
+  it('keeps a failed test and a same-named passing test as two attempt-0 entries', () => {
     const { mgr, rootSuite } = makeManager()
 
     mgr.startMarkedTest('case')
@@ -376,8 +377,8 @@ describe('same-named tests without a runner attempt are distinct', () => {
     mgr.endCurrent('passed')
 
     expect(rootSuite.tests).toMatchObject([
-      { title: 'case', state: 'failed' },
-      { title: 'case', state: 'passed' }
+      { title: 'case', state: 'failed', retries: 0 },
+      { title: 'case', state: 'passed', retries: 0 }
     ])
   })
 })
