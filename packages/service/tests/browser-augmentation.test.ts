@@ -16,6 +16,13 @@ describe('WebdriverIO.Browser augmentation', () => {
     >()
   })
 
+  // An optional override clashes with WDIO's own command, an error skipLibCheck hides here and a consumer sees.
+  it('leaves getPuppeteer as WebdriverIO declares it', () => {
+    expectTypeOf<undefined>().not.toMatchTypeOf<
+      WebdriverIO.Browser['getPuppeteer']
+    >()
+  })
+
   it('extends the global ServiceOption with the devtools options', () => {
     expectTypeOf<WebdriverIO.ServiceOption['mode']>().toEqualTypeOf<
       ServiceOptions['mode']
