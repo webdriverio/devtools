@@ -9,9 +9,9 @@ Per-framework demo projects under `examples/`: the desktop and mobile runs they 
 
 ## Default modes
 
-- WDIO cucumber (`examples/wdio/cucumber/wdio.conf.ts`): live. `DEVTOOLS_MODE=trace` traces.
-- Nightwatch (`examples/nightwatch/nightwatch.conf.cjs`): trace. `DEVTOOLS_MODE=live` records live.
-- Selenium cucumber (`examples/selenium-js/cucumber/features/support/setup.js`): live. The mocha example (`examples/selenium-js/mocha/example.js`) traces by default. The package default is live (`packages/selenium-devtools/src/index.ts`).
+- WDIO cucumber and mocha (`examples/wdio/cucumber/wdio.conf.ts`, `examples/wdio/mocha/wdio.conf.ts`): live. `DEVTOOLS_MODE=trace` or `telemetry` selects that mode.
+- Nightwatch (`examples/nightwatch/nightwatch.conf.cjs`): trace. `DEVTOOLS_MODE=live` or `telemetry` selects that mode.
+- Selenium cucumber (`examples/selenium-js/cucumber/features/support/setup.js`): live; `DEVTOOLS_MODE=trace` or `telemetry` selects that mode. The mocha example (`examples/selenium-js/mocha/example.js`) traces by default; `DEVTOOLS_MODE=live` or `telemetry` selects that mode. The package default is live (`packages/selenium-devtools/src/index.ts`).
 - pytest (`examples/selenium-py/pytest/conftest.py`): traces only with `DEVTOOLS_MODE=trace`.
 
 ## Known debt

@@ -2,6 +2,10 @@
 
 Owns the types, contracts, constants and page-script strings that every package shares (`packages/shared/src`).
 
+## Modes
+
+- `DevToolsMode` (`src/types.ts`) is `'live' | 'trace' | 'telemetry'`. What each mode starts, captures and ignores lives in `src/mode-traits.ts`.
+
 ## Known debt
 
 - **A captured text locator is generated in the recording runner's dialect.** Where: `shared/locator-dialect.ts` `locatorDialect(runner)`. WDIO runners get `a*=Logout`; nightwatch, selenium-webdriver and an unidentified recorder get `//a[contains(., "Logout")]`. Don't emit `tag*=` under WDIO for text containing `"`: WDIO compiles it to a broken XPath. `locatorsMatch` decomposes both dialects.

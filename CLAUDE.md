@@ -68,6 +68,7 @@ The `@core/*` name is a historical alias for app-internal helpers and predates `
 - The JS adapters import `shared` and `core`. `selenium-devtools-py` imports neither (it ships no Node); its shared logic is mirrored and held equal by `packages/shared/mirror-vectors.json` (.claude/rules/mirror-vectors.md).
 - No adapter imports another (enforced by `eslint.config.cjs`). Only examples and conformance scenarios import adapters at runtime; `packages/conformance/src/capability-options.ts` uses `import type` only.
 - `backend` and `app` import `shared` and each other over WS/HTTP. Neither imports an adapter. `app` may also import `@wdio/devtools-trace/trace-reader`, the reader the hosted player runs in the browser; no other trace module.
+- `otel` imports `shared` and `@wdio/devtools-trace/trace-reader` only. It is not an adapter and imports neither `core` nor an adapter; no ESLint rule enforces this.
 - Boundaries are typed: every `fetch` and `ws.send` has a `shared` type, and no `any` crosses a package boundary.
 - `shared`, `trace` and `core` are bundled into their consumers, never externalised: .claude/rules/bundling.md.
 - Files own one concern. Size caps and style: .claude/rules/code-style.md. `max-lines` (500), `max-lines-per-function` (50) and `no-explicit-any` are `warn` in `eslint.config.cjs`, so `pnpm lint` passes with violations; size caps are not a CI gate.
@@ -164,6 +165,7 @@ Read a package's CLAUDE.md before changing it; codegraph reads do not auto-load 
 - `backend`: Node dashboard server (WS/HTTP, reruns, zip serving). Notes: packages/backend/CLAUDE.md
 - `app`: Lit dashboard UI and the hosted trace player. Notes: packages/app/CLAUDE.md
 - `conformance`: smoke assertions, capability tables, hosted-player e2e, `KNOWN_GAPS`. Notes: packages/conformance/CLAUDE.md
+- `otel`: `@wdio/opentelemetry`, the `wdio-otel` CLI that pushes artifacts manifests and retained traces to an OTLP collector. No CLAUDE.md.
 - `elements`: `@wdio/elements`, element detection scripts for WebdriverIO. No CLAUDE.md.
 - `examples/`: runnable demos per framework, fixture site, mobile. Notes: examples/CLAUDE.md
 
