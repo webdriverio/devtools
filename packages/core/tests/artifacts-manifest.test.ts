@@ -7,12 +7,14 @@ import {
   writeArtifactsManifest,
   artifactsManifestFilename
 } from '../src/artifacts-manifest.js'
+import { MASKED_VALUE } from '@wdio/devtools-shared'
 import type {
   ArtifactsManifest,
   TestMetadataMap,
   TraceArtifact
 } from '@wdio/devtools-shared'
 import { stepMetadataUid } from '../src/uid.js'
+import { configureSecretRedaction } from '../src/secret-redaction.js'
 import {
   collectSuiteTestMetadata,
   createSuiteStats,
@@ -530,5 +532,54 @@ describe('artifacts manifest', () => {
       warn
     })
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('artifacts manifest secret redaction', () => {
+  const SECRET = 'SuperSecretPassword!'
+  afterEach(() => configureSecretRedaction())
+
+  it('redacts a configured secret from the test error and every attempt error', () => {
+    configureSecretRedaction({ secrets: [SECRET] })
+    const m = buildArtifactsManifest({
+      sessionId: 'sess-r',
+      format: 'zip',
+      artifacts: [],
+      testMetadata: new Map([
+        [
+          'u1',
+          {
+            title: 'login',
+            specFile: '/a.spec.ts',
+            state: 'failed',
+            attempt: 1,
+            error: `bad password ${SECRET}`
+          }
+        ]
+      ]),
+      attemptsFor: () => [
+        {
+          attempt: 0,
+          startTime: 1,
+          traceId: 't0',
+          spanId: 's0',
+          error: `first try ${SECRET}`
+        },
+        {
+          attempt: 1,
+          startTime: 2,
+          traceId: 't1',
+          spanId: 's1',
+          error: `retry ${SECRET}`
+        }
+      ]
+    })
+    const json = JSON.stringify(m)
+    expect(json).not.toContain(SECRET)
+    expect(m.tests[0].error).toBe(`bad password ${MASKED_VALUE}`)
+    expect(m.tests[0].attempts?.map((a) => a.error)).toEqual([
+      `first try ${MASKED_VALUE}`,
+      `retry ${MASKED_VALUE}`
+    ])
   })
 })
