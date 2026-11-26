@@ -22,6 +22,7 @@ import type {
   TraceArtifact,
   TraceFormat
 } from '@wdio/devtools-shared'
+import { redactSecrets } from './secret-redaction.js'
 import { stepOwnerUid } from './uid.js'
 
 /** Deterministic manifest filename for a session (used by writers and readers). */
@@ -94,6 +95,13 @@ function specFileFor(specFile: string, specRoot: string | undefined): string {
   return relative
 }
 
+/** Attempt errors reach the manifest as well as the test's, so both go through the run's redactor. */
+function redactAttemptError(record: TestAttemptRecord): TestAttemptRecord {
+  return record.error === undefined
+    ? record
+    : { ...record, error: redactSecrets(record.error) }
+}
+
 /** One test's manifest entry, with its attempts when any were recorded. */
 function manifestTestOf(
   uid: string,
@@ -112,9 +120,9 @@ function manifestTestOf(
     startTime: meta.startTime,
     endTime: meta.endTime,
     durationMs: meta.durationMs,
-    error: meta.error
+    error: meta.error === undefined ? undefined : redactSecrets(meta.error)
   }
-  const attempts = input.attemptsFor?.(uid) ?? []
+  const attempts = (input.attemptsFor?.(uid) ?? []).map(redactAttemptError)
   if (attempts.length === 0) {
     return test
   }

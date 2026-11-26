@@ -108,11 +108,11 @@ describe('trace granularity: test', () => {
     const spec = makeTmpSpec()
     const { ctx, testManager } = makeCtx('test', spec)
 
-    const first = testManager.startMarkedTest('flaky')
+    const first = testManager.startMarkedTest('flaky', { attempt: 0 })
     recordTraceBoundary(ctx, spec)
     testManager.endCurrent('failed')
 
-    const retry = testManager.startMarkedTest('flaky')
+    const retry = testManager.startMarkedTest('flaky', { attempt: 1 })
     recordTraceBoundary(ctx, spec)
     testManager.endCurrent('passed')
 
