@@ -7,7 +7,7 @@
  * (yazl) pulls it into tsup's ESM output, where esbuild replaces `require` with
  * a shim that throws `Dynamic require of "fs" is not supported` the moment the
  * module is loaded. It cost `pnpm show-trace` entirely, and neither `pnpm
- * build`, `pnpm test` nor the workspace-internal leak grep in CLAUDE.md §2.6
+ * build`, `pnpm test` nor the workspace-internal leak grep in .claude/rules/bundling.md
  * noticed — every one of them passes on a dist that dies on first import.
  *
  * The fix is always the same: declare the CJS package in `dependencies` so it

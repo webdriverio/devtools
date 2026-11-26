@@ -4,7 +4,7 @@
  * A pure transform over nodes a page-side script produced: no driver, no
  * framework, no DOM. It lives here rather than in `core` because the backend
  * builds the trace for an adapter that cannot run the transforms itself, and
- * §2.2 bars the backend from importing core — the same reason the rest of this
+ * CLAUDE.md § Layering bars the backend from importing core — the same reason the rest of this
  * package moved. The JS adapters reach it through core's re-export unchanged.
  *
  * Only the WEB serializer is here. The mobile one shares helpers with the

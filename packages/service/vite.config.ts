@@ -42,7 +42,7 @@ export default defineConfig({
       // so both forms are checked. A package missing from this list is
       // silently externalized and the dist then dies at install time with
       // ERR_MODULE_NOT_FOUND, so it is a list rather than a chain of ors.
-      // See CLAUDE.md §2.6.
+      // See .claude/rules/bundling.md.
       external: (id) => {
         const isPrivateWorkspaceDep = PRIVATE_WORKSPACE_PACKAGES.some(
           (name) =>

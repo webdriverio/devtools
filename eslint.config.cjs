@@ -94,9 +94,9 @@ module.exports = [
     }
   },
 
-  // Code-quality warnings (CLAUDE.md §3).
+  // Code-quality warnings (.claude/rules/code-style.md).
   // Kept as `warn` so existing legacy violations surface in IDE/CI without
-  // blocking the build. Promote to `error` once known debt (CLAUDE.md §7)
+  // blocking the build. Promote to `error` once known debt (CLAUDE.md § Known debt)
   // is cleared.
   // MUST come before the test-file override block — flat config rule blocks
   // apply in order, so later blocks override earlier ones for matching files.
@@ -169,10 +169,10 @@ module.exports = [
     }
   },
 
-  // CLAUDE.md §2.3 — no cross-adapter imports.
+  // CLAUDE.md § Layering — no cross-adapter imports.
   // Adapters (service, nightwatch-devtools, selenium-devtools) own
   // framework-specific glue only. Anything shared between them belongs in
-  // packages/core (and is currently duplicated — see CLAUDE.md §7).
+  // packages/core (and is currently duplicated — see CLAUDE.md § Known debt).
   {
     files: ['packages/service/**/*.{ts,tsx,js,mjs,cjs}'],
     rules: {
@@ -186,12 +186,12 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             }
           ]
         }
@@ -208,12 +208,12 @@ module.exports = [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             }
           ]
         }
@@ -230,7 +230,7 @@ module.exports = [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             },
             {
               group: [
@@ -238,7 +238,7 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'Adapters must not import from each other (CLAUDE.md §2.3). Extract shared logic to packages/core.'
+                'Adapters must not import from each other (CLAUDE.md § Layering). Extract shared logic to packages/core.'
             }
           ]
         }
@@ -246,7 +246,7 @@ module.exports = [
     }
   },
 
-  // CLAUDE.md §2.4 — backend does not import from adapters or app.
+  // CLAUDE.md § Layering — backend does not import from adapters or app.
   // Backend is framework-agnostic; framework branching uses a typed
   // FrameworkId from packages/shared, never adapter internals.
   {
@@ -259,7 +259,7 @@ module.exports = [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'Backend must not depend on any adapter (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'Backend must not depend on any adapter (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: [
@@ -267,22 +267,22 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'Backend must not depend on any adapter (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'Backend must not depend on any adapter (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'Backend must not depend on any adapter (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'Backend must not depend on any adapter (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: ['@/*', '@components/*'],
               message:
-                'Backend must not import from app (CLAUDE.md §2.4). App talks to backend over WS/HTTP using shared contracts.'
+                'Backend must not import from app (CLAUDE.md § Layering). App talks to backend over WS/HTTP using shared contracts.'
             },
             {
               group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
               message:
-                'Backend must not depend on core (CLAUDE.md §2.2). core is framework-agnostic ADAPTER logic. For trace-format transforms use @wdio/devtools-trace, which sits below both; anything else belongs in shared.'
+                'Backend must not depend on core (CLAUDE.md § Layering). core is framework-agnostic ADAPTER logic. For trace-format transforms use @wdio/devtools-trace, which sits below both; anything else belongs in shared.'
             }
           ]
         }
@@ -290,7 +290,7 @@ module.exports = [
     }
   },
 
-  // CLAUDE.md §2.4 — app does not import from adapters or backend.
+  // CLAUDE.md § Layering — app does not import from adapters or backend.
   // App communicates with backend only over WS/HTTP, with contracts
   // defined in packages/shared.
   {
@@ -303,14 +303,14 @@ module.exports = [
             {
               name: '@wdio/devtools-trace',
               message:
-                'App may import only trace-reader from trace (CLAUDE.md §2.2), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
+                'App may import only trace-reader from trace (CLAUDE.md § Layering), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
             }
           ],
           patterns: [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'App must not import from adapters (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'App must not import from adapters (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: [
@@ -318,22 +318,22 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'App must not import from adapters (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'App must not import from adapters (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'App must not import from adapters (CLAUDE.md §2.4). Move shared types/constants to packages/shared.'
+                'App must not import from adapters (CLAUDE.md § Layering). Move shared types/constants to packages/shared.'
             },
             {
               group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
               message:
-                'App must not import from backend directly (CLAUDE.md §2.4). Communicate via WS/HTTP using shared contracts.'
+                'App must not import from backend directly (CLAUDE.md § Layering). Communicate via WS/HTTP using shared contracts.'
             },
             {
               group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
               message:
-                'App must not import from core (CLAUDE.md §2.2). core is framework-agnostic adapter logic; the app receives normalized events over WS.'
+                'App must not import from core (CLAUDE.md § Layering). core is framework-agnostic adapter logic; the app receives normalized events over WS.'
             },
             {
               // The bare name is in `paths`: here it would exclude the directory, which `!` cannot undo.
@@ -342,7 +342,7 @@ module.exports = [
                 '!@wdio/devtools-trace/trace-reader'
               ],
               message:
-                'App may import only trace-reader from trace (CLAUDE.md §2.2), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
+                'App may import only trace-reader from trace (CLAUDE.md § Layering), which the hosted player runs in the browser. The writers need Node; the backend writes zips with them.'
             }
           ]
         }
@@ -350,7 +350,7 @@ module.exports = [
     }
   },
 
-  // CLAUDE.md §2.2 — core is for adapters only. Backend, app, and script
+  // CLAUDE.md § Layering — core is for adapters only. Backend, app, and script
   // must not depend on core. Core itself may only import from shared.
   {
     files: ['packages/core/**/*.{ts,tsx,js,mjs,cjs}'],
@@ -362,7 +362,7 @@ module.exports = [
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+                'core must not depend on any adapter (CLAUDE.md § Layering). Adapters import core, not the other way around.'
             },
             {
               group: [
@@ -370,22 +370,22 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+                'core must not depend on any adapter (CLAUDE.md § Layering). Adapters import core, not the other way around.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'core must not depend on any adapter (CLAUDE.md §2.2). Adapters import core, not the other way around.'
+                'core must not depend on any adapter (CLAUDE.md § Layering). Adapters import core, not the other way around.'
             },
             {
               group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
               message:
-                'core must not depend on backend (CLAUDE.md §2.2). core is the lower layer.'
+                'core must not depend on backend (CLAUDE.md § Layering). core is the lower layer.'
             },
             {
               group: ['@/*', '@components/*'],
               message:
-                'core must not depend on app (CLAUDE.md §2.2). core is Node-side adapter logic.'
+                'core must not depend on app (CLAUDE.md § Layering). core is Node-side adapter logic.'
             }
           ]
         }
@@ -393,7 +393,7 @@ module.exports = [
     }
   },
 
-  // CLAUDE.md §2.2 — trace sits below core and backend, and both import it.
+  // CLAUDE.md § Layering — trace sits below core and backend, and both import it.
   // It holds pure transforms over shared types only: anything it pulled from
   // core would re-create the dependency the split exists to remove.
   {
@@ -406,17 +406,17 @@ module.exports = [
             {
               group: ['@wdio/devtools-core', '@wdio/devtools-core/*'],
               message:
-                'trace must not depend on core (CLAUDE.md §2.2). core imports trace; keeping the arrow one-way is what lets backend use trace at all.'
+                'trace must not depend on core (CLAUDE.md § Layering). core imports trace; keeping the arrow one-way is what lets backend use trace at all.'
             },
             {
               group: ['@wdio/devtools-backend', '@wdio/devtools-backend/*'],
               message:
-                'trace must not depend on backend (CLAUDE.md §2.2). trace is the lower layer.'
+                'trace must not depend on backend (CLAUDE.md § Layering). trace is the lower layer.'
             },
             {
               group: ['@wdio/devtools-service', '@wdio/devtools-service/*'],
               message:
-                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+                'trace must not depend on any adapter (CLAUDE.md § Layering). Adapters import trace, not the other way around.'
             },
             {
               group: [
@@ -424,17 +424,17 @@ module.exports = [
                 '@wdio/nightwatch-devtools/*'
               ],
               message:
-                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+                'trace must not depend on any adapter (CLAUDE.md § Layering). Adapters import trace, not the other way around.'
             },
             {
               group: ['@wdio/selenium-devtools', '@wdio/selenium-devtools/*'],
               message:
-                'trace must not depend on any adapter (CLAUDE.md §2.2). Adapters import trace, not the other way around.'
+                'trace must not depend on any adapter (CLAUDE.md § Layering). Adapters import trace, not the other way around.'
             },
             {
               group: ['@/*', '@components/*'],
               message:
-                'trace must not depend on app (CLAUDE.md §2.2). trace is Node-side transform logic.'
+                'trace must not depend on app (CLAUDE.md § Layering). trace is Node-side transform logic.'
             }
           ]
         }
