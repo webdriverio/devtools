@@ -7,7 +7,7 @@ paths:
 
 # Examples smoke job
 
-Scope: the `examples-smoke` job in `ci.yml`, which runs one desktop example per adapter in trace mode against the fixture site and checks the rows and byte budget of the zips. It does not check rendering.
+Scope: the `examples-smoke` job in `ci.yml`, which runs one desktop example per adapter plus WDIO Cucumber (both features, `DEVTOOLS_SPECS=all`) in trace mode against the fixture site and checks the rows and byte budget of the zips. It does not check rendering.
 
 ## Rules
 
