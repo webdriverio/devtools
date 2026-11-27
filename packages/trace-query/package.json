@@ -1,0 +1,41 @@
+{
+  "name": "@wdio/devtools-trace-query",
+  "version": "0.0.0",
+  "description": "Query a devtools trace.zip piece by piece, within a size budget, so a coding agent can debug a failed run from its trace",
+  "author": "Vishnu Vardhan",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webdriverio/devtools.git",
+    "directory": "packages/trace-query"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "lint": "eslint .",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@wdio/devtools-shared": "workspace:^",
+    "@wdio/devtools-trace": "workspace:^",
+    "tsup": "^8.5.1"
+  }
+}

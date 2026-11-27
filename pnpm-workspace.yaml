@@ -3,6 +3,7 @@ packages:
   - 'packages/shared'
   - 'packages/trace'
   - 'packages/otel'
+  - 'packages/trace-query'
   - 'packages/core'
   - 'packages/elements'
   - 'packages/backend'
