@@ -16,7 +16,7 @@ export type {
 
 // Re-export mobile types from locators for convenience.
 // Downstream consumers can also import directly from @wdio/devtools-core/locators.
-export type { JSONElement } from './locators/types.js'
+export type { JSONElement } from '@wdio/devtools-trace/locators/types'
 
 /**
  * Flat intermediate node shared by both web and mobile snapshot pipelines.

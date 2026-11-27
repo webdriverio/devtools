@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { serializeMobileSnapshot } from '../src/element-snapshot.js'
+import { serializeMobileSnapshot } from '../src/mobile-snapshot.js'
 import type { JSONElement } from '../src/locators/types.js'
 
 function mobileEl(

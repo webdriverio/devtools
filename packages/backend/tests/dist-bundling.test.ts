@@ -58,4 +58,17 @@ describe('backend dist bundling', () => {
       expect(inlining).toEqual([])
     }
   )
+
+  // The native page-source parsing the backend runs for the Python adapter.
+  it.skipIf(bundles.length === 0)(
+    'reaches xpath and xmldom by import rather than inlining them',
+    () => {
+      const inlining = bundles.filter((file) =>
+        /node_modules\/(xpath|@xmldom\/xmldom)\//.test(
+          fs.readFileSync(path.join(distDir, file), 'utf8')
+        )
+      )
+      expect(inlining).toEqual([])
+    }
+  )
 })

@@ -40,8 +40,6 @@ export const NIGHTWATCH_METADATA_BY_HAND =
   'No test asserts the capabilities in the metadata the adapter sends; check the Metadata tab with `pnpm demo:nightwatch`.'
 export const SERVICE_MANIFEST_BY_HAND =
   'No test covers the service turning the manifest on when an Allure reporter is configured; check by hand with one configured.'
-export const PYTHON_NATIVE_SCREENSHOT =
-  'On a native app the Python adapter takes only a screenshot per action; it reads no page source, so the trace has no element list or accessibility tree.'
 export const PYTHON_NO_MANIFEST =
   'The Python adapter writes no artifacts manifest.'
 export const SERVICE_SCREENSHOT_ALWAYS =

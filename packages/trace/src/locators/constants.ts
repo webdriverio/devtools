@@ -167,3 +167,6 @@ export const IOS_LAYOUT_CONTAINERS = [
   // Application root
   'XCUIElementTypeApplication'
 ]
+
+/** Counts every element as on screen, for a capture that records the whole tree rather than what is visible. */
+export const UNBOUNDED_VIEWPORT = { width: 9999, height: 9999 } as const

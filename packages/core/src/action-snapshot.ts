@@ -3,17 +3,10 @@
 // (timeouts, fallbacks, snapshot serialization) lives in one place.
 
 import { buildElementScripts } from '@wdio/devtools-shared/element-scripts'
-import {
-  serializeWebSnapshot,
-  serializeMobileSnapshot
-} from './element-snapshot.js'
+import { serializeWebSnapshot } from './element-snapshot.js'
 import type { AccessibilityNode, BrowserElementInfo } from './element-types.js'
 import { performance } from 'node:perf_hooks'
-import { xmlToJSON } from './locators/xml-parsing.js'
-import {
-  generateAllElementLocators,
-  getDefaultFilters
-} from './locators/index.js'
+import { nativeSnapshotFromPageSource } from '@wdio/devtools-trace/native-snapshot'
 import {
   SNAPSHOT_DRIVER_PROBE_TIMEOUT_MS,
   SNAPSHOT_PROBE_TIMEOUT_MS,
@@ -157,42 +150,6 @@ function probe<T>(
   ).catch(() => undefined)
 }
 
-// A hybrid app in a webview answers /source with the page's HTML, which an XML parse turns into noise.
-function isHtmlSource(pageSource: string): boolean {
-  return /^\s*<(!doctype\s+html|html[\s>])/i.test(pageSource)
-}
-
-/** Native-mobile snapshot text + locators, derived from the page-source XML. */
-function fromPageSource(
-  pageSource: string,
-  platform: 'android' | 'ios'
-): { snapshotText: string; elements: unknown[] } {
-  const jsonTree = xmlToJSON(pageSource)
-  let snapshotText = `[${platform}]`
-  if (jsonTree) {
-    jsonTree.attributes._sourceXML = pageSource
-    snapshotText = serializeMobileSnapshot(jsonTree, {
-      platform,
-      sourceXML: pageSource
-    })
-  }
-  try {
-    const filters = getDefaultFilters(platform, false)
-    return {
-      snapshotText,
-      elements: generateAllElementLocators(pageSource, {
-        platform,
-        viewportSize: { width: 9999, height: 9999 },
-        filters,
-        inViewportOnly: false
-      })
-    }
-  } catch {
-    // Non-fatal — snapshot text is the primary deliverable.
-    return { snapshotText, elements: [] }
-  }
-}
-
 /**
  * Issue every probe of one capture together.
  *
@@ -268,8 +225,8 @@ export async function captureActionSnapshot(
 
     const processedFrom = timer ? performance.now() : 0
     const mobile =
-      isNativeMobile && pageSource && !isHtmlSource(pageSource)
-        ? fromPageSource(pageSource, input.platform ?? 'android')
+      isNativeMobile && pageSource
+        ? nativeSnapshotFromPageSource(pageSource, input.platform)
         : undefined
     const snapshotText =
       mobile?.snapshotText ?? serializeWebSnapshot(tree, { url, title })

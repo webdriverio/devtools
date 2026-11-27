@@ -4,7 +4,7 @@
 // these shapes. The backend stores and forwards them. The app consumes them.
 // See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
 
-import type { DeviceInfo } from './device.js'
+import type { DeviceInfo, NativePlatform } from './device.js'
 import type {
   PageResource,
   ResourceReRead,
@@ -619,7 +619,17 @@ export interface ActionSnapshot {
    *  `snapshotText`, which is what the A11y tab parses; a sender that already
    *  has `snapshotText` never sets it. */
   accessibilityTree?: AccessibilityNode[]
+  /** Raw native page-source XML, for an adapter that captured it but cannot
+   *  parse it. The exporter turns it into `snapshotText` and `elements`; a
+   *  sender that already has those never sets it. */
+  pageSource?: string
+  /** The native platform `pageSource` came from; Android when omitted. */
+  platform?: NativePlatform
 }
+
+/** The field a backend that parses native page sources reads; the Python adapter's pin check looks for this literal in the published backend. */
+export const ACTION_SNAPSHOT_PAGE_SOURCE_KEY =
+  'pageSource' as const satisfies keyof ActionSnapshot
 
 /** One node of what `accessibilityTreeScript` evaluates to in the page. */
 export interface AccessibilityNode {

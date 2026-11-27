@@ -48,6 +48,7 @@ REQUIRED_BACKEND_NAMES = {
     "SCOPE_TRACE_EXPORTED": "answers the trace export request",
     "SCOPE_ACTION_SNAPSHOTS": "accumulates per-action DOM snapshots",
     "SCOPE_SCREENCAST_FRAMES": "accepts pushed screencast frames",
+    "ACTION_SNAPSHOT_PAGE_SOURCE_KEY": "parses a native page source into the element list and A11y text",
     "RERUN_SLOT_TEST_ID": "substitutes a pytest nodeid into a rerun command",
 }
 

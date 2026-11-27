@@ -435,7 +435,7 @@ raw records: /out/capture-timing-1.ndjson
 - **Busy and wall.** `busy` is the time at least one capture was running, overlapping captures counted once; `wall` is the time since the process started, or since the previous report in the same process.
 - **Triggers.** `action` is a capture for a user command, `wait-poll` one for a command a wait issued, `matcher-poll` one taken while a WebdriverIO `expect` matcher was polling, and `final` the WebdriverIO capture of the last action's result. Matcher polls are told apart on WebdriverIO only, and only with `captureAssertions` on; Selenium and Nightwatch matchers expose no hook to tell them by.
 - **Filmstrip recorder.** With no CDP screencast (Safari, Appium), the `filmstrip` recorder polls a screenshot every 200 ms, and those screenshots share the driver with the captures. The last line counts them: the screenshots it took and their time from issue to settle, the ticks it let pass and why (`driver busy`: a command or a capture held the driver, so a poll would only have queued in front of it; once the newest frame is three intervals old it polls anyway, still waiting behind the command, but never during a click, typing or a capture; `fresh frame`: a capture's screenshot taken less than one interval earlier is already the frame; `shot in flight`: its previous screenshot had not answered yet), and how many per-action capture screenshots it kept as frames. Captures stay counted in the table only. CDP push mode takes no screenshots and prints no line. Python has no polling recorder; it records one frame per command.
-- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot alone. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no capture and no record; a filmstrip-only frame it may still take without a pushed screencast is not timed.
+- **Python.** It reads one thing at a time, so `svc` equals the read's duration; it records the screenshot and the two page reads, and has no url, title or `process` rows. On a native app it reads the screenshot and the page source. Like the JS adapters, it captures only for a command that can change the page and for each test's first mapped command, so a read takes no capture and no record; a filmstrip-only frame it may still take without a pushed screencast is not timed.
 
 To measure each platform from the repo's examples (the desktop examples other than Selenium's drive Chrome only):
 
@@ -488,21 +488,19 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 | Mobile browser sessions (Chrome on Android, Safari on iOS) | ✓ | ✓ | ✓ | ✓ |
 | iOS (XCUITest): native apps and Safari | ✓ | ✓ | ✓ | ✓ |
 | Native session detected, page-side capture skipped | ✓ | ✓ | ✓ | ✓ |
-| Native app element list and accessibility tree per action (trace mode) | ✓ | ✓ | ✓ | ✕ ² |
-| Follows a hybrid app into its webview | ◐ ³ | ◐ ⁴ | ◐ ⁴ | ◐ ⁴ |
-| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ | ✓ ⁵ |
+| Native app element list and accessibility tree per action (trace mode) | ✓ | ✓ | ✓ | ✓ |
+| Follows a hybrid app into its webview | ◐ ² | ◐ ³ | ◐ ³ | ◐ ³ |
+| Native app network through appium-interceptor (`appium:intercept`) | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ | ✓ ⁴ |
 
 ✓ supported. ◐ partial. ✕ not supported. A number points to its note below the table. Each supported cell is backed by the cross-adapter conformance suite, a named test or a manual check, listed in [the feature list](https://github.com/webdriverio/devtools/blob/main/packages/conformance/src/features.ts).
 
 ¹ Fetch and XHR calls carry headers and bodies; every other load comes from the page's Resource Timing buffer, with timing and size but no headers or body, and no status on Safari.
 
-² On a native app the Python adapter takes only a screenshot per action; it reads no page source, so the trace has no element list or accessibility tree.
+² Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
 
-³ Follows `switchContext('WEBVIEW_...')`; the object form (`{ title }` / `{ url }`) and `switchAppiumContext` leave capture on the native side.
+³ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
 
-⁴ Decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native.
-
-⁵ Android only; appium-interceptor is an Android plugin.
+⁴ Android only; appium-interceptor is an Android plugin.
 
 <!-- capability-matrix:readme-mobile:end -->
 
@@ -510,7 +508,7 @@ A hybrid app is the case capabilities alone cannot answer, because the answer ch
 
 **What a mobile trace does not contain.** Per-action snapshots are issued from inside the command hook, and Appium serialises a probe behind the command it is observing — so where a session has a document to probe, the per-action snapshot is skipped. In practice that means **a hybrid app's webview actions carry no per-action element data, accessibility tree or settle screenshot**. Native sessions, mobile browsers and every desktop session are unaffected. Command rows and their screenshots, console and the archive itself are always captured; a mobile browser's network comes from the page's Resource Timing and fetch/XHR patch rather than from BiDi, and a native session has no network capture, because the driver exposes none. These absences are by design; they are not a capture failure.
 
-On a native session, element data and the A11y panel come from the platform's XML tree (its page source, read once per action in trace mode by the WebdriverIO, Selenium and Nightwatch adapters; the Python adapter captures a screenshot alone) rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
+On a native session, element data and the A11y panel come from the platform's XML tree (its page source, read once per action in trace mode by every adapter) rather than the DOM, so locators read as `android=new UiSelector()…` / `-ios predicate string:…` rather than CSS or XPath over HTML.
 
 A runnable example per adapter lives under [examples/](examples/) — `pnpm demo:wdio:mobile`, `:selenium:mobile`, `:nightwatch:mobile`, `:python:mobile`. Each drives the Clock app that ships with every Android system image, keying a duration on the timer keypad without ever starting a timer, so none needs an `.apk` (iOS drives Settings via `DEVTOOLS_MOBILE_PLATFORM=ios`); `DEVTOOLS_MOBILE=web` drives the device's own browser instead — Chrome on Android, Safari on iOS. [examples/MOBILE.md](examples/MOBILE.md) states the prerequisites and switches in one place. A single-adapter WDIO variant also lives at [examples/wdio/mocha/wdio.native.conf.ts](examples/wdio/mocha/wdio.native.conf.ts) (`pnpm demo:wdio:native`), which reads its Appium endpoint from `APPIUM_HOST` / `APPIUM_PORT` / `APPIUM_DEVICE`. In short, for a local emulator:
 

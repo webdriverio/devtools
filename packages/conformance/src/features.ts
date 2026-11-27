@@ -472,7 +472,7 @@ export const FEATURES = [
       'devtools-service': covered(`${WDIO}action-snapshot.test.ts`),
       'selenium-devtools': covered(`${SELENIUM}action-snapshot.test.ts`),
       'nightwatch-devtools': covered(`${NIGHTWATCH}native-session.test.ts`),
-      'selenium-devtools-py': unsupported(REASONS.PYTHON_NATIVE_SCREENSHOT)
+      'selenium-devtools-py': covered(`${PYTHON}test_a11y_elements.py`)
     }
   },
   {

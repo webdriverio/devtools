@@ -281,6 +281,9 @@ importers:
       '@wdio/logger':
         specifier: ^10.0.0
         version: 10.2.0
+      '@xmldom/xmldom':
+        specifier: ^0.9.12
+        version: 0.9.12
       fastify:
         specifier: ^5.12.5
         version: 5.12.8
@@ -302,6 +305,9 @@ importers:
       ws:
         specifier: ^8.23.0
         version: 8.23.0
+      xpath:
+        specifier: ^0.0.36
+        version: 0.0.36
       yazl:
         specifier: ^3.3.1
         version: 3.3.1
@@ -417,18 +423,12 @@ importers:
       '@wdio/devtools-trace':
         specifier: workspace:^
         version: link:../trace
-      '@xmldom/xmldom':
-        specifier: ^0.9.12
-        version: 0.9.12
       stacktrace-parser:
         specifier: ^0.1.11
         version: 0.1.11
       ws:
         specifier: ^8.23.0
         version: 8.23.0
-      xpath:
-        specifier: ^0.0.36
-        version: 0.0.36
 
   packages/elements:
     dependencies:
@@ -727,9 +727,15 @@ importers:
       '@wdio/devtools-shared':
         specifier: workspace:^
         version: link:../shared
+      '@xmldom/xmldom':
+        specifier: ^0.9.12
+        version: 0.9.12
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
+      xpath:
+        specifier: ^0.0.36
+        version: 0.0.36
       yazl:
         specifier: ^3.3.1
         version: 3.3.1

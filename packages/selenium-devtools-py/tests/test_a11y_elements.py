@@ -122,21 +122,55 @@ class TestCapturingPerAction(unittest.TestCase):
             )
             return instrumentation.action_snapshots()
 
-    def test_a_native_app_keeps_the_screenshot_alone(self):
-        """Both reads are page script and they fire on every action, so on a
-        session with no document they are the densest source of round trips
-        that can only fail. The screenshot is the capture there."""
+    class NativeDriver(Driver):
+        capabilities = {"platformName": "iOS", "appium:app": "/App.app"}
+        source = "<XCUIElementTypeApplication/>"
 
-        class NativeDriver(self.Driver):
-            capabilities = {"platformName": "Android", "appium:app": "/app.apk"}
+        @property
+        def page_source(self):
+            # Read inside the adapter's guard, or `execute` would render it as a row.
+            self.read_as_internal = instrumentation._internal_active()
+            if isinstance(self.source, Exception):
+                raise self.source
+            return self.source
 
-        driver = NativeDriver(elements=[{"selector": "#go"}])
+    def test_a_native_app_sends_its_page_source_instead_of_page_script(self):
+        """The page scripts need a document, so a native session sends the raw
+        page source; the backend turns it into the element list and A11y text."""
+        driver = self.NativeDriver()
         snaps = self._capture(driver)
 
         self.assertEqual(driver.scripts_run, [])
+        self.assertTrue(driver.read_as_internal)
+        self.assertEqual(
+            snaps,
+            [
+                {
+                    "timestamp": 1200,
+                    "command": "clickElement",
+                    "screenshot": "c2hvdA==",
+                    "pageSource": "<XCUIElementTypeApplication/>",
+                    "platform": "ios",
+                }
+            ],
+        )
+
+    def test_a_native_page_source_is_opted_out_with_the_a11y_tree(self):
+        snaps = self._capture(self.NativeDriver(), a11y=False)
+
         self.assertEqual(
             snaps, [{"timestamp": 1200, "command": "clickElement", "screenshot": "c2hvdA=="}]
         )
+
+    def test_a_failed_page_source_read_keeps_the_screenshot(self):
+        driver = self.NativeDriver()
+        driver.source = RuntimeError("no such session")
+        snaps = self._capture(driver)
+
+        self.assertEqual(
+            snaps, [{"timestamp": 1200, "command": "clickElement", "screenshot": "c2hvdA=="}]
+        )
+        self.assertFalse(instrumentation._internal_active())
 
     def test_a_phone_running_a_browser_is_still_read(self):
         class MobileWebDriver(self.Driver):

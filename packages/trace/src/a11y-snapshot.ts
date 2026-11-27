@@ -7,9 +7,8 @@
  * §2.2 bars the backend from importing core — the same reason the rest of this
  * package moved. The JS adapters reach it through core's re-export unchanged.
  *
- * Only the WEB serializer is here. The mobile one shares helpers with the
- * locator generation that stays in `core`, and no adapter exporting through the
- * backend drives native mobile.
+ * The native serializer is `mobile-snapshot.ts`, beside the locator
+ * generation it shares helpers with.
  */
 
 import {

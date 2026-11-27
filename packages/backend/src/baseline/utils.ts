@@ -1,3 +1,9 @@
+import {
+  ACTION_SNAPSHOT_PAGE_SOURCE_KEY,
+  isNativePlatform,
+  type ActionSnapshot
+} from '@wdio/devtools-shared'
+
 import type { ActiveRun } from './types.js'
 
 export function freshRun(): ActiveRun {
@@ -59,4 +65,23 @@ export function pickMax(
     return a
   }
   return Math.max(a, b)
+}
+
+/** Untrusted wire data: an empty or non-string page source, or a platform the parser does not know, is dropped rather than parsed at export. */
+export function withValidNativeSource(snap: ActionSnapshot): ActionSnapshot {
+  const {
+    [ACTION_SNAPSHOT_PAGE_SOURCE_KEY]: pageSource,
+    platform,
+    ...rest
+  } = snap
+  if (pageSource === undefined && platform === undefined) {
+    return snap
+  }
+  return {
+    ...rest,
+    ...(typeof pageSource === 'string' && pageSource.trim()
+      ? { pageSource }
+      : {}),
+    ...(isNativePlatform(platform) ? { platform } : {})
+  }
 }

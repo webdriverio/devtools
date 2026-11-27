@@ -481,10 +481,10 @@ instead.
 - The filmstrip thumbnails are **portrait**.
 - **Metadata** names the device (`Pixel 7 (android 14)`) and the viewport the
   device reported — not `1280 × 720`.
-- On a native run **with the WDIO service**, the **A11y** tab is built from the
-  app's own view hierarchy, so it lists `android.widget.*` (or
-  `XCUIElementType*`) nodes rather than HTML roles. Selenium, Nightwatch and
-  Python do not derive one yet and show an empty tree — see Known gaps.
+- On a native run in trace mode, the **A11y** tab is built from the app's own
+  view hierarchy, so it lists `android.widget.*` (or `XCUIElementType*`) nodes
+  rather than HTML roles. Every adapter reads it from the page source captured
+  with each action.
 
 ## What has been verified, and what has not
 
@@ -507,8 +507,6 @@ All are tracked, and all are visible in these examples rather than hidden:
   back to `1280 × 720`, which is landscape — and the player picks the stacked
   layout for a landscape capture. So a native trace from those two adapters
   does not get the device column until that is fixed. WDIO and Python do.
-- **A native session gets no accessibility tree from Selenium, Nightwatch or
-  Python** (#372). Only the WDIO service derives one from the app's page source.
 - **A native session captures no network by default** (#444). All four
   adapters can read it from the appium-interceptor plugin when the session
   sets `appium:intercept: true` (see each adapter's README), on Appium 3 only

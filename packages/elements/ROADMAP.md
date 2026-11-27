@@ -11,15 +11,16 @@ Before touching the hot paths, add coverage and extract non-breaking helpers.
 
 ### 1.1 Locator-generation unit tests
 
-`packages/core/src/locators/` has zero tests. Every item downstream (XML parse
-dedup, interactive-element merge, `isInUiAutomatorScope` fix) needs this safety
-net first.
+`packages/trace/src/locators/` has tests for element filtering, XML parsing and
+the XPath index, but none of its own for `locator-generation.ts`. Every item
+downstream (XML parse dedup, interactive-element merge, `isInUiAutomatorScope`
+fix) needs this safety net first.
 
 **Effort:** ~3 hours. **Depends on:** nothing.
 
 ### 1.2 Snapshot-output golden tests
 
-`serializeMobileSnapshot` (`packages/core/src/element-snapshot.ts`) and
+`serializeMobileSnapshot` (`packages/trace/src/mobile-snapshot.ts`) and
 `serializeWebSnapshot` (`packages/trace/src/a11y-snapshot.ts`, re-exported by
 core) need output-fidelity tests
 before the interactive-element dedup or mobile pipeline unification. Without
@@ -42,7 +43,7 @@ formatting pass — matching `serializeWebSnapshot()`'s shape.
 
 ### 2.1 Merge interactive-element checks
 
-`element-snapshot.ts` duplicates `locators/element-filter.ts`:
+`mobile-snapshot.ts` duplicates `locators/element-filter.ts`:
 - `isMobileInteractive` / `isExplicitlyInteractive` → use
   `isInteractableElement`
 - `isMobileInViewport` → use shared `isWithinViewport`

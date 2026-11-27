@@ -278,6 +278,13 @@ def _native_platforms(device_ts: str) -> list[str]:
     return re.findall(r"'([^']+)'", m.group(1))
 
 
+def _page_source_key(types_ts: str) -> str:
+    m = re.search(r"export const ACTION_SNAPSHOT_PAGE_SOURCE_KEY =\s*'([^']+)'", types_ts)
+    if not m:
+        raise SystemExit("could not find `ACTION_SNAPSHOT_PAGE_SOURCE_KEY` in shared/types.ts")
+    return m.group(1)
+
+
 class _TypedDictWriter:
     """Renders ``wire-schema.json``'s ``$defs`` as TypedDicts.
 
@@ -377,6 +384,7 @@ def main() -> int:
     types_ts = (shared / "src" / "types.ts").read_text()
     data_keys = _trace_log_keys(types_ts)
     runner_ids = _test_runner_ids(types_ts)
+    page_source_key = _page_source_key(types_ts)
     collector_path = _collector_path((shared / "src" / "collector.ts").read_text())
     element_scripts_path = _element_scripts_path(
         (shared / "src" / "element-scripts.ts").read_text()
@@ -487,6 +495,7 @@ def main() -> int:
         f'RUNNER_ID = "{REQUIRED_RUNNER_ID}"',
         f"TEST_RUNNER_IDS = frozenset({sorted(runner_ids)!r})",
         f"NATIVE_PLATFORMS = frozenset({sorted(native_platforms)!r})",
+        f'ACTION_SNAPSHOT_PAGE_SOURCE_KEY = "{page_source_key}"',
         "",
         f'WORKER_QUERY_RUN_ID = "{worker_query["runId"]}"',
         f'ENV_RUN_ID = "{run_id_env}"',
