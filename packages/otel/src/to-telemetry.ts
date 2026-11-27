@@ -17,7 +17,7 @@ import type {
   ParsedManifestTest
 } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import {
-  holdsEarlierAttempts,
+  sharesTraceArtifact,
   traceArtifactsByUid
 } from '@wdio/devtools-trace/final-attempt-artifacts'
 import * as attr from './attributes.js'
@@ -388,9 +388,7 @@ function planManifest(
   for (const test of manifest.tests) {
     const artifact = artifactsByUid.get(test.uid)
     const sharedZip =
-      artifact !== undefined &&
-      (artifact.testUids.filter((uid) => testUids.has(uid)).length > 1 ||
-        holdsEarlierAttempts(artifact, test))
+      artifact !== undefined && sharesTraceArtifact(artifact, test, testUids)
     if (sharedZip && input.traceZips && !warnedSharedZip) {
       input.warn(
         `skipped action spans in ${file}: its zips cover several tests or attempts, so they are linked but not read; record with traceGranularity:'test' for per-test action spans`
