@@ -8,7 +8,12 @@ import {
 } from '@wdio/devtools-shared'
 import { actionTree } from './action-list.js'
 import { budgetOf, clipText } from './budget.js'
-import { MAX_TITLE_CHARS, TRACE_ERROR_KIND } from './constants.js'
+import {
+  MAX_LIST_TEXT_CHARS,
+  MAX_TITLE_CHARS,
+  MIN_TEXT_CHARS,
+  TRACE_ERROR_KIND
+} from './constants.js'
 import { collectErrors } from './errors.js'
 import { traceStateOf } from './open-trace.js'
 import { failedBranches, testTree, treeWithin } from './steps.js'
@@ -61,6 +66,47 @@ function boundedTests(
   }
 }
 
+function nodeCount(tests: readonly TestNode[]): number {
+  return tests.reduce(
+    (total, node) => total + 1 + nodeCount(node.children ?? []),
+    0
+  )
+}
+
+function errorCutTo(error: TraceError, chars: number): TraceError {
+  return {
+    ...error,
+    message: clipText(error.message, chars),
+    ...(error.title ? { title: clipText(error.title, chars) } : {}),
+    ...(error.url ? { url: clipText(error.url, chars) } : {})
+  }
+}
+
+// The tree only gets half the budget, so a summary still over it cuts the first error's text, then leaves the tree out, counting it.
+function summaryWithin(summary: TraceSummary, budget: number): TraceSummary {
+  const fits = (candidate: TraceSummary) =>
+    JSON.stringify(candidate).length <= budget
+  if (fits(summary)) {
+    return summary
+  }
+  const { firstError: error } = summary
+  for (const chars of [MAX_LIST_TEXT_CHARS, MIN_TEXT_CHARS]) {
+    const cut = error
+      ? { ...summary, firstError: errorCutTo(error, chars) }
+      : summary
+    if (fits(cut)) {
+      return cut
+    }
+  }
+  const { tests, omittedTests, ...rest } = summary
+  const omitted = (omittedTests ?? 0) + nodeCount(tests ?? [])
+  return {
+    ...rest,
+    ...(error ? { firstError: errorCutTo(error, MIN_TEXT_CHARS) } : {}),
+    ...(omitted > 0 ? { omittedTests: omitted } : {})
+  }
+}
+
 /** What the trace holds and how it went, small enough to read first. */
 export function traceSummary(
   handle: TraceHandle,
@@ -75,22 +121,25 @@ export function traceSummary(
   const outcome = traceOutcome(data)
   const browser = browserOf(metadata)
   const error = firstError(errors, outcome)
-  return {
-    ...(metadata.runner ? { runner: metadata.runner } : {}),
-    ...(browser ? { browser } : {}),
-    ...(metadata.device
-      ? { device: clipText(deviceLabel(metadata.device), MAX_TITLE_CHARS) }
-      : {}),
-    durationMs: Math.round(data.duration),
-    outcome,
-    counts: {
-      actions: actionTree(data).length,
-      failedActions: count(TRACE_ERROR_KIND.ACTION),
-      failedSteps: count(TRACE_ERROR_KIND.STEP),
-      consoleErrors: count(TRACE_ERROR_KIND.CONSOLE),
-      failedRequests: count(TRACE_ERROR_KIND.REQUEST)
+  return summaryWithin(
+    {
+      ...(metadata.runner ? { runner: metadata.runner } : {}),
+      ...(browser ? { browser } : {}),
+      ...(metadata.device
+        ? { device: clipText(deviceLabel(metadata.device), MAX_TITLE_CHARS) }
+        : {}),
+      durationMs: Math.round(data.duration),
+      outcome,
+      counts: {
+        actions: actionTree(data).length,
+        failedActions: count(TRACE_ERROR_KIND.ACTION),
+        failedSteps: count(TRACE_ERROR_KIND.STEP),
+        consoleErrors: count(TRACE_ERROR_KIND.CONSOLE),
+        failedRequests: count(TRACE_ERROR_KIND.REQUEST)
+      },
+      ...(error ? { firstError: error } : {}),
+      ...boundedTests(testTree(data, retriedRows(commands)), budget)
     },
-    ...(error ? { firstError: error } : {}),
-    ...boundedTests(testTree(data, retriedRows(commands)), budget)
-  }
+    budget
+  )
 }

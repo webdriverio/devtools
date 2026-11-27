@@ -237,7 +237,8 @@ export type FailedStep = TraceActionGroupNode & { error: string }
 /** How far one attempt at an action's detail cuts: each field's characters, and source lines on each side. */
 export interface DetailCut {
   text: number
-  contextLines: number
+  /** Source lines on each side of the call site, or none at all, the call's own line included. */
+  contextLines: number | 'none'
 }
 
 /** What an action's detail holds whatever it is cut to, read once per detail. */

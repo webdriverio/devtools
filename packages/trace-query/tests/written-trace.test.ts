@@ -229,7 +229,8 @@ describe('a trace with waits and failures', () => {
       maxChars: 100_000,
       cursor: first.nextCursor
     })
-    expect([...first.items, ...rest.items]).toEqual(all)
+    const ids = (rows: ActionRow[]) => rows.map(({ callId }) => callId)
+    expect(ids([...first.items, ...rest.items])).toEqual(ids(all))
     expect(() =>
       traceActions(handle, { status: 'passed', cursor: first.nextCursor })
     ).toThrow('belongs to a different listing')

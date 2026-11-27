@@ -33,6 +33,9 @@ export const MAX_TITLE_CHARS = 100
 /** Characters of a message, URL or value in a list item, where many items share the budget. */
 export const MAX_LIST_TEXT_CHARS = 300
 
+/** Characters a row's or a summary's own text is cut to once there is nothing else left to shed. */
+export const MIN_TEXT_CHARS = 60
+
 /** Source lines shown on each side of an action's call site unless the caller names another count. */
 export const DEFAULT_SOURCE_CONTEXT_LINES = 3
 

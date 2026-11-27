@@ -5,12 +5,13 @@ import {
   type TracePlayerData
 } from '@wdio/devtools-shared'
 import { actionStatus, orderedActions, ownFailure } from './actions.js'
-import { clipText, pageOf } from './budget.js'
+import { clipText, itemBudget, pageOf } from './budget.js'
 import {
   ACTION_STATUS,
   MAX_LIST_TEXT_CHARS,
   MAX_LISTED_CHILDREN,
   MAX_TITLE_CHARS,
+  MIN_TEXT_CHARS,
   PAGE_SCOPE
 } from './constants.js'
 import { traceStateOf } from './open-trace.js'
@@ -91,15 +92,64 @@ function matcher(
     node.action.startMs <= to
 }
 
+function withChildren(
+  row: ActionRow,
+  children: ActionRow[],
+  omitted: number
+): ActionRow {
+  const { children: _children, omittedChildren: _omitted, ...own } = row
+  return {
+    ...own,
+    ...(children.length ? { children } : {}),
+    ...(omitted > 0 ? { omittedChildren: omitted } : {})
+  }
+}
+
+// A page always holds one row, so a row larger than a page's budget sheds the rows it issued, then cuts its own text, rather than overrunning maxChars.
+function rowWithin(row: ActionRow, budget: number): ActionRow {
+  const size = (candidate: ActionRow) => JSON.stringify(candidate).length
+  if (size(row) <= budget) {
+    return row
+  }
+  const children = row.children ?? []
+  const omitted = row.omittedChildren ?? 0
+  for (let keep = children.length - 1; keep >= 0; keep--) {
+    const shed = withChildren(
+      row,
+      children.slice(0, keep),
+      omitted + children.length - keep
+    )
+    if (size(shed) <= budget) {
+      return shed
+    }
+  }
+  const bare = withChildren(row, [], omitted + children.length)
+  return {
+    ...bare,
+    title: clipText(bare.title, MIN_TEXT_CHARS),
+    ...(bare.error ? { error: clipText(bare.error, MIN_TEXT_CHARS) } : {})
+  }
+}
+
 /** The trace's actions in the order they ran, a page at a time, with a wait's rows nested under it. */
 export function traceActions(
   handle: TraceHandle,
   query: ActionQuery = {}
 ): Page<ActionRow> {
   const { data } = traceStateOf(handle)
-  const rows = actionTree(data).filter(matcher(data, query)).map(toRow)
   const { status, group, fromMs, toMs } = query
-  return pageOf(rows, query, {
-    scope: JSON.stringify([PAGE_SCOPE.ACTIONS, status, group, fromMs, toMs])
-  })
+  const scope = JSON.stringify([
+    PAGE_SCOPE.ACTIONS,
+    status,
+    group,
+    fromMs,
+    toMs
+  ])
+  const rows = actionTree(data).filter(matcher(data, query)).map(toRow)
+  const budget = itemBudget(rows.length, query.maxChars, scope)
+  return pageOf(
+    rows.map((row) => rowWithin(row, budget)),
+    query,
+    { scope }
+  )
 }

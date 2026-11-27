@@ -88,12 +88,14 @@ function sourceOf(
   if (!command.callSource) {
     return {}
   }
-  const source = sourceAround(
-    data.trace.sources,
-    command.callSource,
-    cut.contextLines,
-    Math.min(cut.text, MAX_SOURCE_LINE_CHARS)
-  )
+  const source =
+    cut.contextLines !== 'none' &&
+    sourceAround(
+      data.trace.sources,
+      command.callSource,
+      cut.contextLines,
+      Math.min(cut.text, MAX_SOURCE_LINE_CHARS)
+    )
   return {
     callSite: clipText(
       command.callSource,
@@ -153,13 +155,14 @@ function detailOf(
   }
 }
 
-// Source lines go first, at full text, then each field narrows, the order the README gives; the narrowest is returned even when it does not fit.
+// Source lines go first, the call's own line last, all at full text; only then does each field narrow, the order the README gives. The narrowest is returned even when it does not fit.
 function cutsFor(contextLines: number): DetailCut[] {
   const [widest, ...narrower] = DETAIL_TEXT_STEPS
   const lines = [...new Set([contextLines, Math.min(contextLines, 1), 0])]
   return [
     ...lines.map((count) => ({ text: widest, contextLines: count })),
-    ...narrower.map((text) => ({ text, contextLines: 0 }))
+    { text: widest, contextLines: 'none' as const },
+    ...narrower.map((text) => ({ text, contextLines: 'none' as const }))
   ]
 }
 
