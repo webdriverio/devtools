@@ -7,10 +7,10 @@ import {
   type SpanOptions,
   type Tracer
 } from '@opentelemetry/api'
-import type {
-  NetworkRequest,
-  TraceActionChild,
-  TracePlayerData
+import {
+  isFailedRequest,
+  type TraceActionChild,
+  type TracePlayerData
 } from '@wdio/devtools-shared'
 import { normalizeSelector } from '@wdio/devtools-trace/action-key'
 import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
@@ -232,11 +232,4 @@ function urlPath(url: string): string {
   } catch {
     return url.split(/[?#]/, 1)[0]
   }
-}
-
-function isFailedRequest(request: NetworkRequest): boolean {
-  return (
-    request.status !== undefined &&
-    (request.status === 0 || request.status >= 400)
-  )
 }

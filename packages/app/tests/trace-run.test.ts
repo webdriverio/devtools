@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ReactiveControllerHost } from 'lit'
-import type { CommandLog, TracePlayerData } from '@wdio/devtools-shared'
+import {
+  TRACE_OUTCOME,
+  type CommandLog,
+  type TraceOutcome,
+  type TracePlayerData
+} from '@wdio/devtools-shared'
 
 import type { TraceArchiveClient } from '../src/controller/trace-archive.js'
 import {
@@ -9,7 +14,6 @@ import {
   type TraceRunEntry
 } from '../src/controller/trace-run.js'
 import type { TraceSource } from '../src/utils/trace-sources.js'
-import { TRACE_OUTCOME, type TraceOutcome } from '../src/utils/trace-summary.js'
 
 const host: ReactiveControllerHost = {
   addController() {},

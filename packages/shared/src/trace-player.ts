@@ -88,6 +88,8 @@ export interface TraceActionGroupNode {
   endTime: number
   /** Set when the step's own after errored or any descendant failed. */
   failed?: boolean
+  /** The message the step's own after errored with, such as a failing hook's. */
+  error?: string
   children: TraceActionChild[]
 }
 

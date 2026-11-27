@@ -871,7 +871,56 @@ describe('parseTraceZip with a foreign multi-stream zip', () => {
     expect(step.failed).toBe(true)
     expect(fixture.failed).toBe(true)
     expect(hook.failed).toBe(true)
+    expect(step.error).toBe('wrapped failure')
+    expect(fixture.error).toBeUndefined()
   })
+})
+
+describe('a malformed error in a zip', () => {
+  const zipWithErrors = (error: unknown): Uint8Array =>
+    zipSync({
+      'trace.trace': toNdjson([
+        {
+          type: 'context-options',
+          wallTime: WALL_TIME,
+          browserName: 'chrome',
+          contextId: 'context@abcd1234'
+        },
+        {
+          type: 'before',
+          callId: 'call@1',
+          startTime: 10,
+          class: 'Tracing',
+          method: 'tracingGroup',
+          title: 'logs in',
+          params: {}
+        },
+        {
+          type: 'before',
+          callId: 'call@2',
+          parentId: 'call@1',
+          startTime: 20,
+          class: 'Element',
+          method: 'click',
+          params: {}
+        },
+        { type: 'after', callId: 'call@2', endTime: 30, error },
+        { type: 'after', callId: 'call@1', endTime: 40, error }
+      ])
+    })
+
+  it.each([{}, { message: 42 }])(
+    'keeps the failure of %j but no message that is not a string',
+    (error) => {
+      const { trace, groups } = parseTraceZip(zipWithErrors(error))
+      expect(trace.commands[0]?.error?.message).toBe(
+        'The trace records an error without a readable message'
+      )
+      const [step] = allGroups(groups ?? [])
+      expect(step?.failed).toBe(true)
+      expect(step).not.toHaveProperty('error')
+    }
+  )
 })
 
 describe('glued callSource recovery from older zips', () => {

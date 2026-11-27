@@ -1,32 +1,8 @@
-import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { bytesZipSource } from '@wdio/devtools-trace/trace-reader'
-import type { TraceFormatManifest } from '../../trace/tests/fixtures/trace-formats/fixture-manifest.js'
 import { openTraceSource, traceStateOf } from '../src/open-trace.js'
 import type { TraceHandle } from '../src/types.js'
-
-const FIXTURE_DIR = new URL(
-  '../../trace/tests/fixtures/trace-formats/',
-  import.meta.url
-)
-
-const fixtures = readdirSync(FIXTURE_DIR)
-  .filter((name) => name.endsWith('.zip'))
-  .map((zipName) => ({
-    zipName,
-    manifest: JSON.parse(
-      readFileSync(
-        new URL(zipName.replace(/\.zip$/, '.json'), FIXTURE_DIR),
-        'utf8'
-      )
-    ) as TraceFormatManifest
-  }))
-
-function open(zipName: string) {
-  return openTraceSource(
-    bytesZipSource(new Uint8Array(readFileSync(new URL(zipName, FIXTURE_DIR))))
-  )
-}
+import { fixtures, openFixture as open } from './traces.js'
 
 describe('openTraceSource', () => {
   it('has a fixture to open', () => {

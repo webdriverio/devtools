@@ -4,7 +4,8 @@ import {
   collapsedAssertResult,
   commandFailure,
   effectiveFailure,
-  retriedRows
+  retriedRows,
+  rowFailure
 } from '../src/command-failure.js'
 import { mapCommandToAction } from '../src/action-mapping.js'
 import type { CommandLog } from '../src/types.js'
@@ -109,5 +110,26 @@ describe('retriedRows', () => {
   it('judges a parent the vocabulary does not map by its error alone', () => {
     const unmapped = row('findElements', { id: 1, error: timedOut })
     expect(retriedRows([unmapped, read(1)]).size).toBe(0)
+  })
+})
+
+describe('rowFailure', () => {
+  it('reads a poll a passing wait retried past as failed on its own', () => {
+    const wait = row('waitUntil', { id: 1 })
+    const poll = row('isDisplayed', {
+      parentId: 1,
+      error: { name: 'Error', message: 'stale element' }
+    })
+    expect(effectiveFailure(poll, retriedRows([wait, poll]))).toBeUndefined()
+    expect(rowFailure(poll)).toEqual({ message: 'stale element' })
+  })
+
+  it('reads an unmapped row by its error alone', () => {
+    expect(rowFailure(row('customCommand'))).toBeUndefined()
+    expect(
+      rowFailure(
+        row('customCommand', { error: { name: 'Error', message: 'boom' } })
+      )
+    ).toEqual({ message: 'boom' })
   })
 })
