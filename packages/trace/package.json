@@ -30,7 +30,9 @@
   "devDependencies": {
     "@types/yazl": "^3.3.1",
     "@wdio/devtools-shared": "workspace:^",
+    "@xmldom/xmldom": "^0.9.12",
     "fflate": "^0.8.2",
+    "xpath": "^0.0.36",
     "yazl": "^3.3.1"
   }
 }

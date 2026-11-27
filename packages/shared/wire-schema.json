@@ -206,6 +206,16 @@
           "items": {
             "$ref": "#/$defs/AccessibilityNode"
           }
+        },
+        "pageSource": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "android",
+            "ios"
+          ]
         }
       },
       "required": [

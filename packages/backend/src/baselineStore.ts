@@ -7,6 +7,7 @@ import {
   isPageResource,
   isResourceReRead,
   replaceCommandIndex,
+  type ActionSnapshot,
   type Metadata
 } from '@wdio/devtools-shared'
 
@@ -20,7 +21,13 @@ import type {
   PreservedStep,
   TimeWindowNode
 } from './baseline/types.js'
-import { freshRun, toMs, pickMin, pickMax } from './baseline/utils.js'
+import {
+  freshRun,
+  toMs,
+  pickMin,
+  pickMax,
+  withValidNativeSource
+} from './baseline/utils.js'
 import { commandsForNode } from './baseline/command-attribution.js'
 
 export type { PreservedAttempt, PreservedStep } from './baseline/types.js'
@@ -133,6 +140,19 @@ class BaselineStore {
       appendArray(
         this.#activeRun.resourceReReads,
         Array.isArray(data) ? data.filter(isResourceReRead) : undefined
+      )
+      return
+    }
+    if (scope === 'actionSnapshots') {
+      appendArray(
+        this.#activeRun.actionSnapshots,
+        Array.isArray(data)
+          ? data
+              .filter(
+                (s): s is ActionSnapshot => typeof s === 'object' && s !== null
+              )
+              .map(withValidNativeSource)
+          : undefined
       )
       return
     }

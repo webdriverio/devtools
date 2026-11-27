@@ -384,7 +384,8 @@ console lines and stdout, network URLs, headers and bodies, the DOM and its
 mutations, the A11y captures, the test source and the suite tree. The backend
 builds the trace archive from those frames, so the archive carries none of them
 either. A value inside a longer string is replaced, as are its JSON-escaped,
-URL-encoded and form-encoded forms. A prefix of a value is never replaced: a
+URL-encoded, form-encoded and XML-escaped forms (the last is how a native
+app's page source carries it). A prefix of a value is never replaced: a
 password field's own keystrokes are already masked by the page collector. The test and the driver still see
 the real value.
 
@@ -498,7 +499,7 @@ bugs:
 
 ## Mobile (Appium)
 
-Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands and screenshots, with no DOM; this adapter reads no page source, so a native trace has no element list or accessibility tree. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
+Appium sessions are captured in live and trace mode. A mobile-browser session is captured like a desktop one; a native app gets commands and screenshots, with no DOM; in trace mode the adapter also reads the app's page source per captured action, and the backend builds each action's element list and accessibility tree from it when it writes the trace. On iOS that read is most of a capture's cost; `DEVTOOLS_A11Y=0` turns it off. This adapter decides from the startup capabilities, so a hybrid app's webview half is captured as if it were still native (only the WebdriverIO service follows context switches).
 
 The demo runs bare `python3`, so from the root of a built checkout of this repo (`pnpm install && pnpm build`) install the adapter into that interpreter, plus the Appium client the desktop examples don't need:
 
@@ -575,7 +576,7 @@ moves the page is. Each test's first command with a row in the trace is
 captured even when it reads, so a test that opens with reads has a frame, and
 when reads follow a test's last capture, the test's end takes one more,
 stamped at that capture and replacing it. On a native app the capture is the
-screenshot alone.
+screenshot and the page source.
 
 Without a pushed screencast (a native app, Safari, Firefox) the filmstrip is
 built from these screenshots, so a command that takes no capture can still
@@ -590,7 +591,7 @@ screenshots described above:
 | | Default | Opt out |
 |---|---|---|
 | Dense filmstrip — the screencast frames, carried into the trace instead of a `.webm` | on | `DEVTOOLS_FILMSTRIP=0` |
-| A11y tree + element overlay, read beside each captured command at two extra round trips each | on | `DEVTOOLS_A11Y=0` |
+| A11y tree + element overlay, read beside each captured command at two extra round trips each (one on a native app, the page source) | on | `DEVTOOLS_A11Y=0` |
 | DOM time-travel — the mutation stream the preview iframe already replays | on | — |
 | Stylesheets and fonts the pages used, stored once each by content hash so the replay does not load them from the site (images still do); the collector's reads of them are left out of the network rows | on | `DEVTOOLS_TRACE_RESOURCES=none`, `--devtools-trace-resources none`, ini `devtools_trace_resources = none`, or `enable(trace_resources="none")` |
 

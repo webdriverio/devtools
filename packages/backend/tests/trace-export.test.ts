@@ -16,6 +16,7 @@ import { unzipSync, strFromU8 } from 'fflate'
 import {
   TRACE_EVENT_TYPES,
   TRACE_ZIP_ENTRIES,
+  type ActionSnapshot,
   type Metadata
 } from '@wdio/devtools-shared'
 import {
@@ -492,6 +493,108 @@ describe('exportActiveRunTrace', () => {
     const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
     const snap = Object.keys(files).find((n) => n.endsWith('-snapshot.txt'))
     expect(strFromU8(files[snap!]!)).toBe('ALREADY SERIALIZED')
+  })
+
+  // The Python adapter sends a native page source raw; parsing it is TypeScript.
+  it('builds the A11y text and element list from a raw native page source', async () => {
+    const outputDir = await tmpDir()
+    const pageSource =
+      '<AppiumAUT><XCUIElementTypeApplication name="Settings" x="0" y="0" width="390" height="844">' +
+      '<XCUIElementTypeButton name="General" label="General" enabled="true" visible="true" accessible="true" x="16" y="200" width="358" height="44"/>' +
+      '</XCUIElementTypeApplication></AppiumAUT>'
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            pageSource,
+            platform: 'ios'
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-native' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const names = Object.keys(files)
+    const snap = names.find((n) => n.endsWith('-snapshot.txt'))
+    expect(strFromU8(files[snap!]!)).toContain('"General"')
+    const elements = names.find((n) => n.endsWith('-elements.json'))
+    expect(JSON.parse(strFromU8(files[elements!]!)).length).toBeGreaterThan(0)
+    expect(
+      names.some((n) => strFromU8(files[n]!).includes('<AppiumAUT>'))
+    ).toBe(false)
+  })
+
+  it('writes the archive when one action carries a tree that cannot be serialized', async () => {
+    const outputDir = await tmpDir()
+    const unreadable = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error('bad tree')
+        }
+      }
+    )
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            accessibilityTree: [
+              unreadable
+            ] as ActionSnapshot['accessibilityTree']
+          },
+          {
+            timestamp: 1300,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            pageSource:
+              '<AppiumAUT><XCUIElementTypeApplication name="Settings" x="0" y="0" width="390" height="844">' +
+              '<XCUIElementTypeButton name="General" label="General" enabled="true" visible="true" accessible="true" x="16" y="200" width="358" height="44"/>' +
+              '</XCUIElementTypeApplication></AppiumAUT>',
+            platform: 'ios'
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-bad-tree' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const texts = Object.keys(files)
+      .filter((n) => n.endsWith('-snapshot.txt'))
+      .map((n) => strFromU8(files[n]!))
+    expect(texts).toHaveLength(1)
+    expect(texts[0]).toContain('"General"')
+  })
+
+  it('writes no native text for a webview HTML source and never stores the source', async () => {
+    const outputDir = await tmpDir()
+    const zipPath = await exportActiveRunTrace(
+      run({
+        actionSnapshots: [
+          {
+            timestamp: 1200,
+            command: 'clickElement',
+            screenshot: JPEG_1PX,
+            pageSource: '<!DOCTYPE html><html><body>webview</body></html>',
+            platform: 'android'
+          }
+        ]
+      }),
+      { outputDir, sessionId: 'sess-webview' }
+    )
+
+    const files = unzipSync(new Uint8Array(await fs.readFile(zipPath)))
+    const names = Object.keys(files)
+    expect(names.some((n) => n.endsWith('-snapshot.txt'))).toBe(false)
+    expect(names.some((n) => strFromU8(files[n]!).includes('webview'))).toBe(
+      false
+    )
   })
 
   it('still writes a picture per action when none were streamed', async () => {

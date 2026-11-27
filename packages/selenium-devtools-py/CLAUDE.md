@@ -33,5 +33,5 @@ Mirrored TypeScript logic and its vectors: `.claude/rules/mirror-vectors.md`.
 
 ## File size
 
-- `packages/selenium-devtools-py/src/selenium_devtools/instrumentation.py` is 1377 lines. The module-level `_state` bag is read by the snapshot capture, its accessors and the element-scripts handoff, so extraction moves state ownership.
+- `packages/selenium-devtools-py/src/selenium_devtools/instrumentation.py` is 1432 lines. The module-level `_state` bag is read by the snapshot capture, its accessors and the element-scripts handoff, so extraction moves state ownership.
   Per-test frame state already moved to `per_test_capture.py` (`PerTestCapture`); the next change that touches `_state` should split another concern the same way.

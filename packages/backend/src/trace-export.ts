@@ -7,13 +7,19 @@
  * shape and the exporter's, plus the two derivations the wire does not carry.
  */
 
+import logger from '@wdio/logger'
 import type {
   ActionSnapshot,
+  NativePlatform,
   TestMetadataMap,
   TraceExportRequest,
   TraceRetentionPolicy
 } from '@wdio/devtools-shared'
 import { serializeWebSnapshot } from '@wdio/devtools-trace/a11y-snapshot'
+import {
+  nativeSnapshotFromPageSource,
+  type NativeSnapshot
+} from '@wdio/devtools-trace/native-snapshot'
 import {
   writeTraceZip,
   type TraceCapturer
@@ -24,6 +30,8 @@ import {
 } from '@wdio/devtools-trace/trace-retention'
 import type { ActiveRun, TimeWindowNode } from './baseline/types.js'
 import { sliceRunByTest } from './trace-slice.js'
+
+const log = logger('@wdio/devtools-backend')
 
 /**
  * Test titles for `Tracing.tracingGroup` events, derived from the suite tree
@@ -48,28 +56,69 @@ export function testMetadataFromNodes(
   return metadata
 }
 
-/**
- * Serialize any raw accessibility tree into the text the A11y tab parses.
- *
- * An adapter that exports through here captured the tree with a page-side
- * script but cannot serialize it — that transform is TypeScript. A snapshot
- * that already carries `snapshotText` is left alone: the JS adapters serialize
- * in-process and theirs is authoritative.
- */
+// A raw page tree becomes the A11y text (and, for a native page source, the element list) here, for an adapter that cannot run these TypeScript transforms.
 function serializeTrees(snapshots: ActionSnapshot[]): ActionSnapshot[] {
+  const parsed = new Map<string, NativeSnapshot | undefined>()
   return snapshots.map((snap) => {
-    if (snap.snapshotText || !snap.accessibilityTree?.length) {
-      return snap
-    }
-    const { accessibilityTree, ...rest } = snap
-    return {
-      ...rest,
-      snapshotText: serializeWebSnapshot(accessibilityTree, {
-        url: snap.url,
-        title: snap.title
-      })
+    const { pageSource, platform, ...rest } = snap
+    try {
+      return pageSource === undefined
+        ? fromA11yTree(snap)
+        : fromPageSource(rest, pageSource, platform, parsed)
+    } catch (err) {
+      // One unparseable tree costs that action its A11y pane, not the run its archive.
+      log.warn(
+        `could not serialize the page tree of the action at ${snap.timestamp}: ${err instanceof Error ? err.message : String(err)}`
+      )
+      return rest
     }
   })
+}
+
+function fromA11yTree(snap: ActionSnapshot): ActionSnapshot {
+  if (snap.snapshotText || !snap.accessibilityTree?.length) {
+    return snap
+  }
+  const { accessibilityTree, ...rest } = snap
+  return {
+    ...rest,
+    snapshotText: serializeWebSnapshot(accessibilityTree, {
+      url: snap.url,
+      title: snap.title
+    })
+  }
+}
+
+function fromPageSource(
+  snap: ActionSnapshot,
+  pageSource: string,
+  platform: NativePlatform | undefined,
+  parsed: Map<string, NativeSnapshot | undefined>
+): ActionSnapshot {
+  const native = snap.snapshotText
+    ? undefined
+    : parseOnce(pageSource, platform, parsed)
+  if (!native) {
+    return snap
+  }
+  return {
+    ...snap,
+    snapshotText: native.snapshotText,
+    elements: snap.elements?.length ? snap.elements : native.elements
+  }
+}
+
+// Consecutive captures of an unchanged screen, the end-of-test frame above all, send the same source.
+function parseOnce(
+  pageSource: string,
+  platform: NativePlatform | undefined,
+  parsed: Map<string, NativeSnapshot | undefined>
+): NativeSnapshot | undefined {
+  const key = `${platform ?? ''}\n${pageSource}`
+  if (!parsed.has(key)) {
+    parsed.set(key, nativeSnapshotFromPageSource(pageSource, platform))
+  }
+  return parsed.get(key)
 }
 
 /**

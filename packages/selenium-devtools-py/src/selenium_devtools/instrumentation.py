@@ -38,7 +38,7 @@ from .assert_tracer import ScriptAssertionTracer
 from .capturer import SessionCapturer
 from .cdp_screencast import start_push_screencast
 from .collector_source import reset_cache as reset_collector_cache
-from .device import driver_is_native_app, restore_browser_focus
+from .device import driver_is_native_app, native_platform, restore_browser_focus
 from .element_scripts import reset_cache as reset_element_scripts_cache
 from .page_scripts import reset_cache as reset_page_scripts_cache
 from .per_test_capture import PerTestCapture
@@ -503,6 +503,8 @@ def _capture_action_snapshot(
         snapshot["screenshot"] = shot
     if _page_trees_enabled(driver):
         _read_page_trees(driver, snapshot, timer)
+    elif _state["a11y"] and driver_is_native_app(driver):
+        _read_native_tree(driver, snapshot, timer)
     if snapshot.keys() <= {"timestamp", "command"}:
         return None
     _state["action_snapshots"].append(snapshot)
@@ -536,6 +538,34 @@ def _read_page_trees(
             continue
         if isinstance(value, list) and value:
             snapshot[key] = value
+
+
+def _read_native_tree(
+    driver: Any,
+    snapshot: ActionSnapshot,
+    timer: Optional[capture_timing.CaptureTimer],
+) -> None:
+    """The raw page source, which the backend turns into the element list and A11y text."""
+    source = timer.read("pageSource", _read_page_source, driver) if timer else _read_page_source(driver)
+    if source is None:
+        return
+    snapshot["pageSource"] = source
+    platform = native_platform(getattr(driver, "capabilities", None))
+    if platform is not None:
+        snapshot["platform"] = platform
+
+
+def _read_page_source(driver: Any) -> Optional[str]:
+    # Marked internal: `page_source` routes back through `execute` and would render a row.
+    _internal.active = True
+    try:
+        source = driver.page_source
+    except Exception as exc:  # noqa: BLE001 — a missing pane, not a failed run
+        _log.debug("page source read failed: %s", exc)
+        return None
+    finally:
+        _internal.active = False
+    return source if isinstance(source, str) and source else None
 
 
 def _maybe_capture_action_snapshot(

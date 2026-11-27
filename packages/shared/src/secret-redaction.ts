@@ -114,13 +114,23 @@ function uriComponent(text: string): string | undefined {
   }
 }
 
-/** Every form a secret takes in captured text: as typed, inside a JSON string, in a URL and in a form body. Longest first. */
+// Both Appium drivers' serializers escape these four in a page-source attribute and leave `'` as it is.
+function xmlEscape(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+/** Every form a secret takes in captured text: as typed, inside a JSON string, in a URL, in a form body and in an XML attribute. Longest first. */
 export function secretVariants(secret: string): string[] {
   const forms = [
     secret,
     JSON.stringify(secret).slice(1, -1),
     uriComponent(secret),
-    formEncode(secret)
+    formEncode(secret),
+    xmlEscape(secret)
   ].filter((form): form is string => typeof form === 'string' && form !== '')
   return [...new Set(forms)].sort(longestFirst)
 }

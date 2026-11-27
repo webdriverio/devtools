@@ -588,6 +588,31 @@ describe('baselineStore — scopes the trace export reads', () => {
     ).toEqual(['a', 'b'])
   })
 
+  it('keeps a native page source only when it is a non-empty string from a known platform', () => {
+    baselineStore.recordEvent('actionSnapshots', [
+      {
+        timestamp: 1,
+        command: 'click',
+        pageSource: '<hierarchy/>',
+        platform: 'ios'
+      },
+      { timestamp: 2, command: 'click', pageSource: '  ', platform: 'windows' },
+      { timestamp: 3, command: 'click', pageSource: 42 },
+      'junk',
+      null
+    ])
+
+    const stored = baselineStore.activeRun().actionSnapshots
+    expect(stored.map((s) => s.timestamp)).toEqual([1, 2, 3])
+    expect(stored[0]).toMatchObject({
+      pageSource: '<hierarchy/>',
+      platform: 'ios'
+    })
+    expect(stored[1]).not.toHaveProperty('pageSource')
+    expect(stored[1]).not.toHaveProperty('platform')
+    expect(stored[2]).not.toHaveProperty('pageSource')
+  })
+
   it('starts a new run with neither carried over', () => {
     baselineStore.recordEvent('metadata', { sessionId: 'a' })
     baselineStore.recordEvent('logs', ['one'])

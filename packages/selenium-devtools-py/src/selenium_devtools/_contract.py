@@ -27,6 +27,7 @@ PAGE_SCRIPTS_PATH = "/api/page-scripts"
 RUNNER_ID = "selenium-webdriver"
 TEST_RUNNER_IDS = frozenset(['cucumber', 'jasmine', 'mocha', 'nightwatch', 'nightwatch-cucumber', 'selenium-webdriver'])
 NATIVE_PLATFORMS = frozenset(['android', 'ios'])
+ACTION_SNAPSHOT_PAGE_SOURCE_KEY = "pageSource"
 
 WORKER_QUERY_RUN_ID = "runId"
 ENV_RUN_ID = "DEVTOOLS_RUN_ID"

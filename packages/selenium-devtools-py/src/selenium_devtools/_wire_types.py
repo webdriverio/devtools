@@ -38,6 +38,8 @@ class ActionSnapshot(_ActionSnapshotRequired, total=False):
     elements: List[Any]
     snapshotText: str
     accessibilityTree: List[AccessibilityNode]
+    pageSource: str
+    platform: Literal['android', 'ios']
 
 
 class BaselineClearedWsPayload(TypedDict):
