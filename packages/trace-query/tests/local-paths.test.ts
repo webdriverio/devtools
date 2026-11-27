@@ -14,6 +14,7 @@ fs.mkdirSync(outside)
 fs.writeFileSync(path.join(root, 'run', 'trace.zip'), 'zip')
 fs.writeFileSync(path.join(outside, 'secret.zip'), 'zip')
 fs.symlinkSync(path.join(outside, 'secret.zip'), path.join(root, 'link.zip'))
+fs.symlinkSync(outside, path.join(root, 'out'))
 fs.mkdirSync(path.join(base, 'root-sibling'))
 fs.writeFileSync(path.join(base, 'root-sibling', 'a.zip'), 'zip')
 
@@ -84,5 +85,17 @@ describe('guardedRealPath', () => {
     ).rejects.toThrow(
       `The allowed root ${path.join(base, 'nowhere')} cannot be resolved`
     )
+  })
+
+  it('gives one refusal through a symlink out of the root, whether or not the file exists', async () => {
+    await expect(
+      guardedRealPath(path.join(root, 'out', 'secret.zip'), [root])
+    ).rejects.toThrow('outside the allowed roots')
+    await expect(
+      guardedRealPath(path.join(root, 'out', 'missing.zip'), [root])
+    ).rejects.toThrow('outside the allowed roots')
+    await expect(
+      guardedRealPath(path.join(root, 'out', 'nested', 'missing.zip'), [root])
+    ).rejects.toThrow('outside the allowed roots')
   })
 })

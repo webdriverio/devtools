@@ -19,6 +19,16 @@ async function realRootOf(root: string): Promise<string> {
   }
 }
 
+/** The real path of the nearest ancestor of `resolved` that exists. */
+async function realAncestorOf(resolved: string): Promise<string> {
+  for (let dir = path.dirname(resolved); ; dir = path.dirname(dir)) {
+    const real = await fs.realpath(dir).catch(() => undefined)
+    if (real !== undefined || dir === path.dirname(dir)) {
+      return real ?? dir
+    }
+  }
+}
+
 function outside(target: string, allowedRoots: readonly string[]): Error {
   return new Error(
     `Cannot open ${target}: it is outside the allowed roots (${allowedRoots.join(', ')})`
@@ -41,7 +51,12 @@ export async function guardedRealPath(
   if (![...roots, ...lexicalRoots].some((root) => isWithin(root, resolved))) {
     throw outside(target, allowedRoots)
   }
-  const real = await fs.realpath(resolved).catch((error: unknown) => {
+  const real = await fs.realpath(resolved).catch(async (error: unknown) => {
+    // A missing path behind a symlink out of the roots must read as outside, or the error tells what exists there.
+    const ancestor = await realAncestorOf(resolved)
+    if (!roots.some((root) => isWithin(root, ancestor))) {
+      throw outside(target, allowedRoots)
+    }
     const code = (error as NodeJS.ErrnoException).code ?? 'unreadable'
     throw new Error(`Cannot open ${target}: ${code}`)
   })
