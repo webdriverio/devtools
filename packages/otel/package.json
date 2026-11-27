@@ -35,6 +35,6 @@
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "@wdio/devtools-shared": "workspace:^",
     "@wdio/devtools-trace": "workspace:^",
-    "tsup": "^8.5.1"
+    "tsup": "^9.0.0"
   }
 }
