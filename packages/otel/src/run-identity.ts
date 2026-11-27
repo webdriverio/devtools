@@ -1,9 +1,9 @@
 import { TraceFlags } from '@opentelemetry/api'
-import type { Manifest } from './manifest.js'
+import type { ParsedManifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 
 export function runIdOf(
   file: string,
-  manifest: Manifest,
+  manifest: ParsedManifest,
   override: string | undefined,
   warn: (message: string) => void
 ): string {
@@ -22,7 +22,7 @@ export function runIdOf(
 /** Unsampled spans would be dropped by the SDK anyway; saying so names the manifest and the flag that pushes it. */
 export function unsampledParent(
   file: string,
-  manifest: Manifest,
+  manifest: ParsedManifest,
   warn: (message: string) => void
 ): boolean {
   const flags = manifest.parent?.traceFlags

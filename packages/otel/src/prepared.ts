@@ -1,6 +1,6 @@
 import type { Context } from '@opentelemetry/api'
 import type { CommandLog, TracePlayerData } from '@wdio/devtools-shared'
-import type { ManifestTest } from './manifest.js'
+import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import type { PinnedSpanIds } from './span-ids.js'
 
 export const STATE_PASSED = 'passed'
@@ -49,16 +49,12 @@ export interface PreparedRoot {
 }
 
 export interface PreparedTest {
-  test: ManifestTest
+  test: ParsedManifestTest
   roots: PreparedRoot[]
 }
 
 export function actionStart(command: CommandLog): number {
   return command.startTime ?? command.timestamp
-}
-
-export function normalizeSelector(selector: string): string {
-  return selector.trim().replace(/\s+/g, ' ')
 }
 
 export function capLength(message: string, limit: number): string {

@@ -12,12 +12,12 @@ import type {
   TraceActionChild,
   TracePlayerData
 } from '@wdio/devtools-shared'
+import { normalizeSelector } from '@wdio/devtools-trace/action-key'
+import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import * as attr from './attributes.js'
-import type { ManifestTest } from './manifest.js'
 import {
   actionStart,
   capLength,
-  normalizeSelector,
   STATE_FAILED,
   type ActionInfo,
   type PreparedRoot,
@@ -179,7 +179,7 @@ function addTestEvents(
 
 function emitRoot(
   sink: TelemetrySink,
-  test: ManifestTest,
+  test: ParsedManifestTest,
   root: PreparedRoot,
   consoleMessages: boolean
 ): void {

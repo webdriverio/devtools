@@ -62,13 +62,13 @@ The `@core/*` name is a historical alias for app-internal helpers and predates `
 ## Layering
 
 - `shared` owns every shared type, constant, schema and HTTP/WS contract. No package re-declares one.
-- `trace` holds the pure transforms from captured events to trace zips, and the zip reader. It imports only `shared`. `backend` may import `trace`; it may not import `core`.
+- `trace` holds the pure transforms from captured events to trace zips, and the reading side of what the writers produce: the zip reader, the artifacts manifest beside the zips, and the action key that lines two runs' actions up. It imports only `shared`. `backend` may import `trace`; it may not import `core`.
 - `core` holds framework-agnostic capture, parsing and transport.
 - Adapters (`service`, `nightwatch-devtools`, `selenium-devtools`, `selenium-devtools-py`) are thin: framework hooks, driver patching, config.
 - The JS adapters import `shared` and `core`. `selenium-devtools-py` imports neither (it ships no Node); its shared logic is mirrored and held equal by `packages/shared/mirror-vectors.json` (.claude/rules/mirror-vectors.md).
 - No adapter imports another (enforced by `eslint.config.cjs`). Only examples and conformance scenarios import adapters at runtime; `packages/conformance/src/capability-options.ts` uses `import type` only.
 - `backend` and `app` import `shared` and each other over WS/HTTP. Neither imports an adapter. `app` may also import `@wdio/devtools-trace/trace-reader`, the reader the hosted player runs in the browser; no other trace module.
-- `otel` imports `shared` and `@wdio/devtools-trace/trace-reader` only. It is not an adapter and imports neither `core` nor an adapter; no ESLint rule enforces this.
+- `otel` imports `shared` and `trace` by subpath only, never the package index. It is not an adapter and imports neither `core` nor an adapter; no ESLint rule enforces this.
 - Boundaries are typed: every `fetch` and `ws.send` has a `shared` type, and no `any` crosses a package boundary.
 - `shared`, `trace` and `core` are bundled into their consumers, never externalised: .claude/rules/bundling.md.
 - Files own one concern. Size caps and style: .claude/rules/code-style.md. `max-lines` (500), `max-lines-per-function` (50) and `no-explicit-any` are `warn` in `eslint.config.cjs`, so `pnpm lint` passes with violations; size caps are not a CI gate.
@@ -119,7 +119,7 @@ The decision tree from [ARCHITECTURE.md "Where things live"](./ARCHITECTURE.md#w
 - UI → `app`.
 - Code that runs in the browser under test → `script`.
 
-When the right place is ambiguous (something between `shared` and `core`, or between `core` and an adapter), the question that resolves it is: *who else would want this?* If the answer is "any future adapter would," it's `core`. If "only the framework with X-specific API does," it's the adapter. If "the backend would, to build a zip for an adapter that can't," it's `trace`.
+When the right place is ambiguous (something between `shared` and `core`, or between `core` and an adapter), the question that resolves it is: *who else would want this?* If the answer is "any future adapter would," it's `core`. If "only the framework with X-specific API does," it's the adapter. If "the backend would, to build a zip for an adapter that can't," or "anything that reads a run's output would, to read its zips or manifest," it's `trace`.
 
 ### While editing
 

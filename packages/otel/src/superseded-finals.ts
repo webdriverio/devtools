@@ -1,14 +1,26 @@
-import { browserScopeOf, type Manifest, type ManifestTest } from './manifest.js'
+import type {
+  ParsedManifest,
+  ParsedManifestTest
+} from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { STATE_FAILED } from './prepared.js'
 
 export interface RunManifest {
-  manifest: Manifest
+  manifest: ParsedManifest
   mtimeMs: number
   runId: string
 }
 
+// Browser and platform decide whether two finals are siblings: a failure in one browser is not retried by a pass in another.
+function browserScopeOf(manifest: ParsedManifest): string {
+  return JSON.stringify([
+    manifest.browserName ?? '',
+    manifest.browserVersion ?? '',
+    manifest.platformName ?? ''
+  ])
+}
+
 interface FinalOutcome {
-  test: ManifestTest
+  test: ParsedManifestTest
   scope: string
   state: string | undefined
   startMs: number
@@ -16,7 +28,7 @@ interface FinalOutcome {
 }
 
 function finalOutcomeOf(
-  test: ManifestTest,
+  test: ParsedManifestTest,
   mtimeMs: number,
   scope: string
 ): FinalOutcome {
@@ -34,7 +46,7 @@ function finalOutcomeOf(
 // A failed final that a later final of the same browser in the same run started after is a retried attempt; overlapping finals are siblings.
 export function supersededFinals(
   manifests: readonly RunManifest[]
-): (test: ManifestTest) => boolean {
+): (test: ParsedManifestTest) => boolean {
   const byTest = new Map<string, FinalOutcome[]>()
   for (const { manifest, mtimeMs, runId } of manifests) {
     const scope = browserScopeOf(manifest)
@@ -45,7 +57,7 @@ export function supersededFinals(
       byTest.set(key, finals)
     }
   }
-  const superseded = new Set<ManifestTest>()
+  const superseded = new Set<ParsedManifestTest>()
   for (const finals of byTest.values()) {
     for (const earlier of finals) {
       if (
