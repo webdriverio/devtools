@@ -1,6 +1,24 @@
 import type { ParentTraceContext } from './trace-context.js'
 import type { TestMetadataEntry, TestStatus, TraceFormat } from './types.js'
 
+const ARTIFACTS_MANIFEST_PREFIX = 'devtools-artifacts-'
+const ARTIFACTS_MANIFEST_SUFFIX = '.json'
+
+/** Deterministic manifest filename for a session (used by writers and readers). */
+export function artifactsManifestFilename(sessionId: string): string {
+  return `${ARTIFACTS_MANIFEST_PREFIX}${sessionId}${ARTIFACTS_MANIFEST_SUFFIX}`
+}
+
+/** Whether a file name is one `artifactsManifestFilename` writes, so a reader can find manifests in a folder. */
+export function isArtifactsManifestFilename(name: string): boolean {
+  return (
+    name.startsWith(ARTIFACTS_MANIFEST_PREFIX) &&
+    name.endsWith(ARTIFACTS_MANIFEST_SUFFIX) &&
+    name.length >
+      ARTIFACTS_MANIFEST_PREFIX.length + ARTIFACTS_MANIFEST_SUFFIX.length
+  )
+}
+
 /** The retry key of attempt `attempt` of `uid`; attempt 0 keeps the bare uid. */
 export function retryKeyOf(uid: string, attempt: number): string {
   return attempt > 0 ? `${uid}-retry${attempt}` : uid

@@ -423,15 +423,20 @@ const EAGER_READ_CONCURRENCY = 8
 
 /** Reads the entries the payload is built from, and nothing else, refusing a zip that declares more than a reader inflates at once. */
 export async function readTraceEntries(
-  archive: TraceArchive
+  archive: TraceArchive,
+  maxBytes = ZIP_MAX_INFLATED_BYTES
 ): Promise<TraceEntries> {
   const eager = [...archive.names].filter(isEagerEntry)
   const declared = eager.reduce(
     (total, name) => total + (archive.sizeOf(name) ?? 0),
     0
   )
-  if (declared > ZIP_MAX_INFLATED_BYTES) {
-    throw new Error('The trace declares more data than the player reads')
+  if (declared > maxBytes) {
+    throw new Error(
+      maxBytes === ZIP_MAX_INFLATED_BYTES
+        ? 'The trace declares more data than the player reads'
+        : `The trace declares ${declared} bytes to read, over the ${maxBytes}-byte limit`
+    )
   }
   const entries: TraceZipEntries = {}
   for (let at = 0; at < eager.length; at += EAGER_READ_CONCURRENCY) {
@@ -475,9 +480,10 @@ export async function buildTracePayload(
 
 /** Opens nothing but the payload's entries and one frame of a trace zip. */
 export async function readTracePayload(
-  archive: TraceArchive
+  archive: TraceArchive,
+  maxBytes?: number
 ): Promise<TracePlayerData> {
-  return buildTracePayload(await readTraceEntries(archive), archive)
+  return buildTracePayload(await readTraceEntries(archive, maxBytes), archive)
 }
 
 /** Parse an in-memory trace.zip buffer into a player payload, inflating only the entries `isEagerEntry` names. Pure (no I/O). */

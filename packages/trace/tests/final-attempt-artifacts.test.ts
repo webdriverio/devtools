@@ -10,6 +10,8 @@ import type {
 } from '../src/artifacts-manifest-reader.js'
 import {
   holdsEarlierAttempts,
+  sharesTraceArtifact,
+  traceArtifactFor,
   traceArtifactsByUid
 } from '../src/final-attempt-artifacts.js'
 
@@ -254,5 +256,82 @@ describe('holdsEarlierAttempts', () => {
         testAt(1)
       )
     ).toBe(false)
+  })
+})
+
+describe('traceArtifactFor', () => {
+  const zips = [
+    traceZip('out/login/trace.zip', UID),
+    traceZip('out/login-retry1/trace.zip', `${UID}-retry1`)
+  ]
+
+  it('picks the final attempt by default', () => {
+    const manifest = manifestOf(zips, { attempt: 1 })
+    expect(traceArtifactFor(manifest, manifest.tests[0]!)?.path).toBe(
+      'out/login-retry1/trace.zip'
+    )
+  })
+
+  it('picks the attempt it is asked for', () => {
+    const manifest = manifestOf(zips, { attempt: 1 })
+    expect(traceArtifactFor(manifest, manifest.tests[0]!, 0)?.path).toBe(
+      'out/login/trace.zip'
+    )
+  })
+
+  it('picks nothing for an attempt that has no zip', () => {
+    const manifest = manifestOf(zips, { attempt: 1 })
+    expect(traceArtifactFor(manifest, manifest.tests[0]!, 2)).toBeUndefined()
+  })
+
+  it('picks a flat session zip for any attempt', () => {
+    const session = { ...traceZip('out/trace.zip'), scope: 'session' as const }
+    const manifest = manifestOf([session], { attempt: 2 })
+    expect(traceArtifactFor(manifest, manifest.tests[0]!, 0)?.path).toBe(
+      'out/trace.zip'
+    )
+  })
+})
+
+describe('sharesTraceArtifact', () => {
+  const uids = new Set([UID, 'uid-other'])
+
+  it('shares a zip that lists another test of the manifest', () => {
+    const artifact = {
+      ...traceZip('out/trace.zip'),
+      testUids: [UID, 'uid-other']
+    }
+    expect(
+      sharesTraceArtifact(
+        artifact,
+        manifestOf([], { attempt: 0 }).tests[0]!,
+        uids
+      )
+    ).toBe(true)
+  })
+
+  it('does not count a listed uid the manifest has no test for, such as a step', () => {
+    const artifact = {
+      ...traceZip('out/trace.zip'),
+      testUids: [UID, 'uid-step']
+    }
+    expect(
+      sharesTraceArtifact(
+        artifact,
+        manifestOf([], { attempt: 0 }).tests[0]!,
+        uids
+      )
+    ).toBe(false)
+  })
+
+  it('shares a flat zip that also holds an earlier attempt', () => {
+    const artifact = { ...traceZip('out/trace.zip'), scope: 'spec' as const }
+    expect(
+      sharesTraceArtifact(
+        artifact,
+        manifestOf([], { attempt: 1 }).tests[0]!,
+        uids
+      )
+    ).toBe(true)
   })
 })

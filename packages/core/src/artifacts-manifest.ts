@@ -12,7 +12,10 @@
 
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
+import {
+  ARTIFACTS_MANIFEST_VERSION,
+  artifactsManifestFilename
+} from '@wdio/devtools-shared'
 import type {
   ArtifactManifestTest,
   ArtifactsManifest,
@@ -25,10 +28,7 @@ import type {
 import { redactSecrets } from './secret-redaction.js'
 import { stepOwnerUid } from './uid.js'
 
-/** Deterministic manifest filename for a session (used by writers and readers). */
-export function artifactsManifestFilename(sessionId: string): string {
-  return `devtools-artifacts-${sessionId}.json`
-}
+export { artifactsManifestFilename } from '@wdio/devtools-shared'
 
 // Steps stay in testMetadata for the trace's step groups but are not test units; WDIO keys one off its scenario's uid, Selenium and Nightwatch nest it as a test under a scenario suite.
 function isStepEntry(

@@ -23,7 +23,7 @@ function coversEveryAttempt(artifact: ParsedManifestArtifact): boolean {
 }
 
 /** The attempt that decided the test: its final record's, or `test.attempt` when the manifest has no `attempts`. */
-function finalAttemptOf(test: ParsedManifestTest): number {
+export function finalAttemptOf(test: ParsedManifestTest): number {
   return test.attempts?.find((record) => record.final)?.attempt ?? test.attempt
 }
 
@@ -35,10 +35,23 @@ export function holdsEarlierAttempts(
   return coversEveryAttempt(artifact) && finalAttemptOf(test) > 0
 }
 
-/** The zip of the test's final attempt; an earlier attempt's zip never stands in for it. */
+/** Whether reading the test's zip would also read another test of the manifest or an earlier attempt; `manifestUids` are the manifest's test uids, since a Cucumber zip also lists its step uids. */
+export function sharesTraceArtifact(
+  artifact: ParsedManifestArtifact,
+  test: ParsedManifestTest,
+  manifestUids: ReadonlySet<string>
+): boolean {
+  return (
+    artifact.testUids.filter((uid) => manifestUids.has(uid)).length > 1 ||
+    holdsEarlierAttempts(artifact, test)
+  )
+}
+
+/** The zip of one attempt of the test; another attempt's zip never stands in for it. */
 function pickTraceArtifact(
   candidates: ParsedManifestArtifact[],
-  test: ParsedManifestTest
+  test: ParsedManifestTest,
+  attempt: number
 ): ParsedManifestArtifact | undefined {
   // A spec-scope zip is keyed by its spec file, so only a per-test key (uid or uid-retryN) selects an exact attempt.
   if (
@@ -46,10 +59,9 @@ function pickTraceArtifact(
       (artifact) => artifact.key?.replace(RETRY_DIR_SUFFIX, '') === test.uid
     )
   ) {
-    const key = retryKeyOf(test.uid, finalAttemptOf(test))
+    const key = retryKeyOf(test.uid, attempt)
     return candidates.find((artifact) => artifact.key === key)
   }
-  const attempt = finalAttemptOf(test)
   return (
     candidates.find(
       (artifact) =>
@@ -58,10 +70,9 @@ function pickTraceArtifact(
   )
 }
 
-/** Each test's final-attempt trace zip, keyed by uid; built once per manifest. */
-export function traceArtifactsByUid(
+function traceCandidatesByUid(
   manifest: ParsedManifest
-): Map<string, ParsedManifestArtifact> {
+): Map<string, ParsedManifestArtifact[]> {
   const candidates = new Map<string, ParsedManifestArtifact[]>()
   for (const artifact of manifest.artifacts) {
     if (artifact.kind !== 'trace') {
@@ -73,9 +84,34 @@ export function traceArtifactsByUid(
       candidates.set(uid, list)
     }
   }
+  return candidates
+}
+
+/** The trace zip of one attempt of a test, the final one unless named. */
+export function traceArtifactFor(
+  manifest: ParsedManifest,
+  test: ParsedManifestTest,
+  attempt = finalAttemptOf(test)
+): ParsedManifestArtifact | undefined {
+  return pickTraceArtifact(
+    traceCandidatesByUid(manifest).get(test.uid) ?? [],
+    test,
+    attempt
+  )
+}
+
+/** Each test's final-attempt trace zip, keyed by uid; built once per manifest. */
+export function traceArtifactsByUid(
+  manifest: ParsedManifest
+): Map<string, ParsedManifestArtifact> {
+  const candidates = traceCandidatesByUid(manifest)
   const byUid = new Map<string, ParsedManifestArtifact>()
   for (const test of manifest.tests) {
-    const artifact = pickTraceArtifact(candidates.get(test.uid) ?? [], test)
+    const artifact = pickTraceArtifact(
+      candidates.get(test.uid) ?? [],
+      test,
+      finalAttemptOf(test)
+    )
     if (artifact) {
       byUid.set(test.uid, artifact)
     }
