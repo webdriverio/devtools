@@ -1,45 +1,16 @@
 import {
-  effectiveFailure,
-  retriedRows,
+  traceOutcome,
   type TraceActionChild,
+  type TraceOutcome,
   type TracePlayerData
 } from '@wdio/devtools-shared'
 
-/** A zip records no test state, so this is read from its rows: a failed action or step, actions and none failed, or none at all. */
-export const TRACE_OUTCOME = {
-  PASSED: 'passed',
-  FAILED: 'failed',
-  UNKNOWN: 'unknown'
-} as const
-
-export type TraceOutcome = (typeof TRACE_OUTCOME)[keyof typeof TRACE_OUTCOME]
-
-export interface TraceSummary {
+export interface TraceRunSummary {
   outcome: TraceOutcome
   /** The test the trace holds, outermost suite first; absent unless it holds exactly one. */
   titlePath?: string[]
   /** When the trace starts, which orders a run's traces as they ran. */
   startTime: number
-}
-
-function anyGroupFailed(children: readonly TraceActionChild[]): boolean {
-  return children.some(
-    (child) =>
-      'group' in child &&
-      (child.group.failed || anyGroupFailed(child.group.children))
-  )
-}
-
-export function traceOutcome(data: TracePlayerData): TraceOutcome {
-  const { commands } = data.trace
-  const retried = retriedRows(commands)
-  if (
-    commands.some((command) => effectiveFailure(command, retried)) ||
-    anyGroupFailed(data.groups ?? [])
-  ) {
-    return TRACE_OUTCOME.FAILED
-  }
-  return commands.length ? TRACE_OUTCOME.PASSED : TRACE_OUTCOME.UNKNOWN
 }
 
 // A per-test zip nests its test in one chain of groups, suites first, ending where a group holds actions or steps.
@@ -55,7 +26,7 @@ function singleTestPath(
   return path.length ? path : undefined
 }
 
-export function summarizeTrace(data: TracePlayerData): TraceSummary {
+export function summarizeTrace(data: TracePlayerData): TraceRunSummary {
   return {
     outcome: traceOutcome(data),
     titlePath: singleTestPath(data.groups ?? []),

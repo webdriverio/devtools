@@ -41,7 +41,8 @@ import {
   NETWORK_STREAM_SUFFIX,
   REVERSE_ACTION_MAP,
   STACKS_STREAM_SUFFIX,
-  TRACE_STREAM_SUFFIX
+  TRACE_STREAM_SUFFIX,
+  UNREADABLE_ERROR_MESSAGE
 } from './trace-reader-constants.js'
 import type {
   AfterEvent,
@@ -68,6 +69,7 @@ import {
   buildConsoleLogs,
   buildMetadata,
   buildSources,
+  errorMessageOf,
   harToNetworkRequest,
   paramsToArgs,
   responseBodyEntry,
@@ -232,7 +234,10 @@ function reconstructCommand(
   }
   const error = commandError(before, after, afters)
   if (error) {
-    command.error = { name: 'Error', message: error.message }
+    command.error = {
+      name: 'Error',
+      message: errorMessageOf(error) ?? UNREADABLE_ERROR_MESSAGE
+    }
   }
   if (after?.result !== undefined) {
     command.result = after.result

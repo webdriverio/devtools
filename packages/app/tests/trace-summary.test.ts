@@ -1,12 +1,11 @@
-// A zip records no test state, so the outcome the run list shows is read from
-// the rows. These open zips from the real writer, so what the list derives is
-// checked against what an adapter actually leaves on disk.
+// What the run list shows for a zip, read from zips the real writer leaves on disk.
 
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  TRACE_OUTCOME,
   TraceType,
   type CommandLog,
   type TestMetadataMap,
@@ -18,9 +17,7 @@ import { parseTraceZip } from '@wdio/devtools-trace/trace-reader'
 
 import {
   summarizeTrace,
-  traceLabelFromPath,
-  traceOutcome,
-  TRACE_OUTCOME
+  traceLabelFromPath
 } from '../src/utils/trace-summary.js'
 
 const dirs: string[] = []
@@ -66,28 +63,6 @@ async function perTestZip(commandsLog: CommandLog[]): Promise<TracePlayerData> {
   return parseTraceZip(new Uint8Array(await fs.readFile(zip)))
 }
 
-/** A parsed trace holding `commands` and nothing else. */
-function playerData(
-  commands: CommandLog[],
-  groups?: TracePlayerData['groups']
-): TracePlayerData {
-  return {
-    trace: {
-      mutations: [],
-      logs: [],
-      consoleLogs: [],
-      networkRequests: [],
-      commands,
-      sources: {},
-      metadata: { type: TraceType.Testrunner }
-    },
-    frames: [],
-    startTime: 0,
-    duration: 0,
-    groups
-  }
-}
-
 const row = (command: string, timestamp: number, extra = {}): CommandLog => ({
   command,
   args: ['#login'],
@@ -96,87 +71,12 @@ const row = (command: string, timestamp: number, extra = {}): CommandLog => ({
   ...extra
 })
 
-describe('traceOutcome', () => {
-  it('reads a trace whose actions all passed as passed', async () => {
-    const data = await perTestZip([row('url', 2000), row('click', 3000)])
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.PASSED)
-  })
-
-  it('reads a trace with a failed action as failed', async () => {
-    const data = await perTestZip([
-      row('url', 2000),
-      row('click', 3000, { error: { name: 'Error', message: 'not found' } })
-    ])
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.FAILED)
-  })
-
-  it('reads a failed assertion that carries no error as failed', async () => {
-    const data = await perTestZip([
-      row('assert.equal', 2000, {
-        args: ['a', 'b'],
-        result: { passed: false, actual: 'a', expected: 'b' }
-      })
-    ])
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.FAILED)
-  })
-
-  it('does not count a poll a passing wait retried past', async () => {
-    const data = await perTestZip([
-      row('waitUntil', 3000, { id: 7, startTime: 2000 }),
-      row('isDisplayed', 2100, {
-        parentId: 7,
-        error: { name: 'Error', message: 'stale element' }
-      })
-    ])
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.PASSED)
-  })
-
-  it('has no outcome for a trace with no actions', () => {
-    const data = playerData([])
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.UNKNOWN)
-  })
-
-  it('reads a step that failed on its own as failed', () => {
-    const data = playerData(
-      [],
-      [
-        {
-          group: {
-            callId: 'g1',
-            title: 'Login',
-            startTime: 0,
-            endTime: 1,
-            children: [
-              {
-                group: {
-                  callId: 'g2',
-                  title: 'logs in',
-                  startTime: 0,
-                  endTime: 1,
-                  failed: true,
-                  children: []
-                }
-              }
-            ]
-          }
-        }
-      ]
-    )
-
-    expect(traceOutcome(data)).toBe(TRACE_OUTCOME.FAILED)
-  })
-})
-
 describe('summarizeTrace', () => {
   it('names the one test a per-test zip holds, suites first', async () => {
     const data = await perTestZip([row('url', 2000), row('click', 3000)])
 
     expect(summarizeTrace(data)).toMatchObject({
+      outcome: TRACE_OUTCOME.PASSED,
       titlePath: ['Login', 'logs in'],
       startTime: data.startTime
     })

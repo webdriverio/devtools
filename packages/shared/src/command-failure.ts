@@ -55,7 +55,8 @@ function errorFailure(error: NonNullable<CommandLog['error']>): {
   return { message: (error as { message?: string }).message ?? String(error) }
 }
 
-function rowFailure(cmd: CommandLog): { message: string } | undefined {
+/** Why a row failed on its own, whatever the row that issued it did; `effectiveFailure` is the rule that counts. */
+export function rowFailure(cmd: CommandLog): { message: string } | undefined {
   const action = mapCommandToAction(cmd.command)
   if (action) {
     return commandFailure(cmd, action)

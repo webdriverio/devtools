@@ -1,12 +1,12 @@
 import type { ReactiveControllerHost } from 'lit'
+import { TRACE_OUTCOME } from '@wdio/devtools-shared'
 
 import { readTraceArchive, type OpenedTrace } from './trace-archive.js'
 import type { TraceSource } from '../utils/trace-sources.js'
 import {
   summarizeTrace,
   traceLabelFromPath,
-  TRACE_OUTCOME,
-  type TraceSummary
+  type TraceRunSummary
 } from '../utils/trace-summary.js'
 
 /** One zip of an opened run: still to read, read, or refused by the reader. */
@@ -18,7 +18,7 @@ export type TraceRunEntry = {
   label: string
 } & (
   | { status: 'pending' }
-  | { status: 'ready'; summary: TraceSummary }
+  | { status: 'ready'; summary: TraceRunSummary }
   | { status: 'error'; error: string }
 )
 

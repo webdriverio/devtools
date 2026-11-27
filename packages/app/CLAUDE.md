@@ -4,7 +4,7 @@ Owns the dashboard and trace-player UI, served by the backend and by the hosted 
 
 ## Rules
 
-- A zip records no test state; a row's outcome is derived from its rows (`utils/trace-summary.ts`).
+- A zip records no test state; a row's outcome is derived from its rows by shared's `trace-outcome.ts`, which `@wdio/devtools-trace-query` reads too, so the player and the query library cannot disagree.
 - Run start and one entry resetting inside a run share the `clearExecutionData` scope. `ClearExecutionDataWsPayload.runStart` disambiguates on the wire, since popouts see only WS. Don't infer it from uid vs `activeRerunSuiteUid`: that latch outlived its rerun and skipped the next run's wipe. A backend test asserts the flag ships.
 
 ## Known debt

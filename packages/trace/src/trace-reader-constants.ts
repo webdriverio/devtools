@@ -43,3 +43,7 @@ export const REVERSE_ACTION_MAP: Record<string, string> = {
     ])
   )
 }
+
+/** What a command's error reads as when the zip records an error without a string message. */
+export const UNREADABLE_ERROR_MESSAGE =
+  'The trace records an error without a readable message'

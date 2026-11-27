@@ -368,3 +368,10 @@ export function buildMetadata(ctx: ContextOptionsEvent | undefined): Metadata {
     ...(device ? { device } : {})
   }
 }
+
+/** An after event's error message when it is a string; a zip is untrusted input and may carry any value there. */
+export function errorMessageOf(
+  error: { message?: unknown } | undefined
+): string | undefined {
+  return typeof error?.message === 'string' ? error.message : undefined
+}

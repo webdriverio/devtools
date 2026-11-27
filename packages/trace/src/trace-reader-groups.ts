@@ -14,6 +14,7 @@ import type {
 
 import { REVERSE_ACTION_MAP } from './trace-reader-constants.js'
 import type { AfterEvent, BeforeEvent } from './trace-reader-types.js'
+import { errorMessageOf } from './trace-reader-utils.js'
 
 /** An action in our vocabulary that other actions name as parentId issued them, so it stays a row; a foreign runner
  *  step is never one. */
@@ -135,6 +136,10 @@ function buildGroupNodes(
     }
     if (after?.error) {
       node.failed = true
+      const message = errorMessageOf(after.error)
+      if (message !== undefined) {
+        node.error = message
+      }
     }
     nodes.set(before.callId, node)
   }

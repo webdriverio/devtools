@@ -1,10 +1,10 @@
 import { Element } from '@core/element'
 import { html, css, nothing } from 'lit'
 import { customElement, property } from 'lit/decorators.js'
+import { TRACE_OUTCOME } from '@wdio/devtools-shared'
 
 import { TRACE_RUN_SELECT_EVENT } from '../controller/constants.js'
 import type { TraceRunEntry } from '../controller/trace-run.js'
-import { TRACE_OUTCOME } from '../utils/trace-summary.js'
 import {
   stateIcon,
   STATE_ICON_STYLES,
