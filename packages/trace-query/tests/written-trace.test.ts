@@ -12,7 +12,7 @@ import {
 import { traceErrors } from '../src/errors.js'
 import { traceSummary } from '../src/summary.js'
 import { traceTranscript } from '../src/transcript.js'
-import type { ActionRow, TraceHandle } from '../src/types.js'
+import type { ActionRow, TestNode, TraceHandle } from '../src/types.js'
 import { openWritten } from './traces.js'
 
 const START = 1_700_000_000_000
@@ -223,8 +223,9 @@ describe('a trace with waits and failures', () => {
   it('pages the action list, refusing a cursor from a differently filtered list', async () => {
     const handle = await openRun()
     const all = traceActions(handle).items
-    const first = traceActions(handle, { maxChars: 300 })
-    expect(JSON.stringify(first).length).toBeLessThanOrEqual(300)
+    const first = traceActions(handle, { maxChars: 1_000 })
+    expect(JSON.stringify(first).length).toBeLessThanOrEqual(1_000)
+    expect(first.nextCursor).toBeDefined()
     const rest = traceActions(handle, {
       maxChars: 100_000,
       cursor: first.nextCursor
@@ -311,17 +312,40 @@ describe('a trace with waits and failures', () => {
   })
 
   it('keeps only the failed tests, as many as fit, when the tree outgrows the budget', async () => {
-    const handle = await openRun()
+    const uids = Array.from({ length: 40 }, (_, i) => `t${i}`)
+    const handle = await openWritten({
+      commands: uids.map((uid, i) =>
+        row('click', 100 + i * 20, 110 + i * 20, {
+          testUid: uid,
+          ...(i % 4 === 0
+            ? { error: { name: 'Error', message: 'no such element' } }
+            : {})
+        })
+      ),
+      testMetadata: new Map(
+        uids.map((uid) => [
+          uid,
+          {
+            title: `${uid} ${'checks a long named behaviour '.repeat(3)}`,
+            specFile: SPEC,
+            ancestry: [{ uid: 'suite', title: 'Suite', kind: 'suite' as const }]
+          }
+        ])
+      ),
+      startTime: START
+    })
+    const outcomes = (tests: TestNode[] = []): string[] =>
+      tests.flatMap((node) => [node.outcome, ...outcomes(node.children)])
     const full = JSON.stringify(traceSummary(handle).tests).length
     const roomy = traceSummary(handle, { maxChars: 2 * full - 2 })
-    expect(roomy.tests?.[0]?.children?.map(({ outcome }) => outcome)).toEqual([
-      'failed',
-      'failed'
-    ])
-    expect(roomy.omittedTests).toBe(1)
-    const tight = traceSummary(handle, { maxChars: 300 })
-    expect(JSON.stringify(tight.tests ?? []).length).toBeLessThanOrEqual(150)
-    expect(tight.omittedTests).toBeGreaterThan(1)
+    expect(outcomes(roomy.tests).every((outcome) => outcome === 'failed')).toBe(
+      true
+    )
+    expect(roomy.omittedTests).toBe(30)
+    const tight = traceSummary(handle, { maxChars: 1_000 })
+    expect(JSON.stringify(tight).length).toBeLessThanOrEqual(1_000)
+    expect(JSON.stringify(tight.tests ?? []).length).toBeLessThanOrEqual(500)
+    expect(tight.omittedTests).toBeGreaterThan(30)
   })
 
   it('refuses a bad budget even with no tests to bound', async () => {
@@ -384,14 +408,23 @@ describe('a trace with waits and failures', () => {
     expect(
       JSON.stringify(traceActionDetail(handle, read.callId)).length
     ).toBeGreaterThan(1_000)
-    const small = traceActionDetail(handle, read.callId, { maxChars: 600 })
-    expect(JSON.stringify(small).length).toBeLessThanOrEqual(600)
+    const small = traceActionDetail(handle, read.callId, { maxChars: 1_000 })
+    expect(JSON.stringify(small).length).toBeLessThanOrEqual(1_000)
     expect(small.result).toMatch(/… \(cut, 5002 chars\)$/)
   })
 
   it('drops source lines before it cuts any field', async () => {
-    const handle = await openRun()
-    const { callId } = byTitle(traceActions(handle).items, 'assert.equal')
+    const handle = await openWritten({
+      commands: [
+        row('assert.equal', 100, 200, {
+          args: ['a'.repeat(700), 'b'.repeat(700)],
+          callSource: `${SPEC}:9`
+        })
+      ],
+      sources: { [SPEC]: SPEC_SOURCE },
+      startTime: START
+    })
+    const { callId } = traceActions(handle).items[0]!
     const oneLine = traceActionDetail(handle, callId, { contextLines: 1 })
     const noLines = traceActionDetail(handle, callId, { contextLines: 0 })
     const fit = (maxChars: number) =>
@@ -456,13 +489,21 @@ describe('a trace with waits and failures', () => {
   })
 
   it('pages the transcript by line, each page within its budget', async () => {
-    const handle = await openRun()
+    const handle = await openWritten({
+      commands: Array.from({ length: 30 }, (_, i) =>
+        row('url', 100 + i * 20, 110 + i * 20, {
+          args: [`http://127.0.0.1:4567/${'p'.repeat(i === 3 ? 3_000 : 40)}`]
+        })
+      ),
+      startTime: START
+    })
     const whole = traceTranscript(handle)!.items
+    expect(JSON.stringify(whole).length).toBeGreaterThan(2_000)
     const lines: string[] = []
     let cursor: string | undefined
     do {
-      const page = traceTranscript(handle, { maxChars: 80, cursor })!
-      expect(JSON.stringify(page).length).toBeLessThanOrEqual(80)
+      const page = traceTranscript(handle, { maxChars: 1_000, cursor })!
+      expect(JSON.stringify(page).length).toBeLessThanOrEqual(1_000)
       lines.push(...page.items)
       cursor = page.nextCursor
     } while (cursor)

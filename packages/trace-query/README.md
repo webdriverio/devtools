@@ -70,7 +70,8 @@ A zip keeps an error's message but not its stack, so `callSite` and `source` say
 
 ## Size budget
 
-Every query is bounded by characters, as a stand-in for tokens, through one rule:
+Every query is bounded by characters, as a stand-in for tokens, through one rule. A query refuses a `maxChars` below 1000 (`MIN_QUERY_CHARS`), the smallest budget every query's whole result is held within; from there up, a result never exceeds its `maxChars`.
+
 
 - `pageOf(items, { maxChars, cursor }, { scope, size })` returns the items that fit the budget (20000 characters unless `maxChars` says otherwise), the page's own `{ items, total, nextCursor }` wrapper and separators included, and a `nextCursor` while items remain. A page always holds at least one item, so paging advances; an item larger than the budget comes back whole, which is why a query cuts its long fields first.
 - A cursor is valid only for the listing that returned it: it carries the list's length and a fingerprint of the listing's `scope` (each query's filters), and one handed to a different listing is refused.

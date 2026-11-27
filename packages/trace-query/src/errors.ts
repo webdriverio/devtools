@@ -8,7 +8,7 @@ import {
 } from '@wdio/devtools-shared'
 import { actionTree } from './action-list.js'
 import { ownFailure, sinceStart } from './actions.js'
-import { clipText, pageOf } from './budget.js'
+import { clipText, pageOf, queryBudgetOf } from './budget.js'
 import {
   ACTION_STATUS,
   MAX_LIST_TEXT_CHARS,
@@ -137,6 +137,7 @@ export function traceErrors(
   handle: TraceHandle,
   request: PageRequest = {}
 ): Page<TraceError> {
+  queryBudgetOf(request.maxChars)
   return pageOf(collectErrors(traceStateOf(handle).data), request, {
     scope: PAGE_SCOPE.ERRORS
   })

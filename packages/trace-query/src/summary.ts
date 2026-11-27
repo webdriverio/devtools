@@ -7,7 +7,7 @@ import {
   type TraceOutcome
 } from '@wdio/devtools-shared'
 import { actionTree } from './action-list.js'
-import { budgetOf, clipText } from './budget.js'
+import { clipText, queryBudgetOf } from './budget.js'
 import {
   MAX_LIST_TEXT_CHARS,
   MAX_TITLE_CHARS,
@@ -112,7 +112,7 @@ export function traceSummary(
   handle: TraceHandle,
   request: Pick<PageRequest, 'maxChars'> = {}
 ): TraceSummary {
-  const budget = budgetOf(request.maxChars)
+  const budget = queryBudgetOf(request.maxChars)
   const { data } = traceStateOf(handle)
   const { metadata, commands } = data.trace
   const errors = collectErrors(data)

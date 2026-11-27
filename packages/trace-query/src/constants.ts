@@ -1,6 +1,9 @@
 /** Characters a result holds when its caller names no budget; a rough stand-in for tokens. */
 export const DEFAULT_MAX_CHARS = 20_000
 
+/** The smallest budget a query accepts: below it a summary's own fields, or one error with its message, cannot fit, so the limit could not hold. */
+export const MIN_QUERY_CHARS = 1_000
+
 const MIB = 1024 * 1024
 
 /** Largest zip opened, on disk or downloaded; a trace is usually a few megabytes. */

@@ -5,7 +5,7 @@ import {
   type TracePlayerData
 } from '@wdio/devtools-shared'
 import { actionStatus, orderedActions, ownFailure } from './actions.js'
-import { clipText, itemBudget, pageOf } from './budget.js'
+import { clipText, itemBudget, pageOf, queryBudgetOf } from './budget.js'
 import {
   ACTION_STATUS,
   MAX_LIST_TEXT_CHARS,
@@ -136,6 +136,7 @@ export function traceActions(
   handle: TraceHandle,
   query: ActionQuery = {}
 ): Page<ActionRow> {
+  queryBudgetOf(query.maxChars)
   const { data } = traceStateOf(handle)
   const { status, group, fromMs, toMs } = query
   const scope = JSON.stringify([

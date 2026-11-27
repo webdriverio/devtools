@@ -1,4 +1,4 @@
-import { clipText, itemBudget, pageOf } from './budget.js'
+import { clipText, itemBudget, pageOf, queryBudgetOf } from './budget.js'
 import { PAGE_SCOPE } from './constants.js'
 import { traceStateOf } from './open-trace.js'
 import type { Page, PageRequest, TraceHandle } from './types.js'
@@ -19,6 +19,7 @@ export function traceTranscript(
   handle: TraceHandle,
   request: PageRequest = {}
 ): Page<string> | undefined {
+  queryBudgetOf(request.maxChars)
   const { transcript } = traceStateOf(handle).data
   if (transcript === undefined) {
     return undefined

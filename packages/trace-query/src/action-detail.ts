@@ -11,7 +11,7 @@ import {
   actionStatus,
   ownFailure
 } from './actions.js'
-import { budgetOf, clipText, clipValue } from './budget.js'
+import { clipText, clipValue, queryBudgetOf } from './budget.js'
 import {
   ACTION_STATUS,
   DEFAULT_SOURCE_CONTEXT_LINES,
@@ -172,7 +172,7 @@ export function traceActionDetail(
   callId: string,
   options: ActionDetailOptions = {}
 ): ActionDetail {
-  const budget = budgetOf(options.maxChars)
+  const budget = queryBudgetOf(options.maxChars)
   const contextLines = contextLinesOf(options)
   const { data } = traceStateOf(handle)
   const action = actionByCallId(data, callId)

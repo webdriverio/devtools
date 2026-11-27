@@ -1,4 +1,4 @@
-import { DEFAULT_MAX_CHARS } from './constants.js'
+import { DEFAULT_MAX_CHARS, MIN_QUERY_CHARS } from './constants.js'
 import type { Page, PageOptions, PageRequest, TruncatedText } from './types.js'
 
 // The cursor carries the list's length and its scope's fingerprint, so one handed to a different listing is refused rather than read as an offset into it.
@@ -52,6 +52,17 @@ export function budgetOf(maxChars: number | undefined): number {
   const budget = maxChars ?? DEFAULT_MAX_CHARS
   if (!Number.isInteger(budget) || budget < 1) {
     throw new Error(`maxChars must be a positive integer, got ${budget}`)
+  }
+  return budget
+}
+
+/** A query's budget: refuses one below MIN_QUERY_CHARS, the smallest every query's result is held within. */
+export function queryBudgetOf(maxChars: number | undefined): number {
+  const budget = budgetOf(maxChars)
+  if (budget < MIN_QUERY_CHARS) {
+    throw new Error(
+      `maxChars must be at least ${MIN_QUERY_CHARS}, got ${budget}: a smaller result cannot hold what a query returns`
+    )
   }
   return budget
 }
