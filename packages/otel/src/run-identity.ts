@@ -1,5 +1,5 @@
 import { TraceFlags } from '@opentelemetry/api'
-import type { Manifest } from './manifest.js'
+import type { Manifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 
 export function runIdOf(
   file: string,

@@ -1,10 +1,22 @@
-import { browserScopeOf, type Manifest, type ManifestTest } from './manifest.js'
+import type {
+  Manifest,
+  ManifestTest
+} from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { STATE_FAILED } from './prepared.js'
 
 export interface RunManifest {
   manifest: Manifest
   mtimeMs: number
   runId: string
+}
+
+// Browser and platform decide whether two finals are siblings: a failure in one browser is not retried by a pass in another.
+function browserScopeOf(manifest: Manifest): string {
+  return JSON.stringify([
+    manifest.browserName ?? '',
+    manifest.browserVersion ?? '',
+    manifest.platformName ?? ''
+  ])
 }
 
 interface FinalOutcome {

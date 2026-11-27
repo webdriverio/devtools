@@ -15,7 +15,7 @@ export type ManifestArtifact = Omit<TraceArtifact, 'scope'> & {
 
 export type ManifestAttempt = TestAttemptRecord & { error?: string }
 
-// `state` is absent for a test the run started and never finished; such a test is pushed without a status.
+// `state` is absent for a test the run started and never finished.
 export type ManifestTest = Omit<
   ArtifactManifestTest,
   'state' | 'attempt' | 'attempts'
@@ -282,7 +282,7 @@ function specificProblem(json: Record<string, unknown>): string | undefined {
 
 function versionProblem(found: unknown): string {
   const shown = found === undefined ? 'none' : String(found)
-  return `manifest version ${shown}, this wdio-otel reads version ${ARTIFACTS_MANIFEST_VERSION}; record the run with a current devtools adapter`
+  return `manifest version ${shown}, expected version ${ARTIFACTS_MANIFEST_VERSION}; record the run with a current devtools adapter`
 }
 
 function describeMalformedTest(tests: unknown[]): string | undefined {
@@ -335,13 +335,4 @@ export function parseManifest(json: unknown, source: string): Manifest {
     artifacts: json.artifacts,
     tests: tests.map((test) => ({ ...test, attempt: test.attempt ?? 0 }))
   }
-}
-
-// Browser and platform decide whether two finals are siblings: a failure in one browser is not retried by a pass in another.
-export function browserScopeOf(manifest: Manifest): string {
-  return JSON.stringify([
-    manifest.browserName ?? '',
-    manifest.browserVersion ?? '',
-    manifest.platformName ?? ''
-  ])
 }

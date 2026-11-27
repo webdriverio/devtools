@@ -10,7 +10,7 @@ import {
   parseCliArgs,
   type PushArgs
 } from './cli-args.js'
-import { parseManifest } from './manifest.js'
+import { parseManifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { createTelemetry } from './providers.js'
 import { staleSpanWarning } from './stale-span.js'
 import { planPush, type ManifestInput } from './to-telemetry.js'

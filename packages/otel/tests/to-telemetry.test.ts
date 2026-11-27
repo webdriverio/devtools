@@ -13,7 +13,7 @@ import {
 import { buildTraceZip } from '@wdio/devtools-trace'
 import { describe, expect, it } from 'vitest'
 import * as attr from '../src/attributes.js'
-import type { Manifest } from '../src/manifest.js'
+import type { Manifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { derivedSpanId, PinnedIdGenerator } from '../src/span-ids.js'
 import { SPAN_LIMITS, telemetryWith } from '../src/providers.js'
 import {

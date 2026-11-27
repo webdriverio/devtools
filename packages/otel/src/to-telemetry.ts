@@ -11,21 +11,22 @@ import {
   type CommandLog,
   type TracePlayerData
 } from '@wdio/devtools-shared'
-import * as attr from './attributes.js'
+import { actionKey } from '@wdio/devtools-trace/action-key'
+import type {
+  Manifest,
+  ManifestTest
+} from '@wdio/devtools-trace/artifacts-manifest-reader'
 import {
-  artifactUrlFor,
-  describe,
   holdsEarlierAttempts,
-  traceArtifactsByUid,
-  zipReader
-} from './artifact-sources.js'
+  traceArtifactsByUid
+} from '@wdio/devtools-trace/final-attempt-artifacts'
+import * as attr from './attributes.js'
+import { artifactUrlFor, describe, zipReader } from './artifact-sources.js'
 import { emitPrepared, type TelemetrySink } from './emit-spans.js'
-import type { Manifest, ManifestTest } from './manifest.js'
 import { bounds, rootBounds, testBounds } from './bounds.js'
 import {
   actionStart,
   capLength,
-  normalizeSelector,
   STATE_FAILED,
   STATE_PASSED,
   type ActionInfo,
@@ -93,12 +94,6 @@ interface PreparedFacts {
   evidence: TraceEvidence | undefined
   finalExtra: Record<string, string | number>
   failureMessage: string | undefined
-}
-
-function actionKey(command: CommandLog): string {
-  return command.selector
-    ? `${command.command} ${normalizeSelector(command.selector)}`
-    : command.command
 }
 
 function actionInfos(commands: CommandLog[]): ActionInfo[] {

@@ -1,6 +1,9 @@
 import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
 import { describe, expect, it } from 'vitest'
-import { parseManifest, type Manifest } from '../src/manifest.js'
+import {
+  parseManifest,
+  type Manifest
+} from '../src/artifacts-manifest-reader.js'
 
 const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
 const SPAN_ID = '00f067aa0ba902b7'
@@ -398,7 +401,7 @@ describe('parseManifest version', () => {
     (found, version) => {
       const { manifestVersion: _omitted, ...rest } = valid
       expect(() => parseManifest({ ...rest, ...version }, 'm.json')).toThrow(
-        `m.json is not an artifacts manifest: manifest version ${found}, this wdio-otel reads version 2; record the run with a current devtools adapter`
+        `m.json is not an artifacts manifest: manifest version ${found}, expected version 2; record the run with a current devtools adapter`
       )
     }
   )
@@ -420,7 +423,7 @@ describe('parseManifest version', () => {
         'm.json'
       )
     ).toThrow(
-      'm.json is not an artifacts manifest: manifest version none, this wdio-otel reads version 2; record the run with a current devtools adapter'
+      'm.json is not an artifacts manifest: manifest version none, expected version 2; record the run with a current devtools adapter'
     )
   })
 
@@ -434,7 +437,7 @@ describe('parseManifest version', () => {
         },
         'm.json'
       )
-    ).toThrow('manifest version 1, this wdio-otel reads version 2')
+    ).toThrow('manifest version 1, expected version 2')
   })
 })
 
