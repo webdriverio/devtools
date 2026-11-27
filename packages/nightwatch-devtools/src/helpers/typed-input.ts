@@ -74,28 +74,41 @@ export function recordedTypingArgs(
   return recorded
 }
 
-/** The field, strategy and text a typing call names, or undefined when the script cannot resolve its field. */
+interface TypingTarget {
+  text: unknown
+  /** Where `FIELD_TYPE_SCRIPT` finds the field; absent when the call names it in a way the script cannot resolve (id, link text, no selector). */
+  field?: { selector: string; using: Strategy }
+}
+
+/** The text a typing call types and, when the script can resolve it, the field it types into. */
 function typingTarget(
   browser: NightwatchBrowser,
   logArgs: unknown[]
-): { selector: string; using: Strategy; text: unknown } | undefined {
+): TypingTarget {
   const [first, second, third] = logArgs
   if (textIndex(logArgs) === 2) {
     const using = SCRIPT_STRATEGIES[first as string]
     return using
-      ? { selector: second as string, using, text: third }
-      : undefined
+      ? { text: third, field: { selector: second as string, using } }
+      : { text: third }
   }
   const selector = definitionSelector(first)
-  if (!selector) {
-    return undefined
-  }
   const named = (first as { locateStrategy?: unknown } | null)?.locateStrategy
   const using =
     typeof named === 'string'
       ? SCRIPT_STRATEGIES[named]
       : defaultStrategy(browser)
-  return using ? { selector, using, text: second } : undefined
+  return selector && using
+    ? { text: second, field: { selector, using } }
+    : { text: second }
+}
+
+/** The raw transport and the script both answer null for a failure or no match, which must count as no answer, not as a field with no type. */
+function answeredOrReject(type: unknown): unknown {
+  if (type === null) {
+    throw new Error('field type unanswered')
+  }
+  return type
 }
 
 /** Queues the field-type read ahead of a typing command, so its row and every frame sent while it types are redacted; a no-op for anything else. */
@@ -105,25 +118,31 @@ export function readFieldBeforeTyping(
   logArgs: unknown[],
   nativeApp: boolean
 ): void {
-  const target = TYPING_COMMANDS.has(methodName)
-    ? typingTarget(browser, logArgs)
-    : undefined
   const perform = (browser as { perform?: unknown }).perform
   if (
-    !target ||
-    !readsFieldType(target.text) ||
+    !TYPING_COMMANDS.has(methodName) ||
     nativeApp ||
     typeof perform !== 'function'
   ) {
     return
   }
-  const { selector, using, text } = target
+  const { text, field } = typingTarget(browser, logArgs)
+  if (!readsFieldType(text)) {
+    return
+  }
+  // setPassword names its field a password; a field the script cannot locate is an unanswered read, which counts as one.
+  const readFieldType =
+    methodName === 'setPassword'
+      ? () => Promise.resolve('password')
+      : field
+        ? () =>
+            webdriverExecute(browser, FIELD_TYPE_SCRIPT, [
+              field.selector,
+              field.using
+            ]).then(answeredOrReject)
+        : undefined
   // Nightwatch awaits a promise an argument-less perform callback returns, before the typing command runs.
-  perform.call(browser, () =>
-    noteTypedInput(text, () =>
-      webdriverExecute(browser, FIELD_TYPE_SCRIPT, [selector, using])
-    )
-  )
+  perform.call(browser, () => noteTypedInput(text, readFieldType))
 }
 
 /** What the command proxy calls for every command before it is queued: follows the locate strategy and queues a typing command's field read. */

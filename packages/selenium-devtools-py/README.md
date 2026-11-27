@@ -351,9 +351,12 @@ carries `••••` in its place. Independently, the values of `Authorization
 `Proxy-Authorization`, `Cookie` and `Set-Cookie` are replaced in every network
 row's `headers`, `requestHeaders` and `responseHeaders`, each cookie's value in
 a navigation row's `cookies`, and the `value` of every cookie a command returns.
-A read that fails or overruns leaves the value as typed and never stops the
-command; after one overrun the session reads no more field types, since the
-abandoned read is still running on it.
+A read that fails or overruns never stops the command, and counts as a
+password field: the typed value is redacted, since redacting a value that was
+not a password is the safer error, and one warning that names no value is
+logged. After one overrun the session reads no more field types, since the
+abandoned read is still running on it, and what it types afterwards is redacted
+the same way.
 
 | Setting | `enable()` | pytest | ini | env |
 |---|---|---|---|---|

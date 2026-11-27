@@ -153,6 +153,11 @@ def is_password_field_type(field_type: Any) -> bool:
     return isinstance(field_type, str) and field_type.strip().lower() == "password"
 
 
+def redacts_typed_text(text: str, field_type: Any, answered: bool = True) -> bool:
+    """Whether typed text joins the run's secrets: long enough, and typed into a password field or one whose type read never answered."""
+    return is_redactable_value(text) and (not answered or is_password_field_type(field_type))
+
+
 class SecretRedactor:
     """Redacts the given secrets, typed passwords and optionally credentials from strings and JSON-shaped values."""
 
@@ -203,6 +208,7 @@ _state: Dict[str, Any] = {
     "automatic": True,
     "redactor": None,
     "stalled": set(),
+    "warned_unanswered": False,
 }
 
 
@@ -229,7 +235,7 @@ def configure(secrets: Optional[Sequence[SecretEntry]] = None, automatic: bool =
     """
     entries = _env_entries() if secrets is None else list(secrets)
     resolved, warnings = resolve_secrets(entries, os.environ)
-    _state.update(configured=resolved, automatic=automatic)
+    _state.update(configured=resolved, automatic=automatic, warned_unanswered=False)
     if not automatic:
         _state["typed"] = []
     _rebuild()
@@ -240,6 +246,7 @@ def configure(secrets: Optional[Sequence[SecretEntry]] = None, automatic: bool =
 
 
 _TIMED_OUT = object()
+_FAILED = object()
 
 
 def _read_with_ceiling(read_field_type: Callable[[], Any]) -> Any:
@@ -249,8 +256,9 @@ def _read_with_ceiling(read_field_type: Callable[[], Any]) -> Any:
     def run() -> None:
         try:
             result["type"] = read_field_type()
-        except Exception as exc:  # noqa: BLE001 - a failed read leaves the value as typed, never the command
-            _log.debug("field type read failed (%s); the typed value is not redacted", type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 - a failed read counts as a password, never fails the command
+            _log.debug("field type read failed (%s); the typed value is redacted", type(exc).__name__)
+            result["type"] = _FAILED
 
     reader = threading.Thread(target=run, name="devtools-field-type", daemon=True)
     reader.start()
@@ -258,18 +266,36 @@ def _read_with_ceiling(read_field_type: Callable[[], Any]) -> Any:
     return _TIMED_OUT if reader.is_alive() else result.get("type")
 
 
+def _warn_unanswered_once() -> None:
+    if _state["warned_unanswered"]:
+        return
+    _state["warned_unanswered"] = True
+    # Names no value: the warning itself must not carry what it is about.
+    _log.warning(
+        "mask_inputs: a field could not be checked for being a password before text was typed into it, "
+        "so that text is redacted as a password wherever it appears. Later fields that cannot be checked "
+        "are treated the same way without another warning."
+    )
+
+
 def note_typed_input(parts: Any, read_field_type: Callable[[], Any], session: Any = None) -> bool:
-    """Add what a key-sending command typed to the run's secrets when ``read_field_type`` names a password field; True when it was new."""
+    """Add what a key-sending command typed to the run's secrets when ``read_field_type`` names a password field or does not answer; True when it was new."""
     text = typed_text(parts)
     known = text in _state["typed"] or text in _state["configured"]
-    if not _state["automatic"] or known or not is_redactable_value(text) or session in _state["stalled"]:
+    if not _state["automatic"] or known or not is_redactable_value(text):
         return False
-    field_type = _read_with_ceiling(read_field_type)
-    if field_type is _TIMED_OUT:
-        # The abandoned read is still on the session, so no later read may queue beside the user's commands on it.
-        _state["stalled"].add(session)
-        return False
-    if is_password_field_type(field_type) and text not in _state["typed"]:
+    if session in _state["stalled"]:
+        # The abandoned read is still on the session, so this field goes unread and counts as a password.
+        field_type: Any = _TIMED_OUT
+    else:
+        field_type = _read_with_ceiling(read_field_type)
+        if field_type is _TIMED_OUT:
+            # No later read may queue beside the user's commands behind the abandoned one.
+            _state["stalled"].add(session)
+    answered = field_type is not _TIMED_OUT and field_type is not _FAILED
+    if not answered:
+        _warn_unanswered_once()
+    if redacts_typed_text(text, field_type, answered) and text not in _state["typed"]:
         _state["typed"].append(text)
         _rebuild()
         return True

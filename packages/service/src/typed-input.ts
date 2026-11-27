@@ -5,6 +5,14 @@ import { isNativeAppSession } from '@wdio/devtools-shared'
 
 import { directProbes } from './direct-probes.js'
 
+/** The direct probe answers undefined for a failed read as well as for an element with no type, so it counts as no answer. */
+function answeredOrReject(type: string | undefined): string {
+  if (type === undefined) {
+    throw new Error('field type unanswered')
+  }
+  return type
+}
+
 /** The field-type reads of the run's elementSendKeys commands, started in beforeCommand and awaited only before a row is recorded. */
 export class TypedInputReads {
   #pending: Promise<void>[] = []
@@ -24,7 +32,7 @@ export class TypedInputReads {
     this.#pending.push(
       noteTypedInput(args[1], () =>
         direct
-          ? direct.getElementType(elementId)
+          ? direct.getElementType(elementId).then(answeredOrReject)
           : browser.getElementProperty(elementId, 'type')
       )
     )

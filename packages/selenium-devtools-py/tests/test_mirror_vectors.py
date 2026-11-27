@@ -447,9 +447,7 @@ class TestTypedSecret(unittest.TestCase):
         for case in _cases("typedSecret"):
             with self.subTest(case["name"]):
                 text = secret_redaction.typed_text(case["parts"])
-                redacts = secret_redaction.is_redactable_value(text) and secret_redaction.is_password_field_type(
-                    case["fieldType"]
-                )
+                redacts = secret_redaction.redacts_typed_text(text, case["fieldType"], case.get("answered", True))
                 self.assertEqual({"text": text, "redacts": redacts}, case["expect"])
 
 

@@ -112,23 +112,42 @@ describe('noteTypedInput', () => {
     expect(redactSecrets(SECRET)).toBe(SECRET)
   })
 
-  it('lets the command go on when the read fails or hangs', async () => {
+  it('redacts what was typed when the read fails, hangs or cannot be issued, warning once without the value', async () => {
     vi.useFakeTimers()
     try {
-      configureSecretRedaction()
+      const warn = vi.fn()
+      configureSecretRedaction({}, {}, warn)
       await noteTypedInput(SECRET, () => Promise.reject(new Error('stale')))
-      await noteTypedInput(SECRET, () => {
+      await noteTypedInput('thrown-secret', () => {
         throw new Error('no driver address')
       })
-      const hung = noteTypedInput('other-secret', () => new Promise(() => {}))
+      await noteTypedInput('unlocated-secret', undefined)
+      const hung = noteTypedInput('hung-secret', () => new Promise(() => {}))
       await vi.advanceTimersByTimeAsync(FIELD_TYPE_PROBE_TIMEOUT_MS)
       await hung
-      expect(redactSecrets(`${SECRET} other-secret`)).toBe(
-        `${SECRET} other-secret`
-      )
+      expect(
+        redactSecrets(`${SECRET} thrown-secret unlocated-secret hung-secret`)
+      ).toBe(`${MASKED_VALUE} ${MASKED_VALUE} ${MASKED_VALUE} ${MASKED_VALUE}`)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0]![0]).not.toMatch(/secret/i)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('warns again after the run is configured again', async () => {
+    const warn = vi.fn()
+    configureSecretRedaction({}, {}, warn)
+    await noteTypedInput('first-secret', undefined)
+    configureSecretRedaction({}, {}, warn)
+    await noteTypedInput('second-secret', undefined)
+    expect(warn).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps text a field answered with no type for', async () => {
+    configureSecretRedaction()
+    await noteTypedInput('tomsmith', async () => null)
+    expect(redactSecrets('tomsmith')).toBe('tomsmith')
   })
 
   it('keeps learned values when the run is configured again, unless input masking is turned off', async () => {
@@ -145,7 +164,10 @@ describe('sendUpstream', () => {
   it('sends a row typed into a password field redacted, with no secrets listed', async () => {
     configureSecretRedaction()
     await noteTypedInput(SECRET, async () => 'password')
-    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
+    const capturer = new TestSessionCapturer({
+      hostname: 'localhost',
+      port: 1
+    })
     capturer.sendUpstream('commands', [{ command: 'setValue', args: [SECRET] }])
     expect(sockets.at(-1)!.sent.at(-1)).not.toContain(SECRET)
   })
@@ -168,7 +190,10 @@ describe('sendUpstream', () => {
 
   it('holds a frame sent while a typing read is in flight, then sends it redacted with what the read learned', async () => {
     configureSecretRedaction()
-    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
+    const capturer = new TestSessionCapturer({
+      hostname: 'localhost',
+      port: 1
+    })
     const socket = sockets.at(-1)!
     let answer!: (type: string) => void
     const learning = noteTypedInput(
@@ -191,7 +216,10 @@ describe('sendUpstream', () => {
 
   it('sends at once when no typing read is in flight', () => {
     configureSecretRedaction()
-    const capturer = new TestSessionCapturer({ hostname: 'localhost', port: 1 })
+    const capturer = new TestSessionCapturer({
+      hostname: 'localhost',
+      port: 1
+    })
     capturer.sendUpstream('consoleLogs', [{ args: ['hello'] }])
     expect(sockets.at(-1)!.sent).toHaveLength(1)
   })
