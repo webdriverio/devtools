@@ -4,11 +4,12 @@ import { FIELD_TYPE_SCRIPT } from '../src/page-scripts.js'
 import {
   isPasswordFieldType,
   isRedactableValue,
+  redactsTypedText,
   typedText
 } from '../src/typed-secrets.js'
 
 interface FakeField {
-  type: string
+  type?: string
 }
 
 /** Runs the script as WebDriver's execute/sync would, against a page whose selectors resolve to the given fields, first match first. */
@@ -51,6 +52,14 @@ describe('typed secrets', () => {
     expect(isPasswordFieldType('text')).toBe(false)
     expect(isPasswordFieldType(null)).toBe(false)
   })
+
+  it('redacts text typed into a password field or a field whose read did not answer', () => {
+    expect(redactsTypedText('hunter22', 'password')).toBe(true)
+    expect(redactsTypedText('hunter22', 'text')).toBe(false)
+    expect(redactsTypedText('hunter22', null)).toBe(false)
+    expect(redactsTypedText('hunter22', undefined, false)).toBe(true)
+    expect(redactsTypedText('abc', undefined, false)).toBe(false)
+  })
 })
 
 describe('FIELD_TYPE_SCRIPT', () => {
@@ -62,6 +71,10 @@ describe('FIELD_TYPE_SCRIPT', () => {
     expect(fieldType(['//input[2]', 'xpath'], {}, { '//input[2]': [pw] })).toBe(
       'password'
     )
+  })
+
+  it('reads an empty type for a match that is not a form control', () => {
+    expect(fieldType(['#hero', 'css'], { '#hero': [{}] })).toBe('')
   })
 
   it('reads nothing when the selector matches nothing, never the focused element', () => {

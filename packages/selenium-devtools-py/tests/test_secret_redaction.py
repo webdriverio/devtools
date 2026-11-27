@@ -183,9 +183,9 @@ class TestTypedPasswords(_Configured):
             started = time.monotonic()
             secret_redaction.note_typed_input(SECRET, slow)
         self.assertLess(time.monotonic() - started, 0.4)
-        self.assertEqual(secret_redaction.redact(SECRET), SECRET)
+        self.assertEqual(secret_redaction.redact(SECRET), "••••")
 
-    def test_a_session_whose_read_timed_out_reads_no_more(self):
+    def test_a_session_whose_read_timed_out_reads_no_more_and_redacts_what_it_types(self):
         calls = []
 
         def slow():
@@ -198,7 +198,7 @@ class TestTypedPasswords(_Configured):
             secret_redaction.note_typed_input("another-secret", slow, session="s1")
             secret_redaction.note_typed_input("third-secret", lambda: "password", session="s2")
         self.assertEqual(len(calls), 1)
-        self.assertEqual(secret_redaction.redact("third-secret"), "••••")
+        self.assertEqual(secret_redaction.redact("another-secret third-secret"), "•••• ••••")
 
     def test_learned_passwords_survive_a_reconfigure_unless_masking_is_turned_off(self):
         secret_redaction.note_typed_input(SECRET, lambda: "password")
@@ -207,12 +207,30 @@ class TestTypedPasswords(_Configured):
         secret_redaction.configure([], automatic=False)
         self.assertEqual(secret_redaction.redact(SECRET), SECRET)
 
-    def test_a_failed_read_leaves_the_command_running(self):
+    def test_a_failed_read_leaves_the_command_running_and_redacts_what_it_types(self):
         def broken():
             raise RuntimeError("no such element")
 
         secret_redaction.note_typed_input(SECRET, broken)
-        self.assertEqual(secret_redaction.redact(SECRET), SECRET)
+        self.assertEqual(secret_redaction.redact(SECRET), "••••")
+
+    def test_an_unanswered_read_warns_once_per_configure_without_the_value(self):
+        def broken():
+            raise RuntimeError("no such element")
+
+        with self.assertLogs(secret_redaction._log, level="WARNING") as logs:
+            secret_redaction.note_typed_input(SECRET, broken)
+            secret_redaction.note_typed_input("another-secret", broken)
+            secret_redaction.configure([])
+            secret_redaction.note_typed_input("third-secret", broken)
+        warnings = [line for line in logs.output if "could not be checked" in line]
+        self.assertEqual(len(warnings), 2)
+        for value in (SECRET, "another-secret", "third-secret"):
+            self.assertFalse(any(value in line for line in warnings))
+
+    def test_a_field_that_answered_with_no_type_keeps_the_text(self):
+        secret_redaction.note_typed_input("tomsmith", lambda: None)
+        self.assertEqual(secret_redaction.redact("tomsmith"), "tomsmith")
 
 
 class _Config:

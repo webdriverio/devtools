@@ -180,7 +180,11 @@ class NightwatchDevToolsPlugin {
       secrets: options.secrets ?? []
     }
     configureInputMasking(this.options)
-    for (const warning of configureSecretRedaction(this.options)) {
+    for (const warning of configureSecretRedaction(
+      this.options,
+      process.env,
+      (message) => log.warn(message)
+    )) {
       log.warn(warning)
     }
     const policyWarning = ignoredOptionsWarning(options, mode)

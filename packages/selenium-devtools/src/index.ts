@@ -306,7 +306,11 @@ class SeleniumDevToolsPlugin {
   #applyCapturePolicy(secretsChanged = true): void {
     configureInputMasking(this.#options)
     if (secretsChanged) {
-      for (const warning of configureSecretRedaction(this.#options)) {
+      for (const warning of configureSecretRedaction(
+        this.#options,
+        process.env,
+        (message) => log.warn(message)
+      )) {
         log.warn(warning)
       }
     }

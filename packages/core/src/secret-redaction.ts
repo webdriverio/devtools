@@ -2,8 +2,8 @@
 
 import {
   createSecretRedactor,
-  isPasswordFieldType,
   isRedactableValue,
+  redactsTypedText,
   resolveSecrets,
   typedText,
   type BaseDevToolsOptions,
@@ -23,6 +23,10 @@ let redactor: SecretRedactor | undefined
 let readsInFlight = 0
 let onReadsSettled: (() => void)[] = []
 let generation = 0
+let warn: ((message: string) => void) | undefined
+let warnedUnanswered = false
+/** What a field-type read that failed, hung or could not be issued resolves to. */
+const UNANSWERED = Symbol('unanswered')
 /** Each trace artifact written, with the redactor generation it was written under. */
 const written = new Map<string, number>()
 
@@ -35,11 +39,14 @@ function rebuild(): void {
 }
 rebuild()
 
-/** Reads `secrets` at start and returns what to log, a count of skipped entries; passwords already learned stay redacted unless `maskInputs: false` turns that off. */
+/** Reads `secrets` at start and returns what to log, a count of skipped entries; passwords already learned stay redacted unless `maskInputs: false` turns that off. `onWarning` hears, once, that a field-type read went unanswered. */
 export function configureSecretRedaction(
   options: Pick<BaseDevToolsOptions, 'secrets' | 'maskInputs'> = {},
-  env: Readonly<Record<string, string | undefined>> = process.env
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  onWarning?: (message: string) => void
 ): string[] {
+  warn = onWarning
+  warnedUnanswered = false
   const { secrets, warnings } = resolveSecrets(options.secrets, env)
   configured = secrets
   automatic = options.maskInputs !== false
@@ -66,12 +73,28 @@ export function secretRedactor(): SecretRedactor | undefined {
 }
 
 /** Issues the read in the caller's tick, so a hook that starts it issues it while it runs; never rejects. */
-function startRead(readFieldType: () => Promise<unknown>): Promise<unknown> {
-  try {
-    return readFieldType().catch(() => undefined)
-  } catch {
-    return Promise.resolve(undefined)
+function startRead(
+  readFieldType: (() => Promise<unknown>) | undefined
+): Promise<unknown> {
+  if (!readFieldType) {
+    return Promise.resolve(UNANSWERED)
   }
+  try {
+    return readFieldType().catch(() => UNANSWERED)
+  } catch {
+    return Promise.resolve(UNANSWERED)
+  }
+}
+
+function warnUnansweredOnce(): void {
+  if (warnedUnanswered) {
+    return
+  }
+  warnedUnanswered = true
+  // Names no value: the warning itself must not carry what it is about.
+  warn?.(
+    'maskInputs: a field could not be checked for being a password before text was typed into it, so that text is redacted as a password wherever it appears. Later fields that cannot be checked are treated the same way without another warning.'
+  )
 }
 
 /** Whether `noteTypedInput` would read a field type for this text: input masking is on and the value is long enough and not known yet. */
@@ -81,10 +104,10 @@ export function readsFieldType(parts: unknown): boolean {
   return automatic && !known && isRedactableValue(text)
 }
 
-/** Adds what a key-sending command typed to the run's secrets when `readFieldType` names a password field; never rejects, and skips the read for a short or known value. */
+/** Adds what a key-sending command typed to the run's secrets when `readFieldType` names a password field, or does not answer (fails, hangs, or is undefined because the field cannot be located); never rejects, and skips the read for a short or known value. */
 export async function noteTypedInput(
   parts: unknown,
-  readFieldType: () => Promise<unknown>
+  readFieldType: (() => Promise<unknown>) | undefined
 ): Promise<void> {
   if (!readsFieldType(parts)) {
     return
@@ -92,13 +115,17 @@ export async function noteTypedInput(
   const text = typedText(parts)
   readsInFlight++
   try {
-    // A read that fails or hangs leaves the value as typed: it must never hold the user's command back.
+    // The ceiling keeps a hung read from holding the user's command back; what it cut off counts as a password.
     const type = await withTimeout(
       startRead(readFieldType),
       FIELD_TYPE_PROBE_TIMEOUT_MS,
-      undefined
+      UNANSWERED
     )
-    if (isPasswordFieldType(type) && !typed.includes(text)) {
+    const answered = type !== UNANSWERED
+    if (!answered) {
+      warnUnansweredOnce()
+    }
+    if (redactsTypedText(text, type, answered) && !typed.includes(text)) {
       typed.push(text)
       rebuild()
     }

@@ -56,6 +56,16 @@ describe('TypedInputReads', () => {
     expect(redactSecrets(SECRET)).toBe('••••')
   })
 
+  it('redacts what is typed when the direct probe gives no answer', async () => {
+    directProbes.mockReturnValueOnce({
+      getElementType: vi.fn(async () => undefined)
+    } as unknown as DirectProbes)
+    const reads = new TypedInputReads()
+    reads.read(browserWith({}), 'elementSendKeys', ['el-9', SECRET])
+    await reads.settled()
+    expect(redactSecrets(SECRET)).toBe('••••')
+  })
+
   it('keeps text typed into another field', async () => {
     const reads = new TypedInputReads()
     reads.read(browserWith({}), 'elementSendKeys', ['el-1', 'tomsmith'])
