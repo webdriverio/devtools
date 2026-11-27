@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { clipText, clipValue, pageOf, truncateText } from '../src/budget.js'
-import { DEFAULT_MAX_CHARS } from '../src/constants.js'
+import {
+  clipText,
+  clipValue,
+  fitted,
+  itemBudget,
+  itemBudgetBeside,
+  pageOf,
+  pageWith,
+  truncateText
+} from '../src/budget.js'
+import { DEFAULT_MAX_CHARS, MIN_TEXT_CHARS } from '../src/constants.js'
 
 const ITEMS = ['aaaa', 'bbbb', 'cccc', 'dddd', 'eeee']
 const fourEach = { size: () => 4 }
@@ -195,5 +204,59 @@ describe('clipValue', () => {
 
   it('has nothing for a value with no JSON form', () => {
     expect(clipValue(undefined, 10)).toBeUndefined()
+  })
+})
+
+describe('pageWith', () => {
+  const items = Array.from(
+    { length: 30 },
+    (_, i) => `item ${i} ${'x'.repeat(40)}`
+  )
+  const extra = {
+    byLevel: { error: 3, log: 27 },
+    origin: 'http://127.0.0.1:4567'
+  }
+
+  it('pays for the fields beside the items out of the same budget', () => {
+    const page = pageWith(items, { maxChars: 1_000 }, { scope: 's' }, extra)
+    expect(JSON.stringify(page).length).toBeLessThanOrEqual(1_000)
+    expect(page).toMatchObject(extra)
+    const without = pageOf(items, { maxChars: 1_000 }, { scope: 's' })
+    expect(page.items.length).toBeLessThan(without.items.length)
+  })
+
+  it('pages to the end with the cursor it returns, every page within the budget', () => {
+    let cursor: string | undefined
+    const seen: string[] = []
+    do {
+      const page = pageWith(
+        items,
+        { maxChars: 1_000, cursor },
+        { scope: 's' },
+        extra
+      )
+      expect(JSON.stringify(page).length).toBeLessThanOrEqual(1_000)
+      seen.push(...page.items)
+      cursor = page.nextCursor
+    } while (cursor)
+    expect(seen).toEqual(items)
+  })
+
+  it('leaves each item what the page has once the fields beside it are paid for', () => {
+    const request = { maxChars: 1_000 }
+    expect(itemBudgetBeside(items.length, request, 's', extra)).toBe(
+      itemBudget(items.length, 1_000, 's') - (JSON.stringify(extra).length - 1)
+    )
+  })
+})
+
+describe('fitted', () => {
+  it('cuts the text until the whole item fits, never below MIN_TEXT_CHARS', () => {
+    const text = 'y'.repeat(5_000)
+    const build = (maxChars: number) => ({ text: clipText(text, maxChars) })
+    expect(
+      JSON.stringify(fitted(build, 2_000, 500)).length
+    ).toBeLessThanOrEqual(500)
+    expect(fitted(build, 2_000, 10).text).toHaveLength(MIN_TEXT_CHARS)
   })
 })

@@ -1,12 +1,11 @@
-import type { NetworkRequest } from '@wdio/devtools-shared'
+import { statusKind, type NetworkRequest } from '@wdio/devtools-shared'
 
 import { networkRequestContext } from '@/controller/context.js'
 import {
   contentType,
   formatBytes,
   formatTime,
-  getFileName,
-  statusKind
+  getFileName
 } from '@/utils/network-helpers.js'
 import { FAILED_STATUS_LABEL } from '@/utils/network-constants.js'
 import '@components/workbench/network.js'

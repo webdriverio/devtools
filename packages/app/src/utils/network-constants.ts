@@ -81,13 +81,6 @@ export const RESOURCE_TYPES = [
 /** The active filter: a bucket, or `All` for no filtering. */
 export type ResourceFilter = (typeof RESOURCE_TYPES)[number]
 
-/** Inclusive lower bounds of the HTTP status-code ranges. */
-export const HTTP_STATUS = {
-  SUCCESS_MIN: 200,
-  REDIRECT_MIN: 300,
-  CLIENT_ERROR_MIN: 400
-} as const
-
 /** Shown in the list's status column and the detail card when a request failed
  *  at the transport level, so it carries no code — the capture reports status 0
  *  there, which would otherwise render as the same dash a request still in
@@ -96,16 +89,3 @@ export const FAILED_STATUS_LABEL = 'ERR'
 
 /** The list's and the detail card's glyph for a value the capture never had. */
 export const NO_VALUE = '—'
-
-/** Coarse status buckets used to colour the status dot/number in the list.
- *  `unknown` is a request that completed on a source that exposes no status
- *  (Resource Timing outside Chromium); `pending` is one still in flight. */
-export const STATUS_KIND = {
-  OK: 'ok',
-  REDIRECT: 'redirect',
-  ERROR: 'error',
-  PENDING: 'pending',
-  UNKNOWN: 'unknown'
-} as const
-
-export type StatusKind = (typeof STATUS_KIND)[keyof typeof STATUS_KIND]

@@ -1,5 +1,9 @@
 import { Element } from '@core/element'
-import type { NetworkRequest } from '@wdio/devtools-shared'
+import {
+  isTransportFailure,
+  requestStatusKind,
+  type NetworkRequest
+} from '@wdio/devtools-shared'
 import { html, nothing } from 'lit'
 import { networkStyles } from './network/styles.js'
 import { filterToolbarStyles, keyValueCardStyles } from '../shared-styles.js'
@@ -31,9 +35,7 @@ import {
 } from './network/waterfall.js'
 import {
   formatTransferSize,
-  renderNetworkRequestDetail,
-  requestFailed,
-  requestStatusKind
+  renderNetworkRequestDetail
 } from './network/request-detail.js'
 import { StoredResponseBodies } from './network/stored-bodies.js'
 
@@ -174,7 +176,7 @@ export class DevtoolsNetwork extends Element {
     // is what the dash means.
     const statusLabel =
       request.status ||
-      (requestFailed(request) ? FAILED_STATUS_LABEL : NO_VALUE)
+      (isTransportFailure(request) ? FAILED_STATUS_LABEL : NO_VALUE)
     return html`
       <div
         class="grid request-row ${

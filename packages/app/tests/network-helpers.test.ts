@@ -1,5 +1,4 @@
 import {
-  NETWORK_CAPTURE_SOURCE,
   REQUEST_TYPES,
   type NetworkRequest,
   type RequestType
@@ -7,13 +6,11 @@ import {
 import { describe, it, expect } from 'vitest'
 
 import {
-  statusKind,
   getStatusClass,
   getResourceType,
   getFileName
 } from '../src/utils/network-helpers.js'
 import {
-  STATUS_KIND,
   RESOURCE_TYPES,
   RESOURCE_TYPE_BY_REQUEST_TYPE
 } from '../src/utils/network-constants.js'
@@ -54,43 +51,6 @@ function offVocabulary(
 ): NetworkRequest {
   return { ...request(overrides), type: type as RequestType }
 }
-
-describe('statusKind', () => {
-  it('buckets 2xx as ok', () => {
-    expect(statusKind(200)).toBe(STATUS_KIND.OK)
-    expect(statusKind(204)).toBe(STATUS_KIND.OK)
-  })
-
-  it('buckets 3xx as redirect', () => {
-    expect(statusKind(301)).toBe(STATUS_KIND.REDIRECT)
-    expect(statusKind(304)).toBe(STATUS_KIND.REDIRECT)
-  })
-
-  it('buckets 4xx/5xx as error', () => {
-    expect(statusKind(404)).toBe(STATUS_KIND.ERROR)
-    expect(statusKind(500)).toBe(STATUS_KIND.ERROR)
-  })
-
-  it('treats a missing status as pending', () => {
-    expect(statusKind(undefined)).toBe(STATUS_KIND.PENDING)
-  })
-
-  it('treats a missing status from a source that never exposes one as unknown', () => {
-    // A Resource Timing row completed; outside Chromium the browser simply
-    // reports no status, which is not the same as one still on its way.
-    expect(
-      statusKind(undefined, false, NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING)
-    ).toBe(STATUS_KIND.UNKNOWN)
-    expect(statusKind(200, false, NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING)).toBe(
-      STATUS_KIND.OK
-    )
-  })
-
-  it('treats an error flag as error regardless of status', () => {
-    expect(statusKind(200, true)).toBe(STATUS_KIND.ERROR)
-    expect(statusKind(undefined, true)).toBe(STATUS_KIND.ERROR)
-  })
-})
 
 describe('getStatusClass', () => {
   it('derives the text colour from the status bucket', () => {

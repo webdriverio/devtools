@@ -12,7 +12,10 @@ export {
   DEFAULT_MAX_ZIP_BYTES,
   TRACE_ERROR_KIND
 } from './constants.js'
+export { traceConsole } from './console.js'
 export { traceErrors } from './errors.js'
+export { traceNetwork } from './network.js'
+export { traceNetworkRequest } from './network-request.js'
 export { openTrace, openTraceSource } from './open-trace.js'
 export { traceSummary } from './summary.js'
 export { traceTranscript } from './transcript.js'
@@ -24,15 +27,29 @@ export type {
   ActionQuery,
   ActionRow,
   ActionStatus,
+  ActionWindow,
+  ConsoleLevel,
+  ConsoleLine,
+  ConsolePage,
+  ConsoleQuery,
+  ConsoleSource,
+  NetworkPage,
+  NetworkQuery,
+  NetworkRow,
+  NetworkSource,
   OpenedTrace,
   OpenTraceOptions,
   Page,
   PageOptions,
   PageRequest,
+  RequestStatusKind,
+  RequestType,
   TestNode,
   TraceError,
   TraceErrorKind,
   TraceHandle,
+  TraceNetworkRequestDetail,
+  TraceNetworkRequestOptions,
   TraceSelection,
   TraceSummary,
   TraceTarget,

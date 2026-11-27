@@ -12,15 +12,14 @@
 
 import { describe, it, expect, beforeEach } from 'vitest'
 import { render } from 'lit'
-import type { NetworkRequest } from '@wdio/devtools-shared'
+import { statusKind, type NetworkRequest } from '@wdio/devtools-shared'
 
 import { renderNetworkRequestDetail } from '../src/components/workbench/network/request-detail.js'
 import { FAILED_STATUS_LABEL } from '../src/utils/network-constants.js'
 import {
   contentType,
   formatBytes,
-  formatTime,
-  statusKind
+  formatTime
 } from '../src/utils/network-helpers.js'
 
 function req(partial: Partial<NetworkRequest> = {}): NetworkRequest {
