@@ -2,6 +2,10 @@
 const path = require('node:path')
 const nightwatchDevtools = require('@wdio/nightwatch-devtools').default
 
+const MODE = ['live', 'telemetry'].includes(process.env.DEVTOOLS_MODE)
+  ? process.env.DEVTOOLS_MODE
+  : 'trace'
+
 module.exports = {
   // Resolve relative to this config file so the path holds regardless of CWD.
   src_folders: [path.resolve(__dirname, 'bdd')],
@@ -33,7 +37,7 @@ module.exports = {
             // Chrome's password-leak check silently stops delivering ALL
             // WebDriver-synthesized input to the tab ~1s after a breached
             // credential is submitted (tomsmith/SuperSecretPassword! is in the
-            // corpus). Blocking only that host prevents it; see CLAUDE.md.
+            // corpus). Blocking only that host prevents it; see examples/CLAUDE.md.
             '--host-resolver-rules=MAP passwordsleakcheck-pa.googleapis.com 127.0.0.1',
             '--no-sandbox',
             '--disable-dev-shm-usage',
@@ -56,10 +60,11 @@ module.exports = {
         //             (rung 5 needs retries → run `pnpm demo:nightwatch:retry`)
         // NOTE: the BDD describe/it interface fires the plugin's beforeEach once
         // per module (no per-`it` hook), so traceGranularity:'test' collapses to
-        // a single session-scoped slice here. See CLAUDE.md § Known debt.
+        // a single session-scoped slice here. See packages/nightwatch-devtools/CLAUDE.md § Known debt.
         // Trace by default (regen/demo); DEVTOOLS_MODE=live flips to live for live-parity recording.
-        mode: process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace',
-        traceGranularity: 'session',
+        mode: MODE,
+        // Live and telemetry modes warn that they ignore this, so set it only for trace.
+        ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
         // tracePolicy: 'retain-on-first-failure',
         bidi: true,
         // DEVTOOLS_EXAMPLE_SECRET='SuperSecretPassword!' redacts the demo password from the dashboard and the trace.

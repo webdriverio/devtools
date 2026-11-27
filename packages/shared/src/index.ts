@@ -1,7 +1,8 @@
 // Single source of truth for types, constants, and HTTP/WS contracts shared
-// across @wdio/devtools-* packages. See ARCHITECTURE.md §2 and CLAUDE.md §2.1.
+// across @wdio/devtools-* packages. See ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 
 export * from './action-mapping.js'
+export * from './artifacts-manifest.js'
 export * from './baseline.js'
 export * from './browser-schemes.js'
 export * from './call-source.js'
@@ -22,6 +23,7 @@ export * from './image.js'
 export * from './input-mask.js'
 export * from './player-csp.js'
 export * from './locator-dialect.js'
+export * from './mode-traits.js'
 export * from './request-type.js'
 export * from './routes.js'
 export * from './run-capabilities.js'
@@ -32,6 +34,7 @@ export * from './typed-secrets.js'
 export * from './snapshot-format.js'
 export * from './timing.js'
 export * from './trace-actions.js'
+export * from './trace-context.js'
 export * from './trace-export.js'
 export * from './trace-file.js'
 export * from './trace-player.js'

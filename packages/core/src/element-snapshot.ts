@@ -13,7 +13,7 @@ import type {
 } from './element-types.js'
 
 // The serializers live in `trace` because the backend builds the trace for an
-// adapter that cannot, and §2.2 bars the backend from importing core.
+// adapter that cannot, and CLAUDE.md § Layering bars the backend from importing core.
 export {
   serializeWebSnapshot,
   type WebSnapshotOptions

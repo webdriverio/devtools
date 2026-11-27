@@ -134,6 +134,17 @@ describe('runPluginBefore', () => {
     delete process.env.DEVTOOLS_RUNNER_CWD
   })
 
+  it('starts no backend in telemetry mode', async () => {
+    delete process.env.DEVTOOLS_APP_REUSE
+    vi.mocked(start).mockClear()
+    const telemetryCtx = {
+      ...ctx(),
+      options: { hostname: 'localhost', port: 39417, mode: 'telemetry' }
+    } as unknown as PluginBeforeCtx
+    await runPluginBefore(telemetryCtx)
+    expect(start).not.toHaveBeenCalled()
+  })
+
   it('leaves the selection to the run that started the backend when it is a rerun', async () => {
     process.env.DEVTOOLS_APP_REUSE = '1'
     process.env.DEVTOOLS_APP_HOST = 'localhost'

@@ -2,7 +2,7 @@ import type { SuiteStats, TestStats } from '@wdio/reporter'
 import type { TestStatus } from '@wdio/devtools-shared'
 
 // SocketMessage / WsScope / WsPayloadFor are the WS wire format and live in
-// @wdio/devtools-shared (§2.1 + §2.5). Re-exported here for back-compat with
+// @wdio/devtools-shared (CLAUDE.md § Layering). Re-exported here for back-compat with
 // existing import sites; new code should import from shared directly.
 export type {
   ControlScope,

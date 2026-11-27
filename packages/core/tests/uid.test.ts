@@ -4,7 +4,8 @@ import {
   generateStableUid,
   isStepUidOf,
   resetSignatureCounters,
-  stepMetadataUid
+  stepMetadataUid,
+  stepOwnerUid
 } from '@wdio/devtools-core'
 
 describe('deterministicUid', () => {
@@ -54,5 +55,21 @@ describe('stepMetadataUid / isStepUidOf', () => {
 
   it('does not treat the test uid itself as one of its steps', () => {
     expect(isStepUidOf('stable-abc', 'stable-abc')).toBe(false)
+  })
+})
+
+describe('stepOwnerUid', () => {
+  it('returns the owning test uid for a step key', () => {
+    expect(stepOwnerUid(stepMetadataUid('stable-abc', 2))).toBe('stable-abc')
+  })
+
+  it('returns undefined for a uid that is not a step key', () => {
+    expect(stepOwnerUid('abc')).toBeUndefined()
+    expect(stepOwnerUid('abc:step:')).toBeUndefined()
+    expect(stepOwnerUid('abc:step:x')).toBeUndefined()
+  })
+
+  it('resolves one level of a nested key', () => {
+    expect(stepOwnerUid('a:step:1:step:2')).toBe('a:step:1')
   })
 })

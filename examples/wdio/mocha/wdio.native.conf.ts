@@ -55,18 +55,29 @@ export const config: WebdriverIO.Config = {
       {
         // Trace by default; DEVTOOLS_MODE=live gives the same spec a baseline to
         // measure the capture cost against.
-        mode: (process.env.DEVTOOLS_MODE === 'live' ? 'live' : 'trace') as
-          'live' | 'trace',
-        traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
-          'session') as 'session' | 'spec' | 'test',
-        tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
-          'on' | 'retain-on-failure' | 'retain-on-first-failure',
-        // Off by default because a native session has no CDP: the recorder
-        // falls back to polling `takeScreenshot` on an interval, which against a
-        // phone is a second, competing source of driver round trips. Set
-        // DEVTOOLS_FILMSTRIP=on to record one anyway.
-        filmstrip: process.env.DEVTOOLS_FILMSTRIP === 'on',
-        emitArtifactsManifest: true
+        mode: (process.env.DEVTOOLS_MODE === 'live' ||
+        process.env.DEVTOOLS_MODE === 'telemetry'
+          ? process.env.DEVTOOLS_MODE
+          : 'trace') as 'live' | 'trace' | 'telemetry',
+        // Live and telemetry modes warn that they ignore these, so set them only for trace.
+        ...(process.env.DEVTOOLS_MODE === 'live' ||
+        process.env.DEVTOOLS_MODE === 'telemetry'
+          ? {}
+          : {
+              traceGranularity: (process.env.DEVTOOLS_TRACE_GRANULARITY ??
+                'session') as 'session' | 'spec' | 'test',
+              tracePolicy: (process.env.DEVTOOLS_TRACE_POLICY ?? 'on') as
+                'on' | 'retain-on-failure' | 'retain-on-first-failure',
+              // Off by default because a native session has no CDP: the recorder
+              // falls back to polling `takeScreenshot` on an interval, which against a
+              // phone is a second, competing source of driver round trips. Set
+              // DEVTOOLS_FILMSTRIP=on to record one anyway.
+              filmstrip: process.env.DEVTOOLS_FILMSTRIP === 'on'
+            }),
+        // Live mode warns that it ignores the manifest option, so it is set only for trace and telemetry.
+        ...(process.env.DEVTOOLS_MODE === 'live'
+          ? {}
+          : { emitArtifactsManifest: true })
       }
     ]
   ],

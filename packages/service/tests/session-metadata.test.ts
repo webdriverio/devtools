@@ -180,3 +180,24 @@ describe('resolveSessionMetadata', () => {
     expect(metadata.options).toEqual({ hostname: 'localhost' })
   })
 })
+
+describe('resolveSessionMetadata without the viewport', () => {
+  it('makes no driver round trip when the mode reads no page', async () => {
+    const execute = vi.fn()
+    const getWindowSize = vi.fn()
+    const browser = {
+      capabilities: { browserName: 'chrome' },
+      options: {},
+      execute,
+      getWindowSize
+    } as unknown as WebdriverIO.Browser
+    const metadata = await resolveSessionMetadata(
+      browser,
+      TraceType.Testrunner,
+      false
+    )
+    expect(execute).not.toHaveBeenCalled()
+    expect(getWindowSize).not.toHaveBeenCalled()
+    expect(metadata.viewport).toBeUndefined()
+  })
+})

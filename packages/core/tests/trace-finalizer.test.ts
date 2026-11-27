@@ -395,6 +395,63 @@ describe('finalizeTraceExport', () => {
       ])
     })
 
+    it('writes the manifest in telemetry mode with no zips, even when emitManifest is unset', async () => {
+      const tracker = new TestAttemptTracker()
+      tracker.recordStart('u1', '/a.js')
+      tracker.recordOutcome('u1', 'passed')
+      const result = await finalizeTraceExport(
+        baseCtx({
+          mode: 'telemetry',
+          outcomes: tracker,
+          testMetadata: meta([
+            [
+              'u1',
+              { title: 'T1', specFile: '/a.js', state: 'passed', attempt: 0 }
+            ]
+          ])
+        })
+      )
+      expect(result).toEqual([])
+      expect(await fs.readdir(outputDir)).toEqual([
+        'devtools-artifacts-abcd1234.json'
+      ])
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest.runId).toEqual(expect.any(String))
+      expect(manifest.tests[0].attempts).toEqual([
+        expect.objectContaining({
+          attempt: 0,
+          state: 'passed',
+          traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+          spanId: expect.stringMatching(/^[0-9a-f]{16}$/)
+        })
+      ])
+    })
+
+    it('records browser identity', async () => {
+      await finalizeTraceExport(
+        baseCtx({
+          emitManifest: true,
+          capabilities: {
+            browserName: 'chrome',
+            browserVersion: '150.0.1',
+            platformName: 'linux'
+          }
+        })
+      )
+      const manifest = JSON.parse(await fs.readFile(manifestPath(), 'utf8'))
+      expect(manifest).toMatchObject({
+        manifestVersion: 2,
+        browserName: 'chrome',
+        browserVersion: '150.0.1',
+        platformName: 'linux'
+      })
+    })
+
+    it('writes nothing in live mode, even when emitManifest is set', async () => {
+      await finalizeTraceExport(baseCtx({ mode: 'live', emitManifest: true }))
+      expect(await fs.readdir(outputDir)).toEqual([])
+    })
+
     it('includes eager-flushed slices the fan-out deduped away', async () => {
       const ctx = baseCtx({
         granularity: 'test',
@@ -522,7 +579,12 @@ describe('finalizeTraceExport', () => {
       // outcomes present but this scope's view is empty (e.g. an adapter that
       // didn't feed this scope): must use metadata, not fail-open into retaining
       // a passing test.
-      const emptyView = { all: () => [], forSpec: () => [], forTest: () => [] }
+      const emptyView = {
+        all: () => [],
+        forSpec: () => [],
+        forTest: () => [],
+        attemptsFor: () => []
+      }
       const result = await finalizeTraceExport(
         baseCtx({
           policy: 'retain-on-failure',

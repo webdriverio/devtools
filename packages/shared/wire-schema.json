@@ -310,6 +310,9 @@
         "testUid": {
           "type": "string"
         },
+        "attempt": {
+          "type": "number"
+        },
         "performance": {
           "$ref": "#/$defs/PerformanceData"
         },

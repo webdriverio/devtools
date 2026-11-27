@@ -1,14 +1,22 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { isInputDispatchInFlight } from '@wdio/devtools-core'
 import {
   isWebElementLike,
+  makeWrappedMethod,
   safeSerialize,
   webElementSummary,
   getDriverOriginals,
   getElementOriginals
 } from '../src/driverPatcher.js'
 import { patchActions } from '../src/helpers/actions-patcher.js'
-import type { DriverPatcherHooks } from '../src/types.js'
+import { getCallSourceFromStack } from '../src/helpers/utils.js'
+import type * as UtilsModule from '../src/helpers/utils.js'
+import type { CapturedCommand, DriverPatcherHooks } from '../src/types.js'
+
+vi.mock('../src/helpers/utils.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof UtilsModule>()),
+  getCallSourceFromStack: vi.fn(() => ({ callSource: 'spec.ts:1' }))
+}))
 
 describe('isWebElementLike', () => {
   it('detects an object with getId + click as a WebElement', () => {
@@ -210,5 +218,58 @@ describe('patchActions', () => {
 
     await expect(driver.actions({ fails: true }).perform()).rejects.toThrow()
     expect(isInputDispatchInFlight()).toBe(false)
+  })
+})
+
+describe('makeWrappedMethod', () => {
+  beforeEach(() => {
+    vi.mocked(getCallSourceFromStack).mockClear()
+  })
+
+  function wrapGet(observesPage: boolean) {
+    const original = vi.fn(() => 'page-title')
+    const onCommand = vi.fn<(cmd: CapturedCommand) => void>()
+    const hooks = {
+      onDriverCreated: () => {},
+      onCommand,
+      observesPage: () => observesPage
+    } as unknown as DriverPatcherHooks
+    const wrapped = makeWrappedMethod(original, 'get', false, hooks)
+    return { original, onCommand, wrapped }
+  }
+
+  it('in telemetry, skips the stack walk and serialization but still calls the original and reports the command', () => {
+    const { original, onCommand, wrapped } = wrapGet(false)
+
+    const out = wrapped('https://example.test', { using: 'id', value: 'a' })
+
+    expect(out).toBe('page-title')
+    expect(original).toHaveBeenCalledWith('https://example.test', {
+      using: 'id',
+      value: 'a'
+    })
+    expect(getCallSourceFromStack).not.toHaveBeenCalled()
+    expect(onCommand).toHaveBeenCalledTimes(1)
+    expect(onCommand.mock.calls[0]![0]).toMatchObject({
+      command: 'get',
+      args: [],
+      result: undefined
+    })
+  })
+
+  it('with the page observed, walks the stack and reports the serialized args and result', () => {
+    const { original, onCommand, wrapped } = wrapGet(true)
+
+    const out = wrapped('https://example.test')
+
+    expect(out).toBe('page-title')
+    expect(original).toHaveBeenCalledWith('https://example.test')
+    expect(getCallSourceFromStack).toHaveBeenCalled()
+    expect(onCommand.mock.calls[0]![0]).toMatchObject({
+      command: 'get',
+      args: ['https://example.test'],
+      callSource: 'spec.ts:1',
+      result: 'page-title'
+    })
   })
 })

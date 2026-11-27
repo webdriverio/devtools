@@ -1,5 +1,5 @@
 // Framework-agnostic capture/reporter logic shared by @wdio/devtools-*
-// adapters. See ARCHITECTURE.md §2 and CLAUDE.md §2.2.
+// adapters. See ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 
 // `action-mapping` and `console` moved to `shared` — the trace transforms need
 // them and must not depend on adapter logic. Re-exported here, and only these
@@ -16,6 +16,11 @@ export * from './action-snapshot.js'
 export * from './artifact-naming.js'
 export * from './capture-timing.js'
 export * from './artifacts-manifest.js'
+export type {
+  ArtifactManifestTest,
+  ArtifactsManifest,
+  TraceArtifact
+} from '@wdio/devtools-shared'
 export * from './allure-artifacts.js'
 export * from './attempt-tracker.js'
 export * from './screenshot-artifact.js'

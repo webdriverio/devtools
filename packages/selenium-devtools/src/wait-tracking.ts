@@ -94,7 +94,8 @@ type WaitOutcome = { value: unknown } | { error: unknown }
 export function trackWaits(
   proto: Patchable,
   emit: (cmd: CapturedCommand) => void,
-  WebElementPromise?: WebElementPromiseCtor
+  WebElementPromise?: WebElementPromiseCtor,
+  observesPage?: () => boolean
 ): void {
   const original = proto.wait
   if (typeof original !== 'function' || proto[WAIT_TRACKED_SYMBOL]) {
@@ -106,6 +107,13 @@ export function trackWaits(
     condition: unknown,
     ...rest: unknown[]
   ) {
+    // Telemetry records no rows, so a wait there is selenium's own: no row, no poll scope, no serialized result.
+    if (observesPage?.() === false) {
+      return (original as (...a: unknown[]) => unknown).apply(this, [
+        condition,
+        ...rest
+      ])
+    }
     const outer = waitPoll.getStore()
     const scope = scopeFor(outer, condition)
     const settle = openWaitRow(emit, outer?.scope, scope, condition, rest[0])

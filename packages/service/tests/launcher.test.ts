@@ -72,6 +72,16 @@ describe('DevToolsAppLauncher', () => {
       expect(mockBrowser.url).toHaveBeenCalledWith('http://localhost:3000')
     })
 
+    it('skips the backend and the window in telemetry mode', async () => {
+      const launcher = new DevToolsAppLauncher({ mode: 'telemetry' })
+      const caps = [{ browserName: 'chrome' }] as any
+
+      await launcher.onPrepare(undefined as never, caps)
+
+      expect(backend.start).not.toHaveBeenCalled()
+      expect(caps[0]['wdio:devtoolsOptions']).toBeUndefined()
+    })
+
     it('should use custom hostname', async () => {
       const customServer = { address: () => ({ port: 4000 }) }
       vi.mocked(backend.start).mockResolvedValue({

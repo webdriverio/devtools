@@ -57,7 +57,7 @@ Imports from: nothing. Imported by: every other package.
 
 Trace-format transforms: captured events in, `trace.zip` out, and a `trace.zip` back into a player payload. Workspace-internal; inlined into each consumer at build time.
 
-Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and §2.2 bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing and reading the zip.
+Split out of `core` because **two layers need it and only one of them may import `core`**. Adapters build their own trace through `core`; the backend builds one on behalf of an adapter that cannot run Node-side trace code (the Python adapter), and CLAUDE.md § Layering bars the backend from `core`. Everything here is a pure transform over `shared` types — no framework API, no driver, no capture, no I/O beyond writing and reading the zip.
 
 Contains:
 
@@ -289,13 +289,13 @@ A few cross-cutting conventions follow from this layout:
 - Adapter packages don't import each other. Anything two adapters would both want lives in `core`.
 - Backend doesn't import adapter packages, and adapter packages don't import backend or app.
 - The script package is a leaf — adapters load its built bundle as a string and inject it; they don't import from it at runtime.
-- `shared`, `trace`, and `core` are private workspace packages. Consumers bundle them. The bundler config has to inline them (not externalize) or the published artifact won't resolve — see the build-config notes in `CLAUDE.md`.
+- `shared`, `trace`, and `core` are private workspace packages. Consumers bundle them. The bundler config has to inline them (not externalize) or the published artifact won't resolve — see the build-config notes in `.claude/rules/bundling.md`.
 
 ---
 
 ## Current state
 
-The architecture above is the actual state of the repo. Where it diverges from the ideal, the divergences are tracked in [CLAUDE.md §7](./CLAUDE.md#known-debt).
+The architecture above is the actual state of the repo. Where it diverges from the ideal, the divergences are tracked in the per-package `packages/<pkg>/CLAUDE.md` files (indexed from [CLAUDE.md](./CLAUDE.md) § Known debt).
 
 Notable in-place pieces worth knowing about:
 

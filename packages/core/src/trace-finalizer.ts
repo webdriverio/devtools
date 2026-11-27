@@ -6,15 +6,19 @@
  * finalizeTraceExport — all sequencing lives here.
  */
 
+import { deepCapString } from '@wdio/devtools-shared'
 import type {
   ActionSnapshot,
+  ArtifactsManifest,
   DevToolsMode,
   ScreencastFrame,
   TestMetadataMap,
+  TraceArtifact,
   TraceFormat,
   TraceGranularity,
   TraceRetentionPolicy
 } from '@wdio/devtools-shared'
+import { capturesTrace, forcesManifest } from '@wdio/devtools-shared'
 import { reportCaptureTiming } from './capture-timing.js'
 import { errorMessage } from './error.js'
 import {
@@ -26,6 +30,8 @@ import {
   buildArtifactsManifest,
   writeArtifactsManifest
 } from './artifacts-manifest.js'
+import { resolveParentTraceContext } from './trace-context.js'
+import { resolveRunId } from './run-id.js'
 import {
   filterTestMetadataBySpec,
   filterTestMetadataByUid,
@@ -42,20 +48,6 @@ import {
   writeTraceZip,
   type TraceCapturer
 } from '@wdio/devtools-trace/trace-exporter'
-
-/** One artifact produced (or, when `retained` is false, decided-against) by a
- *  trace-mode run — a trace slice, a screencast video, or a per-test
- *  screenshot. */
-export interface TraceArtifact {
-  kind: 'trace' | 'video' | 'screenshot'
-  path: string
-  scope: 'session' | 'spec' | 'test'
-  /** specFile for spec scope, testUid for test scope. */
-  key?: string
-  testUids: string[]
-  /** false = decided-not-to-write (reported, not written). Always true today. */
-  retained: boolean
-}
 
 export interface TraceExportContext {
   mode?: DevToolsMode
@@ -105,7 +97,8 @@ export interface TraceExportContext {
   onArtifact?: (a: TraceArtifact) => void
   /** When true, finalize writes a `devtools-artifacts-<sessionId>.json` manifest
    *  enumerating every artifact (retained or not) plus per-test states, for
-   *  ecosystem reporters (Allure, CI collectors) to consume. */
+   *  ecosystem reporters (Allure, CI collectors) to consume. Telemetry mode
+   *  writes it regardless. */
   emitManifest?: boolean
   /** Every artifact seen via `onArtifact` across the run (including eager
    *  mid-run test-slice flushes, which the end-of-run fan-out dedupes away).
@@ -286,7 +279,7 @@ export async function flushRangeTrace(
 ): Promise<TraceArtifact | undefined> {
   // Eager mid-run flushes reach here directly, bypassing finalizeTraceExport's
   // gate, so enforce trace-mode here too — a live run must not write slices.
-  if (ctx.mode !== 'trace') {
+  if (!capturesTrace(ctx.mode)) {
     return undefined
   }
   if (ctx.flushed.has(range.key)) {
@@ -448,16 +441,20 @@ async function flushAllRanges(
 }
 
 /**
- * Entry point for the after/end-of-run hook. No-op outside trace mode. Settles
- * in-flight captures and eager flushes, then fans out to per-spec, per-test, or
- * session writes and finally the artifacts manifest. `spec`/`test` granularity
- * with no recorded boundaries warns and falls back to a single session-level
- * trace.
+ * Entry point for the after/end-of-run hook. Live mode writes nothing. Telemetry
+ * writes only the manifest. Trace mode settles in-flight captures and eager
+ * flushes, then fans out to per-spec, per-test, or session writes and finally
+ * the artifacts manifest. `spec`/`test` granularity with no recorded boundaries
+ * warns and falls back to a single session-level trace.
  */
 export async function finalizeTraceExport(
   ctx: TraceExportContext
 ): Promise<TraceArtifact[]> {
-  if (ctx.mode !== 'trace') {
+  if (forcesManifest(ctx.mode)) {
+    await maybeWriteManifest(ctx, [], true)
+    return []
+  }
+  if (!capturesTrace(ctx.mode)) {
     return []
   }
   // Settle in-flight snapshot captures AND the adapters' tracked fire-and-forget
@@ -475,7 +472,7 @@ export async function finalizeTraceExport(
       `Could not redact a later password from ${artifactPath}: ${errorMessage(error)}`
     )
   )
-  await maybeWriteManifest(ctx, artifacts)
+  await maybeWriteManifest(ctx, artifacts, false)
   // After the writes, so the report's own output cannot land in the trace's console.
   await reportCaptureTiming(ctx.resolveOutputDir())
   return artifacts
@@ -501,17 +498,36 @@ async function fanOutTraceWrites(
   return artifact ? [artifact] : []
 }
 
-/** Write the artifacts manifest when enabled, preferring the adapter's full
- *  collected list (includes eager slices) over this pass's fan-out results.
- *  Never throws — a manifest failure must not abort the run. */
+/** Browser identity from the session's matched capabilities; unread keys stay undefined. */
+function browserIdentity(
+  capabilities: unknown
+): Pick<ArtifactsManifest, 'browserName' | 'browserVersion' | 'platformName'> {
+  if (typeof capabilities !== 'object' || capabilities === null) {
+    return {}
+  }
+  const caps = capabilities as Record<string, unknown>
+  return {
+    browserName: deepCapString(caps, 'browserName'),
+    browserVersion: deepCapString(caps, 'browserVersion'),
+    platformName: deepCapString(caps, 'platformName')
+  }
+}
+
+/** Write the artifacts manifest when enabled (always, in telemetry), preferring
+ *  the adapter's full collected list (includes eager slices) over this pass's
+ *  fan-out results. Never throws — a manifest failure must not abort the run. */
 async function maybeWriteManifest(
   ctx: TraceExportContext,
-  fanOutArtifacts: readonly TraceArtifact[]
+  fanOutArtifacts: readonly TraceArtifact[],
+  isTelemetry: boolean
 ): Promise<void> {
-  if (!ctx.emitManifest) {
+  if (!ctx.emitManifest && !isTelemetry) {
     return
   }
   const artifacts = ctx.collectedArtifacts ?? fanOutArtifacts
+  const browser = browserIdentity(
+    ctx.capabilities ?? ctx.capturer.metadata?.capabilities
+  )
   try {
     const path = await writeArtifactsManifest(
       ctx.resolveOutputDir(),
@@ -519,7 +535,13 @@ async function maybeWriteManifest(
         sessionId: ctx.sessionId,
         format: ctx.format ?? 'zip',
         artifacts,
-        testMetadata: ctx.testMetadata
+        testMetadata: ctx.testMetadata,
+        runId: resolveRunId(),
+        parent: resolveParentTraceContext(),
+        attemptsFor: ctx.outcomes?.attemptsFor.bind(ctx.outcomes),
+        specRoot: process.cwd(),
+        warn: (message) => ctx.log?.('warn', message),
+        ...browser
       })
     )
     ctx.log?.('info', `Artifacts manifest written to ${path}`)

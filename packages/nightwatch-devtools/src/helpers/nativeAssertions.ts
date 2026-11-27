@@ -112,7 +112,7 @@ interface Outcome {
  *  cucumber has, since its client is built with no reporter so `results` is
  *  never populated. A fulfilment of `undefined` stays neutral: that is an
  *  assertion enqueued but never executed, not a pass. Semantics and measurements
- *  in CLAUDE.md § Known debt. */
+ *  in packages/nightwatch-devtools/CLAUDE.md § Known debt. */
 export function observedAssertOutcome({
   rejected,
   value,

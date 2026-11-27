@@ -104,21 +104,24 @@ describe('trace granularity: test', () => {
     expect(ctx.specRanges).toHaveLength(1)
   })
 
-  it('a retry gets its own distinct slice (selenium gives each attempt a uid)', () => {
+  it('a retry gets its own distinct slice keyed by its attempt', () => {
     const spec = makeTmpSpec()
     const { ctx, testManager } = makeCtx('test', spec)
 
-    const first = testManager.startMarkedTest('flaky')
+    const first = testManager.startMarkedTest('flaky', { attempt: 0 })
     recordTraceBoundary(ctx, spec)
     testManager.endCurrent('failed')
 
-    const retry = testManager.startMarkedTest('flaky')
+    const retry = testManager.startMarkedTest('flaky', { attempt: 1 })
     recordTraceBoundary(ctx, spec)
     testManager.endCurrent('passed')
 
-    expect(first.uid).not.toBe(retry.uid)
+    expect(first.uid).toBe(retry.uid)
     expect(ctx.specRanges).toHaveLength(2)
-    expect(ctx.specRanges.map((r) => r.key)).toEqual([first.uid, retry.uid])
+    expect(ctx.specRanges.map((r) => r.key)).toEqual([
+      first.uid,
+      `${first.uid}-retry1`
+    ])
   })
 
   it('eager-flushes each test to its own artifact at test end', async () => {

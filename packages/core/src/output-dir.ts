@@ -56,7 +56,7 @@ function isWritable(dir: string): boolean {
  *
  * Shared by all three adapters (service / nightwatch-devtools /
  * selenium-devtools) so the output location stays consistent regardless
- * of where the user invoked the runner from. See CLAUDE.md §2.2.
+ * of where the user invoked the runner from. See CLAUDE.md § Layering.
  */
 export function resolveAdapterOutputDir(
   input: ResolveAdapterOutputDirInput = {}

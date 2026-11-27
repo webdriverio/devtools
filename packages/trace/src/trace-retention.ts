@@ -1,8 +1,4 @@
-import type {
-  DevToolsMode,
-  TestStatus,
-  TraceRetentionPolicy
-} from '@wdio/devtools-shared'
+import type { TestStatus, TraceRetentionPolicy } from '@wdio/devtools-shared'
 
 /**
  * Pure retention policy evaluation for trace mode. Adapters collect the
@@ -120,19 +116,4 @@ function finalAttempt(group: TestOutcome[]): TestOutcome {
 /** The attempt-0 outcome, if the group recorded one. */
 function firstAttempt(group: TestOutcome[]): TestOutcome | undefined {
   return group.find((o) => attemptOf(o) === 0)
-}
-
-/**
- * Warning text when a retention policy is configured outside trace mode, where
- * it has no effect (the finalizer no-ops in live mode). Returns undefined when
- * there is nothing to warn about, so each adapter can `if (msg) log.warn(msg)`.
- */
-export function tracePolicyModeWarning(
-  policy: TraceRetentionPolicy | undefined,
-  mode: DevToolsMode | undefined
-): string | undefined {
-  if (policy === undefined || mode === 'trace') {
-    return undefined
-  }
-  return 'tracePolicy only applies in trace mode; ignoring it because mode is not "trace".'
 }

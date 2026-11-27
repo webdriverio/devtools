@@ -27,7 +27,7 @@ import {
   shouldRetainTrace,
   type TestOutcome
 } from '@wdio/devtools-trace/trace-retention'
-import type { TraceArtifact } from './trace-finalizer.js'
+import type { TraceArtifact } from '@wdio/devtools-shared'
 
 /** Adapter-supplied binding to the active Allure reporter. Attaches one file to
  *  the currently-executing test. Undefined = attach unsupported (produce-only). */
@@ -130,6 +130,8 @@ export async function captureAndAttachScreenshot(input: {
   sessionId: string | undefined
   outputDir: string
   testUid: string | undefined
+  /** 0-based attempt of `testUid`; undefined reads as the first attempt. */
+  attempt: number | undefined
   attach: AllureAttachSink | undefined
   onArtifact: (artifact: TraceArtifact) => void
   onLog?: LogFn
@@ -149,6 +151,7 @@ export async function captureAndAttachScreenshot(input: {
   const artifact = await writeScreenshotArtifact({
     outputDir: input.outputDir,
     testUid: input.testUid,
+    attempt: input.attempt ?? 0,
     sessionId,
     base64: screenshotBase64
   })
