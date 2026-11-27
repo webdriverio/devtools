@@ -1,7 +1,6 @@
 import {
   isFailedRequest,
   retriedRows,
-  stripAnsi,
   type ConsoleLog,
   type NetworkRequest,
   type TracePlayerData
@@ -9,6 +8,7 @@ import {
 import { actionTree } from './action-list.js'
 import { ownFailure, sinceStart } from './actions.js'
 import { clipText, pageOf, queryBudgetOf } from './budget.js'
+import { consoleText } from './console-text.js'
 import {
   ACTION_STATUS,
   MAX_LIST_TEXT_CHARS,
@@ -27,13 +27,6 @@ import type {
   TraceError,
   TraceHandle
 } from './types.js'
-
-function consoleText(log: ConsoleLog): string {
-  const parts = log.args.map((arg) =>
-    typeof arg === 'string' ? arg : JSON.stringify(arg)
-  )
-  return stripAnsi(parts.join(' ')).trim()
-}
 
 // A zip's HAR keeps a transport failure's text, when the capture side had one, as the status text of its status 0.
 function requestMessage(request: NetworkRequest): string {
@@ -105,7 +98,9 @@ function requestError(
     timeMs,
     ...near(timeMs),
     message: clipText(requestMessage(request), MAX_LIST_TEXT_CHARS),
-    ...(request.method ? { method: request.method } : {}),
+    ...(request.method
+      ? { method: clipText(request.method, MAX_LIST_TEXT_CHARS) }
+      : {}),
     url: clipText(request.url, MAX_LIST_TEXT_CHARS),
     ...(request.status !== undefined ? { status: request.status } : {})
   }

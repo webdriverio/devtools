@@ -5,9 +5,12 @@ import { traceActions } from '../src/action-list.js'
 import { traceSummary } from '../src/summary.js'
 import { traceErrors } from '../src/errors.js'
 import { traceTranscript } from '../src/transcript.js'
+import { traceConsole } from '../src/console.js'
+import { traceNetwork } from '../src/network.js'
+import { traceNetworkRequest } from '../src/network-request.js'
 import { MIN_QUERY_CHARS } from '../src/constants.js'
 import type { TraceHandle } from '../src/types.js'
-import { fixtures, openFixture, openWritten } from './traces.js'
+import { allPages, fixtures, openFixture, openWritten } from './traces.js'
 
 const START = 1_700_000_000_000
 const SPEC = '/project/specs/budget.e2e.ts'
@@ -112,10 +115,15 @@ describe('results within their budget', () => {
       () => traceErrors(handle, { maxChars }),
       () => traceActions(handle, { maxChars }),
       () => traceActionDetail(handle, callId, { maxChars }),
-      () => traceTranscript(handle, { maxChars })
+      () => traceTranscript(handle, { maxChars }),
+      () => traceConsole(handle, { maxChars }),
+      () => traceNetwork(handle, { maxChars })
     ]) {
       expect(query).toThrow(`maxChars must be at least ${MIN_QUERY_CHARS}`)
     }
+    await expect(
+      traceNetworkRequest(handle, '0', { maxChars })
+    ).rejects.toThrow(`maxChars must be at least ${MIN_QUERY_CHARS}`)
   })
 })
 
@@ -147,6 +155,33 @@ async function hostileTrace(): Promise<TraceHandle> {
     sources: {
       [SPEC]: Array.from({ length: 200 }, () => long(500)).join('\n')
     },
+    consoleLogs: Array.from({ length: 30 }, (_, i) => ({
+      type: i % 2 ? 'error' : 'warn',
+      args: [`"${long(3_000)}"\n${long(i * 50)}`],
+      timestamp: START + 100 + i,
+      source: 'browser'
+    })),
+    networkRequests: Array.from({ length: 30 }, (_, i) => ({
+      id: `${i}`,
+      url: `https://${long(200)}.example/${long(5_000)}`,
+      method: long(500),
+      type: 'fetch',
+      timestamp: START + 100 + i,
+      startTime: START + 100 + i,
+      endTime: START + 110 + i,
+      status: i % 2 ? 500 : 0,
+      statusText: long(2_000),
+      requestHeaders: Object.fromEntries(
+        Array.from({ length: 40 }, (_, h) => [`${long(300)}${h}`, long(3_000)])
+      ),
+      responseBody: `"${long(50_000)}"`,
+      response: {
+        fromCache: false,
+        headers: {},
+        mimeType: long(400),
+        status: i % 2 ? 500 : 0
+      }
+    })),
     startTime: START
   })
 }
@@ -165,6 +200,7 @@ describe('every query within every budget it accepts', () => {
     const over: string[] = []
     for (const [name, handle] of traces) {
       const callId = traceActions(handle).items[0]?.callId
+      const requestId = traceNetwork(handle).items[0]?.id
       for (const maxChars of [
         MIN_QUERY_CHARS,
         1_200,
@@ -178,6 +214,27 @@ describe('every query within every budget it accepts', () => {
           ['errors', traceErrors(handle, { maxChars })],
           ['actions', traceActions(handle, { maxChars })],
           ['transcript', traceTranscript(handle, { maxChars })],
+          ...allPages((cursor) =>
+            traceConsole(handle, { levels: [], maxChars, cursor })
+          ).map(
+            (page, at) => [`console page ${at}`, page] as [string, unknown]
+          ),
+          ...allPages((cursor) =>
+            traceNetwork(handle, { maxChars, cursor })
+          ).map(
+            (page, at) => [`network page ${at}`, page] as [string, unknown]
+          ),
+          ...(requestId
+            ? [
+                [
+                  'request',
+                  await traceNetworkRequest(handle, requestId, {
+                    body: true,
+                    maxChars
+                  })
+                ] as [string, unknown]
+              ]
+            : []),
           ...(callId
             ? [
                 ['detail', traceActionDetail(handle, callId, { maxChars })] as [

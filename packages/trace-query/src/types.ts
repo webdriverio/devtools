@@ -249,3 +249,130 @@ export interface DetailBasis {
   test: string[]
   relatives: Pick<ActionDetail, 'parent' | 'children' | 'omittedChildren'>
 }
+
+/** A console line's level; a terminal line written to stderr reads as `error`. */
+export type ConsoleLevel = 'trace' | 'debug' | 'log' | 'info' | 'warn' | 'error'
+
+/** Where a console line came from: the page's console, the test's own output, or the runner's terminal. */
+export type ConsoleSource = 'browser' | 'test' | 'terminal'
+
+/** How a request ended. `unknown` is a Resource Timing row whose browser exposed no status: it completed, and is never `error`. `error` with status 0 is a transport failure, or, with no `statusText`, possibly a request that had not answered when the trace was written. */
+export type RequestStatusKind =
+  'ok' | 'redirect' | 'error' | 'pending' | 'unknown'
+
+/** What the capture classified a request as. */
+export type RequestType =
+  | 'document'
+  | 'stylesheet'
+  | 'script'
+  | 'image'
+  | 'font'
+  | 'fetch'
+  | 'xhr'
+  | 'other'
+
+/** A request seen only through the page's Resource Timing buffer, which exposes no headers or body. */
+export type NetworkSource = 'resource-timing'
+
+/** Absolute wall-clock bounds a listing keeps, inclusive. */
+export interface TimeRange {
+  from: number
+  to: number
+}
+
+/** Which of a request's header maps a header is in. */
+export type HeaderField = 'requestHeaders' | 'responseHeaders'
+
+/** Narrows a listing to the time around one action. */
+export interface ActionWindow {
+  /** The action's `callId`. */
+  action?: string
+  /** Milliseconds before the action started and after it ended; only with `action`. */
+  windowMs?: number
+}
+
+export interface ConsoleQuery extends PageRequest, ActionWindow {
+  /** Absent: `['error']`. Empty: every level. */
+  levels?: ConsoleLevel[]
+  /** Empty or absent: every source. */
+  sources?: ConsoleSource[]
+  /** Case-insensitive substring of the line's text. */
+  text?: string
+  /** Characters a line may take, the note of a cut included. */
+  maxLineChars?: number
+}
+
+export interface ConsoleLine {
+  /** Milliseconds after the trace started. */
+  timeMs: number
+  level: ConsoleLevel
+  /** Absent when the zip names none, or one outside the vocabulary. */
+  source?: ConsoleSource
+  /** Cut past `maxLineChars`, ending in a note of its whole length. */
+  text: string
+}
+
+export interface ConsolePage extends Page<ConsoleLine> {
+  /** Lines per level among those the other filters match, whatever `levels` asks for, so the levels a default listing leaves out are still counted. */
+  byLevel: Partial<Record<ConsoleLevel, number>>
+}
+
+export interface NetworkQuery extends PageRequest, ActionWindow {
+  /** Empty or absent: every status kind. */
+  status?: RequestStatusKind[]
+  /** Case-insensitive substring of the full URL. */
+  url?: string
+}
+
+export interface NetworkRow {
+  /** What `traceNetworkRequest` takes. */
+  id: string
+  /** When the request started, in milliseconds after the trace started. */
+  startMs: number
+  durationMs?: number
+  method?: string
+  status?: number
+  statusKind: RequestStatusKind
+  /** Only for a request that failed, where it can carry the browser's reason; status 0 without it may be a request that had not answered when the trace was written. */
+  statusText?: string
+  type: RequestType
+  /** Without the origin when it is the page's main origin (`NetworkPage.origin`); a long one is cut, ending in a note of its whole length. */
+  url: string
+  source?: NetworkSource
+}
+
+export interface NetworkPage extends Page<NetworkRow> {
+  /** The origin a row's URL leaves out when it starts with `/`. */
+  origin?: string
+  /** Requests per status kind among those the other filters match, whatever `status` asks for. */
+  byStatus: Partial<Record<RequestStatusKind, number>>
+}
+
+export interface TraceNetworkRequestOptions {
+  /** Characters the whole result may take: the request's own fields first, then its headers while they fit, then its body. */
+  maxChars?: number
+  /** Read the response body; it stays in the zip otherwise. */
+  body?: boolean
+  /** Characters the body may take, the note of a cut included; the default result budget unless given. */
+  maxBodyChars?: number
+}
+
+export interface TraceNetworkRequestDetail extends NetworkRow {
+  /** The URL with its origin; past 2000 characters it is cut, ending in a note of its whole length. */
+  url: string
+  mimeType?: string
+  size?: number
+  /** Measured phase durations in milliseconds, by HAR phase name; absent when the capture measured none. */
+  timingsMs?: Record<string, number>
+  /** Each value past 2000 characters, or past what the budget leaves, is cut, ending in a note of its whole length. */
+  requestHeaders?: Record<string, string>
+  responseHeaders?: Record<string, string>
+  /** Headers left out because the rest of the result took the budget. */
+  omittedHeaders?: number
+  /** What the capture could not see, for a source that exposes less. */
+  note?: string
+  /** Cut to what `maxChars` leaves once the headers are listed, and never past `maxBodyChars`, ending in a note of its whole length. */
+  body?: string
+  /** Why no body came back, when one was asked for. */
+  bodyUnavailable?: string
+}

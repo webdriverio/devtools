@@ -69,9 +69,26 @@ export const MAX_LISTED_CHILDREN = 20
 /** What each paged listing is, as its cursor's scope. */
 export const PAGE_SCOPE = {
   ACTIONS: 'actions',
+  CONSOLE: 'console',
   ERRORS: 'errors',
+  NETWORK: 'network',
   TRANSCRIPT: 'transcript'
 } as const
 
 /** Characters each field of an action's detail is cut to, tried in turn until the whole detail fits its budget. */
 export const DETAIL_TEXT_STEPS = [2_000, 1_000, 500, 250, 120, 60] as const
+
+/** Milliseconds either side of an action that a listing around it covers when the caller names none. */
+export const DEFAULT_ACTION_WINDOW_MS = 2_000
+
+/** Levels a console listing keeps when its caller names none: the lines that most often explain a failure. */
+export const DEFAULT_CONSOLE_LEVELS = ['error'] as const
+
+/** Characters a console line keeps by default: a stack trace's head, without one line filling a page. */
+export const DEFAULT_CONSOLE_LINE_CHARS = 1_000
+
+/** Characters a URL or a header value keeps in one request's detail. */
+export const DETAIL_VALUE_MAX_CHARS = 2_000
+
+/** A stored response body larger than this is reported by size and not inflated. */
+export const MAX_BODY_BYTES = 4 * 1024 * 1024

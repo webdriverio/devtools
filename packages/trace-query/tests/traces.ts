@@ -46,6 +46,8 @@ export interface WrittenRun {
   sources?: Record<string, string>
   testMetadata?: TestMetadataMap
   startTime: number
+  /** Chrome unless named. */
+  browserName?: string
 }
 
 /** A run written to a zip by this checkout's writer, then opened as a caller would. */
@@ -62,7 +64,7 @@ export async function openWritten(run: WrittenRun): Promise<TraceHandle> {
         type: TraceType.Testrunner,
         sessionId: 'abc12345',
         runner: 'mocha',
-        capabilities: { browserName: 'chrome' }
+        capabilities: { browserName: run.browserName ?? 'chrome' }
       }
     },
     {
@@ -72,4 +74,15 @@ export async function openWritten(run: WrittenRun): Promise<TraceHandle> {
     }
   )
   return openTraceSource(bytesZipSource(new Uint8Array(zip)))
+}
+
+/** Every page of a listing, from the first to the one without a cursor. */
+export function allPages<P extends { nextCursor?: string }>(
+  page: (cursor: string | undefined) => P
+): P[] {
+  const pages = [page(undefined)]
+  while (pages[pages.length - 1]!.nextCursor !== undefined) {
+    pages.push(page(pages[pages.length - 1]!.nextCursor))
+  }
+  return pages
 }

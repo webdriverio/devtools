@@ -522,6 +522,26 @@ describe('pushRun span tree', () => {
     expect(failed[0].attributes?.[attr.ATTR_URL_PATH]).toBe('/api/items')
   })
 
+  it('pushes a request as failed exactly when its status is 0 or at least 400', async () => {
+    const withStatus = (status: number) => ({
+      ...HAR_500,
+      response: { ...HAR_500.response, status }
+    })
+    const resourceTiming = {
+      ...withStatus(0),
+      _source: 'resource-timing'
+    }
+    const zip = await zipOf(loginEvents, [
+      ...[0, 200, 302, 399, 400, 404, 500].map(withStatus),
+      resourceTiming
+    ])
+    const { spans } = await push({ zips: new Map([[ZIP_PATH, zip]]) })
+    const statuses = byName(spans, 'logs in')
+      .events.filter((event) => event.name === attr.EVENT_REQUEST_FAILED)
+      .map((event) => event.attributes?.[attr.ATTR_NETWORK_STATUS])
+    expect(statuses).toEqual([0, 400, 404, 500])
+  })
+
   it('caps a console message at MAX_CONSOLE_MESSAGE_CHARS', async () => {
     const zip = await zipOf([
       ...loginEvents,

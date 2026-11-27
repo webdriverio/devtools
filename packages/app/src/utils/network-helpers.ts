@@ -1,16 +1,14 @@
 import {
   isRequestType,
-  NETWORK_CAPTURE_SOURCE,
-  type NetworkCaptureSource,
-  type NetworkRequest
+  statusKind,
+  STATUS_KIND,
+  type NetworkRequest,
+  type StatusKind
 } from '@wdio/devtools-shared'
 import {
   RESOURCE_TYPE_BY_REQUEST_TYPE,
   RESOURCE_TYPE_PATTERNS,
   OTHER_RESOURCE_TYPE,
-  HTTP_STATUS,
-  STATUS_KIND,
-  type StatusKind,
   type ResourceType
 } from './network-constants.js'
 
@@ -44,40 +42,6 @@ export function formatTime(ms?: number): string {
     return `${ms.toFixed(0)}ms`
   }
   return `${(ms / 1000).toFixed(1)}s`
-}
-
-/**
- * Bucket an HTTP status into a coarse {@link StatusKind}. The single source of
- * truth for status ranges — both the dot colour and the text colour derive
- * from it. A request with no status is in flight, unless its source is one
- * that never exposes a status: that request completed, and reads as unknown.
- */
-export function statusKind(
-  status?: number,
-  hasError?: boolean,
-  source?: NetworkCaptureSource
-): StatusKind {
-  if (hasError) {
-    return STATUS_KIND.ERROR
-  }
-  if (typeof status !== 'number') {
-    return source === NETWORK_CAPTURE_SOURCE.RESOURCE_TIMING
-      ? STATUS_KIND.UNKNOWN
-      : STATUS_KIND.PENDING
-  }
-  if (status >= HTTP_STATUS.SUCCESS_MIN && status < HTTP_STATUS.REDIRECT_MIN) {
-    return STATUS_KIND.OK
-  }
-  if (
-    status >= HTTP_STATUS.REDIRECT_MIN &&
-    status < HTTP_STATUS.CLIENT_ERROR_MIN
-  ) {
-    return STATUS_KIND.REDIRECT
-  }
-  if (status >= HTTP_STATUS.CLIENT_ERROR_MIN) {
-    return STATUS_KIND.ERROR
-  }
-  return STATUS_KIND.PENDING
 }
 
 const STATUS_TEXT_CLASS: Record<StatusKind, string> = {

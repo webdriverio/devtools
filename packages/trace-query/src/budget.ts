@@ -1,4 +1,8 @@
-import { DEFAULT_MAX_CHARS, MIN_QUERY_CHARS } from './constants.js'
+import {
+  DEFAULT_MAX_CHARS,
+  MIN_QUERY_CHARS,
+  MIN_TEXT_CHARS
+} from './constants.js'
 import type { Page, PageOptions, PageRequest, TruncatedText } from './types.js'
 
 // The cursor carries the list's length and its scope's fingerprint, so one handed to a different listing is refused rather than read as an offset into it.
@@ -47,13 +51,17 @@ function offsetOf(
   return offset
 }
 
+/** `value`, refused with the parameter's name unless it is a positive integer. */
+export function positiveInteger(name: string, value: number): number {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${name} must be a positive integer, got ${value}`)
+  }
+  return value
+}
+
 /** The character budget a request names, or the default; refuses one that is not a positive integer. */
 export function budgetOf(maxChars: number | undefined): number {
-  const budget = maxChars ?? DEFAULT_MAX_CHARS
-  if (!Number.isInteger(budget) || budget < 1) {
-    throw new Error(`maxChars must be a positive integer, got ${budget}`)
-  }
-  return budget
+  return positiveInteger('maxChars', maxChars ?? DEFAULT_MAX_CHARS)
 }
 
 /** A query's budget: refuses one below MIN_QUERY_CHARS, the smallest every query's result is held within. */
@@ -115,6 +123,52 @@ export function pageOf<T>(
       ? { nextCursor: cursorAt(next, items.length, scope) }
       : {})
   }
+}
+
+// The fields beside a page's items join the wrapper's object, so their braces are not paid for and the comma before them is.
+function besideBudget(maxChars: number | undefined, extra: object): number {
+  return Math.max(1, budgetOf(maxChars) - (serializedLength(extra) - 1))
+}
+
+/** What each item of a page may take once the fields beside the items (counts, an origin) and the page's wrapper are paid for. */
+export function itemBudgetBeside(
+  total: number,
+  request: PageRequest,
+  scope: string,
+  extra: object
+): number {
+  return itemBudget(total, besideBudget(request.maxChars, extra), scope)
+}
+
+/** A page with fields beside its items, which are paid for out of the budget before the items are. */
+export function pageWith<T, E extends object>(
+  items: readonly T[],
+  request: PageRequest,
+  options: PageOptions<T>,
+  extra: E
+): Page<T> & E {
+  const maxChars = besideBudget(request.maxChars, extra)
+  return { ...pageOf(items, { ...request, maxChars }, options), ...extra }
+}
+
+/** What `build` makes with its text cut at `cap`, cut further by what it overruns until it fits `budget` or its text is down to `floor`. */
+export function fitted<T>(
+  build: (maxChars: number) => T,
+  cap: number,
+  budget: number,
+  floor = MIN_TEXT_CHARS
+): T {
+  let maxChars = cap
+  let item = build(maxChars)
+  while (maxChars > floor) {
+    const over = serializedLength(item) - budget
+    if (over <= 0) {
+      break
+    }
+    maxChars = Math.max(floor, maxChars - over)
+    item = build(maxChars)
+  }
+  return item
 }
 
 function isHighSurrogate(code: number): boolean {
