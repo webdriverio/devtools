@@ -9,6 +9,7 @@ import { actionByCallId } from './actions.js'
 import { positiveInteger } from './budget.js'
 import { captureSource, snapshotSourceOf } from './capture-source.js'
 import {
+  API_IMAGE_MAX_EDGE,
   IMAGE_PIXELS_PER_TOKEN,
   MAX_LIST_TEXT_CHARS,
   MAX_SCREENSHOT_BYTES,
@@ -126,6 +127,7 @@ export async function traceScreenshot(
     )
   }
   const fit = fitWithin(size, maxEdge)
+  const billed = fitWithin(fit, API_IMAGE_MAX_EDGE)
   return {
     callId,
     capture,
@@ -133,6 +135,6 @@ export async function traceScreenshot(
     bytes,
     size,
     fit,
-    tokens: Math.ceil((fit.width * fit.height) / IMAGE_PIXELS_PER_TOKEN)
+    tokens: Math.ceil((billed.width * billed.height) / IMAGE_PIXELS_PER_TOKEN)
   }
 }

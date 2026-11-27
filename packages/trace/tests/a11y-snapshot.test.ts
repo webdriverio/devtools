@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import { serializeWebSnapshot } from '../src/a11y-snapshot.js'
-import type { AccessibilityNode } from '@wdio/devtools-shared'
+import {
+  parseSnapshotLine,
+  type AccessibilityNode
+} from '@wdio/devtools-shared'
 
 function node(overrides: Partial<AccessibilityNode>): AccessibilityNode {
   return {
@@ -47,6 +50,17 @@ describe('serializeWebSnapshot', () => {
       '  heading[2] "Login Page"',
       '    textbox "Username" ∈ "Login Page"  →  #username'
     ])
+  })
+
+  it('writes a name holding a quote before the locator separator so it reads back whole', () => {
+    const text = serializeWebSnapshot([
+      node({ role: 'button', name: 'Press "  →  next', selector: '#go' })
+    ])
+
+    expect(parseSnapshotLine(text.split('\n')[1]!)).toMatchObject({
+      name: 'Press "  →  next',
+      selector: '#go'
+    })
   })
 
   it('drops an interactive node with no selector — nothing can act on it', () => {

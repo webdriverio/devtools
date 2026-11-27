@@ -17,7 +17,7 @@ import {
   SNAPSHOT_INDENT_UNIT,
   SNAPSHOT_LOCATOR_SEPARATOR,
   SNAPSHOT_PAGE_HEADER,
-  SNAPSHOT_PURPOSE_OPEN
+  snapshotNodeLabel
 } from '@wdio/devtools-shared'
 import type { AccessibilityNode } from '@wdio/devtools-shared'
 
@@ -103,30 +103,12 @@ export function serializeWebSnapshot(
         continue
       }
       const purpose = inferPurpose(nodes, i)
-      if (node.name) {
-        // Show parent context when available — disambiguates
-        // duplicate selectors like six "Add to Wishlist" buttons.
-        lines.push(
-          purpose
-            ? `${indent}${roleLabel} "${node.name}"${SNAPSHOT_PURPOSE_OPEN}${purpose}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
-            : `${indent}${roleLabel} "${node.name}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
-        )
-      } else if (purpose) {
-        lines.push(
-          `${indent}${roleLabel}${SNAPSHOT_PURPOSE_OPEN}${purpose}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
-        )
-      } else {
-        lines.push(
-          `${indent}${roleLabel}${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
-        )
-      }
+      lines.push(
+        `${indent}${snapshotNodeLabel(roleLabel, node.name, purpose)}${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
+      )
     } else {
       // Container / structural: show role + name when present, no selector
-      lines.push(
-        node.name
-          ? `${indent}${roleLabel} "${node.name}"`
-          : `${indent}${roleLabel}`
-      )
+      lines.push(`${indent}${snapshotNodeLabel(roleLabel, node.name)}`)
     }
   }
 

@@ -120,7 +120,34 @@ export interface SnapshotLine {
 
 const NAME_OPEN = ' "'
 
-/** The quoted value opening at `from`, if one does: it closes at the first quote that a later segment or the line's end follows, so an arrow or a quote inside it stays part of it. A scan, not a regex, because a trace is untrusted and a backtracking pattern over a hostile line is quadratic. */
+/** A name or purpose as a snapshot line quotes it: a backslash or quote inside is escaped with a backslash, so the reader finds where it closes whatever text follows. */
+function quoteSnapshotText(text: string): string {
+  return `"${text.replace(/[\\"]/g, '\\$&')}"`
+}
+
+/** What a node line says before its locator, as every serializer writes it: role, quoted name and quoted purpose. */
+export function snapshotNodeLabel(
+  role: string,
+  name?: string,
+  purpose?: string
+): string {
+  const named = name ? ` ${quoteSnapshotText(name)}` : ''
+  const purposed = purpose
+    ? ` ${SNAPSHOT_PURPOSE_TOKEN} ${quoteSnapshotText(purpose)}`
+    : ''
+  return `${role}${named}${purposed}`
+}
+
+/** Whether an odd run of backslashes escapes the character at `at`. */
+function escapedAt(text: string, at: number, start: number): boolean {
+  let slashes = 0
+  while (at - slashes - 1 >= start && text[at - slashes - 1] === '\\') {
+    slashes++
+  }
+  return slashes % 2 === 1
+}
+
+/** The quoted value opening at `from`, if one does: it closes at the first unescaped quote that a later segment or the line's end follows, so an arrow or an escaped quote inside it stays part of it, and a bare quote from a trace written before escaping does too. A scan, not a regex, because a trace is untrusted and a backtracking pattern over a hostile line is quadratic. */
 function quotedAt(
   text: string,
   from: number,
@@ -134,10 +161,14 @@ function quotedAt(
   for (let at = text.indexOf('"', start); at !== -1;) {
     const after = at + 1
     if (
-      after === text.length ||
-      closers.some((closer) => text.startsWith(closer, after))
+      !escapedAt(text, at, start) &&
+      (after === text.length ||
+        closers.some((closer) => text.startsWith(closer, after)))
     ) {
-      return { value: text.slice(start, at), end: after }
+      return {
+        value: text.slice(start, at).replace(/\\([\\"])/g, '$1'),
+        end: after
+      }
     }
     at = text.indexOf('"', after)
   }

@@ -215,6 +215,16 @@ describe('traceScreenshot on a native app trace', () => {
     ).toEqual({ width: 1080, height: 2400 })
   })
 
+  it('counts the tokens of an image fitted past 1568 pixels at the size the API scales it to', async () => {
+    const large = image(
+      await traceScreenshot(await openNativeTrace(), 'call@1', {
+        maxEdge: 4000
+      })
+    )
+    expect(large.fit).toEqual({ width: 1080, height: 2400 })
+    expect(large.tokens).toBe(1477)
+  })
+
   it.each([0, -1, 1.5])('refuses maxEdge %s', async (maxEdge) => {
     await expect(
       traceScreenshot(await openNativeTrace(), 'call@1', { maxEdge })

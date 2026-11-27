@@ -11,6 +11,8 @@ import {
   isSnapshotHeaderLine,
   parseSnapshotLine,
   snapshotNativeHeader,
+  snapshotNodeLabel,
+  SNAPSHOT_LOCATOR_SEPARATOR,
   SNAPSHOT_NATIVE_PLATFORMS,
   SNAPSHOT_PAGE_HEADER
 } from '../src/snapshot-format.js'
@@ -117,6 +119,25 @@ describe('parseSnapshotLine', () => {
       name: 'Say "hi"',
       selector: '#say'
     })
+  })
+
+  it('reads back a name and purpose holding a quote before the locator separator', () => {
+    const label = snapshotNodeLabel('button', 'Press "  →  next', 'a\\"b')
+    expect(label).toBe('button "Press \\"  →  next" ∈ "a\\\\\\"b"')
+    expect(
+      parseSnapshotLine(`  ${label}${SNAPSHOT_LOCATOR_SEPARATOR}#go`)
+    ).toEqual({
+      depth: 0,
+      role: 'button',
+      name: 'Press "  →  next',
+      purpose: 'a\\"b',
+      label,
+      selector: '#go'
+    })
+  })
+
+  it('writes a role alone when it has neither name nor purpose', () => {
+    expect(snapshotNodeLabel('switch', '', undefined)).toBe('switch')
   })
 
   it('reads a purpose with no name, and a locator with neither', () => {

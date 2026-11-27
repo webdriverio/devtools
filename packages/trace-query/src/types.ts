@@ -431,7 +431,7 @@ export interface ScreenshotImage extends ScreenshotAt {
   size: ImageSize
   /** The size within `maxEdge` with the image's aspect ratio. */
   fit: ImageSize
-  /** Roughly what Claude's API bills for the image at `fit`. */
+  /** Roughly what Claude's API bills for the image at `fit`, after it scales a long edge over 1568 pixels down. */
   tokens: number
 }
 

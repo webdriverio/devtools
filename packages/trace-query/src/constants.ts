@@ -108,3 +108,6 @@ export const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
 
 /** Pixels per token in Anthropic's estimate of what Claude's API bills for an image (width x height / 750). */
 export const IMAGE_PIXELS_PER_TOKEN = 750
+
+/** Longest side Claude's API scales an image down to before billing it, so a fit larger than this costs what this size does. */
+export const API_IMAGE_MAX_EDGE = 1568
