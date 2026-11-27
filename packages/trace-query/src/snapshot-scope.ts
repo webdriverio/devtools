@@ -16,7 +16,10 @@ function matcherOf(scope: SnapshotScope): (node: SnapshotLine) => boolean {
   const text = scope.text?.toLowerCase()
   return (node) =>
     (scope.locator === undefined || node.selector === scope.locator) &&
-    (text === undefined || node.label.toLowerCase().includes(text))
+    (text === undefined ||
+      [node.role, node.name, node.purpose ?? ''].some((field) =>
+        field.toLowerCase().includes(text)
+      ))
 }
 
 /** Each matching node with every line below it, the lines up to the next one no deeper; a match inside a kept subtree is part of it. */

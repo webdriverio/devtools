@@ -1,6 +1,7 @@
-import type { CommandLog } from '@wdio/devtools-shared'
+import { snapshotNodeLabel, type CommandLog } from '@wdio/devtools-shared'
 import { describe, expect, it } from 'vitest'
 import { traceStateOf } from '../src/open-trace.js'
+import { scopeSnapshot } from '../src/snapshot-scope.js'
 import { traceSnapshot } from '../src/trace-snapshot.js'
 import {
   ANDROID_START_LOCATOR,
@@ -294,5 +295,17 @@ describe('traceSnapshot on a native app trace', () => {
       ['Element.click("~y")', tapY.callId, 201],
       ['Element.getText("~y")', tapY.callId, 201]
     ])
+  })
+})
+
+describe('scopeSnapshot by text', () => {
+  it('finds a name or purpose holding quotes and backslashes as captured', () => {
+    const line = `  ${snapshotNodeLabel('button', 'Say "hi"', 'C:\\dir')}  →  #say`
+    const text = ['[Page]', line, '  link "Other"  →  #other'].join('\n')
+    expect(scopeSnapshot(text, { text: 'say "HI"' })).toEqual({
+      lines: [line.trim()],
+      matches: 1
+    })
+    expect(scopeSnapshot(text, { text: 'c:\\dir' }).matches).toBe(1)
   })
 })

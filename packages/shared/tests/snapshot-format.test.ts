@@ -123,7 +123,7 @@ describe('parseSnapshotLine', () => {
 
   it('reads back a name and purpose holding a quote before the locator separator', () => {
     const label = snapshotNodeLabel('button', 'Press "  →  next', 'a\\"b')
-    expect(label).toBe('button "Press \\"  →  next" ∈ "a\\\\\\"b"')
+    expect(label).toBe('button \\"Press \\"  →  next" ∈ \\"a\\\\\\"b"')
     expect(
       parseSnapshotLine(`  ${label}${SNAPSHOT_LOCATOR_SEPARATOR}#go`)
     ).toEqual({
@@ -134,6 +134,29 @@ describe('parseSnapshotLine', () => {
       label,
       selector: '#go'
     })
+  })
+
+  it('writes a name with neither quote nor backslash as before, unescaped', () => {
+    expect(snapshotNodeLabel('link', 'C: drive', 'Go')).toBe(
+      'link "C: drive" ∈ "Go"'
+    )
+  })
+
+  it('round-trips a name ending in a backslash and one holding two', () => {
+    const label = snapshotNodeLabel('button', 'C:\\', 'a\\\\b')
+    expect(
+      parseSnapshotLine(`  ${label}${SNAPSHOT_LOCATOR_SEPARATOR}#c`)
+    ).toMatchObject({ name: 'C:\\', purpose: 'a\\\\b', selector: '#c' })
+  })
+
+  it('reads backslashes in a trace written before escaping literally', () => {
+    expect(parseSnapshotLine('  button "C:\\"  →  #c')).toMatchObject({
+      name: 'C:\\',
+      selector: '#c'
+    })
+    expect(
+      parseSnapshotLine('  button "a\\\\b" ∈ "x\\"y"  →  #d')
+    ).toMatchObject({ name: 'a\\\\b', purpose: 'x\\"y', selector: '#d' })
   })
 
   it('writes a role alone when it has neither name nor purpose', () => {

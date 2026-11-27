@@ -118,11 +118,21 @@ export interface SnapshotLine {
   selector?: string
 }
 
-const NAME_OPEN = ' "'
+/** Opens a value written escaped; traces from before escaping never have a backslash there, so they still read literally. */
+const ESCAPED_OPEN = '\\"'
 
-/** A name or purpose as a snapshot line quotes it: a backslash or quote inside is escaped with a backslash, so the reader finds where it closes whatever text follows. */
+const PURPOSE_OPENS = {
+  plain: SNAPSHOT_PURPOSE_OPEN,
+  escaped: ` ${SNAPSHOT_PURPOSE_TOKEN} ${ESCAPED_OPEN}`
+}
+
+const NAME_OPENS = { plain: ' "', escaped: ` ${ESCAPED_OPEN}` }
+
+/** A name or purpose as a snapshot line quotes it: one holding a backslash or quote opens with a backslash and escapes them, so the reader finds where it closes whatever text follows. */
 function quoteSnapshotText(text: string): string {
-  return `"${text.replace(/[\\"]/g, '\\$&')}"`
+  return /[\\"]/.test(text)
+    ? `${ESCAPED_OPEN}${text.replace(/[\\"]/g, '\\$&')}"`
+    : `"${text}"`
 }
 
 /** What a node line says before its locator, as every serializer writes it: role, quoted name and quoted purpose. */
@@ -147,32 +157,57 @@ function escapedAt(text: string, at: number, start: number): boolean {
   return slashes % 2 === 1
 }
 
-/** The quoted value opening at `from`, if one does: it closes at the first unescaped quote that a later segment or the line's end follows, so an arrow or an escaped quote inside it stays part of it, and a bare quote from a trace written before escaping does too. A scan, not a regex, because a trace is untrusted and a backtracking pattern over a hostile line is quadratic. */
-function quotedAt(
-  text: string,
-  from: number,
-  open: string,
-  closers: readonly string[]
-): { value: string; end: number } | undefined {
-  if (!text.startsWith(open, from)) {
-    return undefined
+interface Quoted {
+  value: string
+  end: number
+}
+
+/** An escaped value closes at its first unescaped quote. */
+function escapedFrom(text: string, start: number): Quoted | undefined {
+  for (let at = text.indexOf('"', start); at !== -1;) {
+    if (!escapedAt(text, at, start)) {
+      return {
+        value: text.slice(start, at).replace(/\\([\\"])/g, '$1'),
+        end: at + 1
+      }
+    }
+    at = text.indexOf('"', at + 1)
   }
-  const start = from + open.length
+  return undefined
+}
+
+/** A literal value closes at the first quote that a later segment or the line's end follows, so an arrow or a bare quote inside it stays part of it. */
+function literalFrom(
+  text: string,
+  start: number,
+  closers: readonly string[]
+): Quoted | undefined {
   for (let at = text.indexOf('"', start); at !== -1;) {
     const after = at + 1
     if (
-      !escapedAt(text, at, start) &&
-      (after === text.length ||
-        closers.some((closer) => text.startsWith(closer, after)))
+      after === text.length ||
+      closers.some((closer) => text.startsWith(closer, after))
     ) {
-      return {
-        value: text.slice(start, at).replace(/\\([\\"])/g, '$1'),
-        end: after
-      }
+      return { value: text.slice(start, at), end: after }
     }
     at = text.indexOf('"', after)
   }
   return undefined
+}
+
+/** The quoted value opening at `from`, if one does. A scan, not a regex, because a trace is untrusted and a backtracking pattern over a hostile line is quadratic. */
+function quotedAt(
+  text: string,
+  from: number,
+  opens: { plain: string; escaped: string },
+  closers: readonly string[]
+): Quoted | undefined {
+  if (text.startsWith(opens.escaped, from)) {
+    return escapedFrom(text, from + opens.escaped.length)
+  }
+  return text.startsWith(opens.plain, from)
+    ? literalFrom(text, from + opens.plain.length, closers)
+    : undefined
 }
 
 /** Reads one line of a snapshot back into its node; null for the header or a blank line. */
@@ -188,12 +223,13 @@ export function parseSnapshotLine(line: string): SnapshotLine | null {
   )
   const space = text.indexOf(' ')
   const role = space === -1 ? text : text.slice(0, space)
-  const name = quotedAt(text, role.length, NAME_OPEN, [
-    SNAPSHOT_PURPOSE_OPEN,
+  const name = quotedAt(text, role.length, NAME_OPENS, [
+    PURPOSE_OPENS.plain,
+    PURPOSE_OPENS.escaped,
     SNAPSHOT_LOCATOR_SEPARATOR
   ])
   const nameEnd = name?.end ?? role.length
-  const purpose = quotedAt(text, nameEnd, SNAPSHOT_PURPOSE_OPEN, [
+  const purpose = quotedAt(text, nameEnd, PURPOSE_OPENS, [
     SNAPSHOT_LOCATOR_SEPARATOR
   ])
   const labelEnd = text.indexOf(
