@@ -26,6 +26,7 @@ const BODY_FIELD_CHARS = size({ body: '' }) - 1
 const UNAVAILABLE_FIELD_CHARS = size({ bodyUnavailable: '' }) - 1
 // Room kept for a body, or the reason there is none, whatever the headers take.
 const BODY_RESERVE = MIN_TEXT_CHARS + UNAVAILABLE_FIELD_CHARS
+const BODY_TOO_LARGE = 'The body does not fit; ask with a larger maxChars'
 
 function measuredTimings(
   request: NetworkRequest
@@ -133,8 +134,14 @@ function headersWithin(
       omitted++
       continue
     }
+    const map = maps[header.field] ?? {}
+    // Two long names can cut to the same text; the later one is counted as left out rather than overwriting the first.
+    if (Object.prototype.hasOwnProperty.call(map, fit.entry[0])) {
+      omitted++
+      continue
+    }
     left -= fit.cost
-    maps[header.field] = { ...maps[header.field], [fit.entry[0]]: fit.entry[1] }
+    maps[header.field] = { ...map, [fit.entry[0]]: fit.entry[1] }
   }
   return { ...maps, ...(omitted ? { omittedHeaders: omitted } : {}) }
 }
@@ -192,7 +199,9 @@ async function bodyWithin(
     }
   }
   const mimeType = request.response?.mimeType
-  return fitted(
+  const budget = room + size({ body: '' })
+  // A body escapes to more characters than it holds (a newline is two), so it is cut below the usual floor, and left out only when nothing of it fits.
+  const body = fitted(
     (maxChars) => ({
       body: returnedText(text, {
         state,
@@ -202,8 +211,18 @@ async function bodyWithin(
       })
     }),
     Math.min(maxBodyChars, room),
-    room + size({ body: '' })
+    budget,
+    1
   )
+  return size(body) <= budget
+    ? body
+    : {
+        bodyUnavailable: returnedText(BODY_TOO_LARGE, {
+          state,
+          kind: 'body-unavailable',
+          maxChars: Math.min(MAX_LIST_TEXT_CHARS, room)
+        })
+      }
 }
 
 function requestOf(state: TraceState, id: string): NetworkRequest {

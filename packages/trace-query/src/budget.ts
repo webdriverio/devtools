@@ -151,20 +151,21 @@ export function pageWith<T, E extends object>(
   return { ...pageOf(items, { ...request, maxChars }, options), ...extra }
 }
 
-/** What `build` makes with its text cut at `cap`, cut further by what it overruns until it fits `budget` or its text is down to MIN_TEXT_CHARS. */
+/** What `build` makes with its text cut at `cap`, cut further by what it overruns until it fits `budget` or its text is down to `floor`. */
 export function fitted<T>(
   build: (maxChars: number) => T,
   cap: number,
-  budget: number
+  budget: number,
+  floor = MIN_TEXT_CHARS
 ): T {
   let maxChars = cap
   let item = build(maxChars)
-  while (maxChars > MIN_TEXT_CHARS) {
+  while (maxChars > floor) {
     const over = serializedLength(item) - budget
     if (over <= 0) {
       break
     }
-    maxChars = Math.max(MIN_TEXT_CHARS, maxChars - over)
+    maxChars = Math.max(floor, maxChars - over)
     item = build(maxChars)
   }
   return item

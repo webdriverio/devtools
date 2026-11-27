@@ -289,3 +289,29 @@ export function openHeavyRequestTrace(): Promise<TraceHandle> {
     startTime: START
   })
 }
+
+/** One request carrying the headers and body a test names. */
+export function openOneRequestTrace(
+  headers: Record<string, string>,
+  body: string,
+  mimeType = 'text/plain'
+): Promise<TraceHandle> {
+  return openWritten({
+    commands: COMMANDS,
+    networkRequests: [
+      request({
+        id: 'one',
+        url: `${ORIGIN}/api/one`,
+        startTime: START + 150,
+        endTime: START + 180,
+        time: 30,
+        status: 200,
+        statusText: 'OK',
+        requestHeaders: headers,
+        responseBody: body,
+        response: { fromCache: false, headers: {}, mimeType, status: 200 }
+      })
+    ],
+    startTime: START
+  })
+}

@@ -9,6 +9,7 @@ import {
   openBusyTrace,
   openChromeTrace,
   openHeavyRequestTrace,
+  openOneRequestTrace,
   openResourceTimingTrace
 } from './console-network-traces.js'
 import { allPages, fixtures, openFixture } from './traces.js'
@@ -323,5 +324,31 @@ describe('traceNetworkRequest', () => {
     await expect(
       traceNetworkRequest(await openChromeTrace(), '99')
     ).rejects.toThrow('The trace has no request "99"')
+  })
+})
+
+describe('traceNetworkRequest within its budget on awkward input', () => {
+  it('cuts a body that escapes to twice its length, rather than overrunning maxChars', async () => {
+    const handle = await openOneRequestTrace(
+      { 'x-test': 'v'.repeat(1_500) },
+      '\n'.repeat(2_000)
+    )
+    const detail = await traceNetworkRequest(handle, '0', {
+      body: true,
+      maxChars: 1_000
+    })
+    expect(JSON.stringify(detail).length).toBeLessThanOrEqual(1_000)
+    expect(detail.body ?? detail.bodyUnavailable).toBeDefined()
+  })
+
+  it('counts a header whose cut name collides with an earlier one as left out', async () => {
+    const stem = 'x'.repeat(300)
+    const handle = await openOneRequestTrace(
+      { [`${stem}a`]: 'first', [`${stem}b`]: 'second' },
+      'ok'
+    )
+    const detail = await traceNetworkRequest(handle, '0')
+    expect(Object.keys(detail.requestHeaders ?? {})).toHaveLength(1)
+    expect(detail.omittedHeaders).toBe(1)
   })
 })
