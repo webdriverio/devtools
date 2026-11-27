@@ -44,7 +44,17 @@ export interface ScreencastFrameEvent {
  *  `-snapshot.txt` / `-elements.json` resources. */
 export interface FrameSnapshotEvent {
   type: 'frame-snapshot'
-  snapshot: { callId: string; pageId: string; wallTime: number }
+  snapshot: {
+    callId: string
+    pageId: string
+    wallTime: number
+    /** `after@<callId>` from this writer; a foreign zip may name a `before@` one, or none. */
+    snapshotName?: string
+    /** This writer's names the stored screenshot here; a foreign zip's name page resources. Untrusted, so read by shape. */
+    resourceOverrides?: unknown
+    /** The document; the writer before stored screenshots inlined the image in it. Untrusted, so read by shape. */
+    html?: unknown
+  }
 }
 
 export interface ConsoleEvent {

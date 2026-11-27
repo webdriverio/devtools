@@ -8,11 +8,10 @@ import {
   type ActionSnapshot
 } from '@wdio/devtools-shared'
 import { networkRequestToHar, type ResourceSnapshotEntry } from './trace-har.js'
+import { SCREENSHOT_URL_ORIGIN } from './trace-reader-constants.js'
 import { screenshotResourceName } from './trace-snapshots.js'
 
 const SNAPSHOT_DOCTYPE = 'html'
-// `.invalid` never resolves (RFC 6761), so a viewer that ignores the override fetches nothing.
-const SCREENSHOT_URL_ORIGIN = 'https://screenshot.wdio-devtools.invalid'
 // Before every snapshot, including one clamped to 0: the viewer only serves a resource loaded before the snapshot.
 const SCREENSHOT_RESOURCE_TIME = -1
 const FALLBACK_FRAME_URL = 'about:blank'

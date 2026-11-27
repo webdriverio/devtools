@@ -72,6 +72,7 @@ export const PAGE_SCOPE = {
   CONSOLE: 'console',
   ERRORS: 'errors',
   NETWORK: 'network',
+  SNAPSHOT: 'snapshot',
   TRANSCRIPT: 'transcript'
 } as const
 
@@ -92,3 +93,21 @@ export const DETAIL_VALUE_MAX_CHARS = 2_000
 
 /** A stored response body larger than this is reported by size and not inflated. */
 export const MAX_BODY_BYTES = 4 * 1024 * 1024
+
+/** Characters one line of an accessibility snapshot keeps, so one long name or locator cannot fill a page. */
+export const MAX_SNAPSHOT_LINE_CHARS = 1_000
+
+/** Characters a snapshot's header keeps: the page's title and url. */
+export const MAX_SNAPSHOT_HEADER_CHARS = 300
+
+/** Longest side a screenshot is fitted to when its caller names none: a 1600x757 desktop frame then bills about 660 tokens. */
+export const SCREENSHOT_MAX_EDGE = 1024
+
+/** A stored screenshot larger than this is reported by size and not read: a capture is about 2 MB, and a full-page 4K PNG stays well under it. */
+export const MAX_SCREENSHOT_BYTES = 16 * 1024 * 1024
+
+/** Pixels per token in Anthropic's estimate of what Claude's API bills for an image (width x height / 750). */
+export const IMAGE_PIXELS_PER_TOKEN = 750
+
+/** Longest side Claude's API scales an image down to before billing it, so a fit larger than this costs what this size does. */
+export const API_IMAGE_MAX_EDGE = 1568

@@ -8,8 +8,11 @@ import { traceTranscript } from '../src/transcript.js'
 import { traceConsole } from '../src/console.js'
 import { traceNetwork } from '../src/network.js'
 import { traceNetworkRequest } from '../src/network-request.js'
+import { traceStateOf } from '../src/open-trace.js'
+import { traceSnapshot } from '../src/trace-snapshot.js'
 import { MIN_QUERY_CHARS } from '../src/constants.js'
 import type { TraceHandle } from '../src/types.js'
+import { capture } from './page-state-traces.js'
 import { allPages, fixtures, openFixture, openWritten } from './traces.js'
 
 const START = 1_700_000_000_000
@@ -117,7 +120,8 @@ describe('results within their budget', () => {
       () => traceActionDetail(handle, callId, { maxChars }),
       () => traceTranscript(handle, { maxChars }),
       () => traceConsole(handle, { maxChars }),
-      () => traceNetwork(handle, { maxChars })
+      () => traceNetwork(handle, { maxChars }),
+      () => traceSnapshot(handle, callId, { maxChars })
     ]) {
       expect(query).toThrow(`maxChars must be at least ${MIN_QUERY_CHARS}`)
     }
@@ -129,6 +133,9 @@ describe('results within their budget', () => {
 
 async function hostileTrace(): Promise<TraceHandle> {
   const long = (n: number) => 'x'.repeat(n)
+  // Each of these serializes to more than one character: a control character to six, a quote and a backslash to two.
+  const escaping = (n: number) =>
+    '\u0001"\\'.repeat(Math.ceil(n / 3)).slice(0, n)
   return openWritten({
     commands: [
       row('waitUntil', 100, 900, {
@@ -145,7 +152,7 @@ async function hostileTrace(): Promise<TraceHandle> {
         })
       ),
       row('click', 1_000, 1_100, {
-        title: long(3_000),
+        title: escaping(3_000),
         args: [long(5_000)],
         selector: long(5_000),
         callSource: `${SPEC}:5`,
@@ -155,6 +162,19 @@ async function hostileTrace(): Promise<TraceHandle> {
     sources: {
       [SPEC]: Array.from({ length: 200 }, () => long(500)).join('\n')
     },
+    actionSnapshots: [
+      capture(
+        START + 1_100,
+        [
+          `[Page: ${escaping(5_000)}]`,
+          ...Array.from(
+            { length: 200 },
+            (_, i) =>
+              `${'  '.repeat((i % 6) + 1)}link "${i % 2 ? escaping(500) : long(500)}" ∈ "${long(300)}"  →  //a[contains(., "${escaping(3_000)}")]`
+          )
+        ].join('\n')
+      )
+    ],
     consoleLogs: Array.from({ length: 30 }, (_, i) => ({
       type: i % 2 ? 'error' : 'warn',
       args: [`"${long(3_000)}"\n${long(i * 50)}`],
@@ -201,6 +221,8 @@ describe('every query within every budget it accepts', () => {
     for (const [name, handle] of traces) {
       const callId = traceActions(handle).items[0]?.callId
       const requestId = traceNetwork(handle).items[0]?.id
+      const { commands } = traceStateOf(handle).data.trace
+      const lastCallId = commands[commands.length - 1]!.callId!
       for (const maxChars of [
         MIN_QUERY_CHARS,
         1_200,
@@ -223,6 +245,21 @@ describe('every query within every budget it accepts', () => {
             traceNetwork(handle, { maxChars, cursor })
           ).map(
             (page, at) => [`network page ${at}`, page] as [string, unknown]
+          ),
+          ...allPages((cursor) =>
+            traceSnapshot(handle, lastCallId, { maxChars, cursor })!
+          ).map(
+            (page, at) => [`snapshot page ${at}`, page] as [string, unknown]
+          ),
+          ...allPages((cursor) =>
+            traceSnapshot(handle, lastCallId, {
+              maxChars,
+              cursor,
+              text: 'link'
+            })!
+          ).map(
+            (page, at) =>
+              [`scoped snapshot page ${at}`, page] as [string, unknown]
           ),
           ...(requestId
             ? [

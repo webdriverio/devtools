@@ -7,10 +7,9 @@ import {
   isSnapshotHeaderLine,
   isXPathLocator,
   locatorDialect,
-  SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_LOCATOR_DELIM
+  parseSnapshotLine
 } from '@wdio/devtools-shared'
-import type { CommandLog, Metadata } from '@wdio/devtools-shared'
+import type { CommandLog, Metadata, SnapshotLine } from '@wdio/devtools-shared'
 
 import { metadataContext } from '../../controller/context.js'
 
@@ -20,13 +19,9 @@ const COMPONENT = 'wdio-devtools-a11y'
 const NAME_MAX = 64
 const UNAVAILABLE_GLYPH = '🌳'
 
-interface A11yNode {
-  depth: number
-  role: string
-  name: string
-  /** Captured locator (from the serialized `→ …` suffix), when the node is an
-   *  element — hovering highlights it in the snapshot; clicking copies it. */
-  selector?: string
+/** The quoted text a row shows: its name, or its inferred purpose when it has none. */
+function shownName(node: SnapshotLine): string {
+  return node.name || node.purpose || ''
 }
 
 /** Player dock tab: the accessibility tree (roles + accessible names) captured
@@ -108,7 +103,7 @@ export class DevtoolsA11yTree extends Element {
   /** A node matches a reveal target by exact selector, else by accessible name
    *  (covers locators the serializer captured differently, e.g. the test's
    *  `button[type=submit]` vs `button*=Login`). */
-  #matches(node: A11yNode, target?: { selector?: string; label?: string }) {
+  #matches(node: SnapshotLine, target?: { selector?: string; label?: string }) {
     if (!target) {
       return false
     }
@@ -119,14 +114,11 @@ export class DevtoolsA11yTree extends Element {
     ) {
       return true
     }
-    return !!(
-      target.label &&
-      node.name &&
-      node.name.trim() === target.label.trim()
-    )
+    const label = shownName(node)
+    return !!(target.label && label && label.trim() === target.label.trim())
   }
 
-  #isRevealed(node: A11yNode): boolean {
+  #isRevealed(node: SnapshotLine): boolean {
     return (
       this.#matches(node, this.revealed) || this.#matches(node, this.pinned)
     )
@@ -292,29 +284,7 @@ export class DevtoolsA11yTree extends Element {
     return name.length > NAME_MAX ? name.slice(0, NAME_MAX - 1) + '…' : name
   }
 
-  /** Parse one serialized line — `<indent>role[level] "name" [∈ …] [→ …]` — into
-   *  a node, dropping the purpose/selector suffixes for a clean tree. Header and
-   *  blank lines return null. */
-  #parse(line: string): A11yNode | null {
-    const trimmed = line.trimStart()
-    if (!trimmed || isSnapshotHeaderLine(trimmed)) {
-      return null
-    }
-    const indent = line.length - trimmed.length
-    const depth = Math.max(
-      0,
-      Math.floor(indent / SNAPSHOT_INDENT_UNIT.length) - 1
-    )
-    const role = /^\S+/.exec(trimmed)?.[0] ?? trimmed
-    const name = /"([^"]*)"/.exec(trimmed)?.[1] ?? ''
-    // The `→ <locator>` suffix (last one wins; skips any `∈ "purpose"` before it).
-    const selector = trimmed.includes(SNAPSHOT_LOCATOR_DELIM)
-      ? trimmed.split(SNAPSHOT_LOCATOR_DELIM).pop()?.trim() || undefined
-      : undefined
-    return { depth, role, name, selector }
-  }
-
-  #row(node: A11yNode): TemplateResult {
+  #row(node: SnapshotLine): TemplateResult {
     const sel = node.selector
     const hot = this.#isRevealed(node)
     const note = this.#xpathNote(sel)
@@ -339,8 +309,8 @@ export class DevtoolsA11yTree extends Element {
       <span class="twig">•</span>
       <span class="role">${node.role}</span>
       ${
-        node.name
-          ? html`<span class="nm">"${this.#trunc(node.name)}"</span>`
+        shownName(node)
+          ? html`<span class="nm">"${this.#trunc(shownName(node))}"</span>`
           : nothing
       }
       ${
@@ -417,8 +387,8 @@ export class DevtoolsA11yTree extends Element {
     const header =
       lines[0] && isSnapshotHeaderLine(lines[0]) ? lines[0] : undefined
     const nodes = lines
-      .map((l) => this.#parse(l))
-      .filter((n): n is A11yNode => n !== null)
+      .map(parseSnapshotLine)
+      .filter((n): n is SnapshotLine => n !== null)
     return html`<div class="copybar">${this.#hint()}</div>
       <div class="scroll">
         <div class="tree">

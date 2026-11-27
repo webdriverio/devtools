@@ -77,6 +77,16 @@ export function nearestFrame<T extends { timestamp: number }>(
   return preceding ?? following
 }
 
+/** The per-action capture an action shows, and the action it was taken for. */
+export interface TraceSnapshotSource {
+  /** Wall-clock ms the capture is stamped with. */
+  timestamp: number
+  /** The first action to show it: the one it was taken for, since a later action shows it only when it took no capture of its own. */
+  ownerCallId: string
+  /** The zip entry holding the capture's screenshot; absent when the zip names none for it, as a foreign trace's DOM snapshot does. */
+  entry?: string
+}
+
 /** A structural step reconstructed from a trace.zip — a runner hook, step
  *  wrapper, or tracing group marker — rendered as a collapsible tree row. */
 export interface TraceActionGroupNode {
@@ -127,6 +137,8 @@ export interface TracePlayerData {
   groups?: TraceActionChild[]
   /** Markdown run transcript (`transcript.md`), when the zip carried one. */
   transcript?: string
+  /** The capture each action shows, by its `callId`; absent when the zip holds no per-action capture. */
+  snapshotSources?: Record<string, TraceSnapshotSource>
 }
 
 /** The whole payload served at `TRACE_API.get` (`start({ trace })`, and backends from before the app read zips itself): each frame carries its image inline, base64. */

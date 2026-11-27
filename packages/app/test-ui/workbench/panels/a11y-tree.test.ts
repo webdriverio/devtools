@@ -9,6 +9,7 @@ import { commandLog } from '../../support/builders.js'
 import { mount, mountWithContext, settle } from '../../support/mount.js'
 import { shadow, shadowAll, text, texts } from '../../support/queries.js'
 import {
+  a11yLine,
   BARE_MOBILE_HEADER,
   bareMobileSnapshot,
   headerOnlySnapshot,
@@ -245,6 +246,24 @@ describe('wdio-devtools-a11y', () => {
       const panel = await mountTree(loginSnapshot)
 
       expect(text(rowAt(panel, USERNAME_ROW))).toBe(USERNAME_ROW_TEXT)
+    })
+
+    it('shows the purpose of a node that carries no name, and reveals it by that label', async () => {
+      const panel = await mountTree(
+        [
+          PAGE_HEADER,
+          a11yLine({
+            depth: 0,
+            role: 'button',
+            purpose: 'Checkout',
+            selector: '//button[2]'
+          })
+        ].join('\n')
+      )
+
+      expect(text(rowAt(panel, 0))).toBe('• button "Checkout" //button[2]')
+      await reveal(panel, { selector: '#pay', label: 'Checkout' })
+      expect(shadowAll(panel, HOT_NODE)).toHaveLength(1)
     })
 
     it('renders the page title and URL above the tree', async () => {

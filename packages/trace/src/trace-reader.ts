@@ -27,6 +27,10 @@ import {
 
 import { pageResourcesOf } from './trace-reader-page-resources.js'
 import {
+  buildSnapshotSources,
+  buildSnapshotTextByCallId
+} from './trace-reader-snapshots.js'
+import {
   openZip,
   ZIP_MAX_INFLATED_BYTES,
   type ZipIndex,
@@ -257,25 +261,6 @@ function reconstructCommand(
     command.selector = locator
   }
   return command
-}
-
-/** Resolve each per-action `-snapshot.txt` (a11y tree) resource, keyed by the
- *  command's callId. The frame-snapshot event names the resource via its pageId
- *  + original timestamp (wallTime), so this works regardless of whether the zip
- *  used the sparse or dense filmstrip. */
-function buildSnapshotTextByCallId(
-  files: TraceZipEntries,
-  frameSnapshots: FrameSnapshotEvent[]
-): Map<string, string> {
-  const byCallId = new Map<string, string>()
-  for (const { snapshot } of frameSnapshots) {
-    const data =
-      files[`resources/${snapshot.pageId}-${snapshot.wallTime}-snapshot.txt`]
-    if (data) {
-      byCallId.set(snapshot.callId, strFromU8(data))
-    }
-  }
-  return byCallId
 }
 
 function buildCommands(
@@ -556,7 +541,8 @@ export function parseTraceEntries(files: TraceEntries): TracePlayerData {
       responseBodies: network.responseBodies,
       pageResources: pageResources.length ? pageResources : undefined,
       groups,
-      transcript: transcript || undefined
+      transcript: transcript || undefined,
+      snapshotSources: buildSnapshotSources(merged.frameSnapshots, names)
     })
   }
 }

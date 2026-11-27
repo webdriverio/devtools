@@ -3,10 +3,16 @@ import { traceConsole } from '../src/console.js'
 import { traceNetwork } from '../src/network.js'
 import { traceNetworkRequest } from '../src/network-request.js'
 import type { TextContext } from '../src/returned-text.js'
+import { traceScreenshot } from '../src/trace-screenshot.js'
+import { traceSnapshot } from '../src/trace-snapshot.js'
+import { traceStateOf } from '../src/open-trace.js'
+import type { ScreenshotImage } from '../src/types.js'
 import {
   openChromeTrace,
   openResourceTimingTrace
 } from './console-network-traces.js'
+import { openNativeTrace } from './page-state-traces.js'
+import { openFixture } from './traces.js'
 
 // Redaction and untrusted-data marking hook in at returnedText, so every text a query returns must carry its mark.
 vi.mock('../src/returned-text.js', async () => {
@@ -91,4 +97,38 @@ describe('returnedText', () => {
       expect(unmarked(detail)).toEqual([])
     }
   )
+
+  // The capture's callId and title name the action, as the action queries return them, not page text.
+  const PAGE_STATE_OWN = new Set([...OWN_FIELDS, 'callId', 'title', 'mimeType'])
+
+  it.each([
+    ['a web page', 'selenium-mocha-2026-11-10-ee505b9c.zip', 'call@15'],
+    ['a native app', 'native', 'call@2']
+  ])(
+    'marks every text of the accessibility tree of %s, header included',
+    async (_kind, name, callId) => {
+      const trace =
+        name === 'native' ? await openNativeTrace() : await openFixture(name)
+      const snapshot = traceSnapshot(trace, callId)
+      expect(snapshot?.header).toMatch(MARK)
+      expect(snapshot?.items.length).toBeGreaterThan(0)
+      expect(unmarked(snapshot, PAGE_STATE_OWN)).toEqual([])
+    }
+  )
+
+  it('returns no page text with a screenshot, only the image and its own fields', async () => {
+    const shot = await traceScreenshot(await openNativeTrace(), 'call@2')
+    const { bytes, ...fields } = shot as ScreenshotImage
+    expect(bytes.byteLength).toBeGreaterThan(0)
+    expect(returnedStrings(fields, PAGE_STATE_OWN)).toEqual([])
+  })
+
+  it('marks why a screenshot did not come back', async () => {
+    const trace = await openNativeTrace()
+    const { archive } = traceStateOf(trace)
+    archive.sizeOf = () => undefined
+    const shot = await traceScreenshot(trace, 'call@1')
+    expect(shot).toHaveProperty('unavailable')
+    expect(unmarked(shot, PAGE_STATE_OWN)).toEqual([])
+  })
 })

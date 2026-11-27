@@ -9,8 +9,8 @@
 
 import {
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_LOCATOR_DELIM,
-  SNAPSHOT_PURPOSE_TOKEN,
+  SNAPSHOT_LOCATOR_SEPARATOR,
+  snapshotNodeLabel,
   type NativePlatform
 } from '@wdio/devtools-shared'
 
@@ -565,28 +565,12 @@ function renderMobileNodes(nodes: MobileFlatNode[]): string[] {
       }
 
       const purpose = mobileInferPurpose(nodes, i)
-      if (node.name) {
-        lines.push(
-          purpose
-            ? `${indent}${node.role} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
-            : `${indent}${node.role} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
-        )
-      } else if (purpose) {
-        lines.push(
-          `${indent}${node.role} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
-        )
-      } else {
-        lines.push(
-          `${indent}${node.role}  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}`
-        )
-      }
+      lines.push(
+        `${indent}${snapshotNodeLabel(node.role, node.name, purpose)}${SNAPSHOT_LOCATOR_SEPARATOR}${selector}`
+      )
     } else {
       // Container / structural / non-locatable
-      lines.push(
-        node.name
-          ? `${indent}${node.role} "${node.name}"`
-          : `${indent}${node.role}`
-      )
+      lines.push(`${indent}${snapshotNodeLabel(node.role, node.name)}`)
     }
   }
 

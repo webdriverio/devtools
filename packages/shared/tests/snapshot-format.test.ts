@@ -9,7 +9,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   isSnapshotHeaderLine,
+  parseSnapshotLine,
   snapshotNativeHeader,
+  snapshotNodeLabel,
+  SNAPSHOT_LOCATOR_SEPARATOR,
   SNAPSHOT_NATIVE_PLATFORMS,
   SNAPSHOT_PAGE_HEADER
 } from '../src/snapshot-format.js'
@@ -73,5 +76,120 @@ describe('snapshotNativeHeader', () => {
     for (const platform of SNAPSHOT_NATIVE_PLATFORMS) {
       expect(snapshotNativeHeader(platform)).not.toBe(SNAPSHOT_PAGE_HEADER)
     }
+  })
+})
+
+describe('parseSnapshotLine', () => {
+  it('reads depth, role, name and the locator of an element line', () => {
+    expect(
+      parseSnapshotLine('      textbox "Username" ∈ "Login"  →  #username')
+    ).toEqual({
+      depth: 2,
+      role: 'textbox',
+      name: 'Username',
+      purpose: 'Login',
+      label: 'textbox "Username" ∈ "Login"',
+      selector: '#username'
+    })
+  })
+
+  it('reads a structural line with no locator', () => {
+    expect(parseSnapshotLine('  form')).toEqual({
+      depth: 0,
+      role: 'form',
+      name: '',
+      label: 'form'
+    })
+  })
+
+  it('keeps an arrow in a name and in an XPath text locator', () => {
+    expect(
+      parseSnapshotLine('    link "Next →"  →  //a[contains(., "Next →")]')
+    ).toEqual({
+      depth: 1,
+      role: 'link',
+      name: 'Next →',
+      label: 'link "Next →"',
+      selector: '//a[contains(., "Next →")]'
+    })
+  })
+
+  it('keeps a quote inside a name', () => {
+    expect(parseSnapshotLine('  button "Say "hi""  →  #say')).toMatchObject({
+      name: 'Say "hi"',
+      selector: '#say'
+    })
+  })
+
+  it('reads back a name and purpose holding a quote before the locator separator', () => {
+    const label = snapshotNodeLabel('button', 'Press "  →  next', 'a\\"b')
+    expect(label).toBe('button \\"Press \\"  →  next" ∈ \\"a\\\\\\"b"')
+    expect(
+      parseSnapshotLine(`  ${label}${SNAPSHOT_LOCATOR_SEPARATOR}#go`)
+    ).toEqual({
+      depth: 0,
+      role: 'button',
+      name: 'Press "  →  next',
+      purpose: 'a\\"b',
+      label,
+      selector: '#go'
+    })
+  })
+
+  it('writes a name with neither quote nor backslash as before, unescaped', () => {
+    expect(snapshotNodeLabel('link', 'C: drive', 'Go')).toBe(
+      'link "C: drive" ∈ "Go"'
+    )
+  })
+
+  it('round-trips a name ending in a backslash and one holding two', () => {
+    const label = snapshotNodeLabel('button', 'C:\\', 'a\\\\b')
+    expect(
+      parseSnapshotLine(`  ${label}${SNAPSHOT_LOCATOR_SEPARATOR}#c`)
+    ).toMatchObject({ name: 'C:\\', purpose: 'a\\\\b', selector: '#c' })
+  })
+
+  it('reads backslashes in a trace written before escaping literally', () => {
+    expect(parseSnapshotLine('  button "C:\\"  →  #c')).toMatchObject({
+      name: 'C:\\',
+      selector: '#c'
+    })
+    expect(
+      parseSnapshotLine('  button "a\\\\b" ∈ "x\\"y"  →  #d')
+    ).toMatchObject({ name: 'a\\\\b', purpose: 'x\\"y', selector: '#d' })
+  })
+
+  it('writes a role alone when it has neither name nor purpose', () => {
+    expect(snapshotNodeLabel('switch', '', undefined)).toBe('switch')
+  })
+
+  it('reads a purpose with no name, and a locator with neither', () => {
+    expect(
+      parseSnapshotLine('  button ∈ "Checkout"  →  //button[2]')
+    ).toMatchObject({
+      role: 'button',
+      name: '',
+      purpose: 'Checkout',
+      label: 'button ∈ "Checkout"',
+      selector: '//button[2]'
+    })
+    expect(parseSnapshotLine('  switch  →  ~wifi')).toMatchObject({
+      role: 'switch',
+      label: 'switch',
+      selector: '~wifi'
+    })
+  })
+
+  it('reads a long hostile line in linear time', () => {
+    const line = `  x "${'" ∈ "'.repeat(50_000)}`
+    const started = performance.now()
+    parseSnapshotLine(line)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  it('reads neither the header nor a blank line as a node', () => {
+    expect(parseSnapshotLine('[Page: Login]')).toBe(null)
+    expect(parseSnapshotLine('[android]')).toBe(null)
+    expect(parseSnapshotLine('   ')).toBe(null)
   })
 })
