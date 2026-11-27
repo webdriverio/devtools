@@ -34,7 +34,7 @@ function response(
 
 function serving(...responses: HttpResponse[]): HttpGet & { urls: string[] } {
   const urls: string[] = []
-  const get = (async (url: URL) => {
+  const get = (async (url: URL, _signal: AbortSignal) => {
     urls.push(url.href)
     return responses.shift()!
   }) as HttpGet & { urls: string[] }
@@ -222,5 +222,21 @@ describe('downloadTrace', () => {
     await expect(downloadTrace(URL_WITH_TOKEN, LIMITS, get)).resolves.toEqual(
       new Uint8Array([1, 2, 3])
     )
+  })
+
+  it('shares one deadline across every redirect', async () => {
+    const signals: AbortSignal[] = []
+    const responses = [
+      response(302, { location: '/one' }),
+      response(302, { location: '/two' }),
+      response(200, { chunks: [[1]] })
+    ]
+    await downloadTrace(URL_WITH_TOKEN, LIMITS, async (_url, signal) => {
+      signals.push(signal)
+      return responses.shift()!
+    })
+    expect(signals).toHaveLength(3)
+    expect(signals[0]).toBeInstanceOf(AbortSignal)
+    expect(new Set(signals).size).toBe(1)
   })
 })

@@ -103,10 +103,12 @@ export async function downloadTrace(
   limits: DownloadLimits,
   get: HttpGet
 ): Promise<Uint8Array> {
+  // One deadline for the whole download, so a chain of slow redirects cannot extend it.
+  const signal = AbortSignal.timeout(DOWNLOAD_DEADLINE_MS)
   let url = location
   for (let redirects = 0; ; redirects++) {
     checkUrl(url, limits)
-    const response = await get(url)
+    const response = await get(url, signal)
     if (REDIRECTS.has(response.status)) {
       response.discard()
       if (!response.location || redirects === MAX_REDIRECTS) {
@@ -148,7 +150,7 @@ function responseOf(message: IncomingMessage): HttpResponse {
 /** GET over node:https on a connection of its own (no proxy, no pooled socket the guard did not vet), connecting only to addresses the guard accepts. */
 export function httpsGet(allowPrivateNetwork: boolean): HttpGet {
   const lookup = guardedLookup(allowPrivateNetwork)
-  return (url) =>
+  return (url, signal) =>
     new Promise((resolve, reject) => {
       const request = https.get(
         url,
@@ -156,7 +158,7 @@ export function httpsGet(allowPrivateNetwork: boolean): HttpGet {
           agent: false,
           lookup,
           timeout: DOWNLOAD_IDLE_TIMEOUT_MS,
-          signal: AbortSignal.timeout(DOWNLOAD_DEADLINE_MS)
+          signal
         },
         (message) => resolve(responseOf(message))
       )

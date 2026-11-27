@@ -76,4 +76,4 @@ export interface HttpResponse {
 }
 
 /** One GET of a URL, without following redirects; injectable so tests need no server. */
-export type HttpGet = (url: URL) => Promise<HttpResponse>
+export type HttpGet = (url: URL, signal: AbortSignal) => Promise<HttpResponse>

@@ -128,6 +128,17 @@ function attemptOf(
   return attempt
 }
 
+// A retry only follows a failure, so an earlier attempt without a record is not reported as anything.
+function stateOf(
+  test: ParsedManifestTest,
+  attempt: number
+): string | undefined {
+  if (attempt === finalAttemptOf(test)) {
+    return test.state
+  }
+  return test.attempts?.find((record) => record.attempt === attempt)?.state
+}
+
 async function zipOf(
   entry: ManifestTest,
   attempt: number,
@@ -141,7 +152,7 @@ async function zipOf(
     )
   }
   const zipPath = await guardedRealPath(
-    path.join(dir, ...artifact.path.split('/')),
+    path.resolve(dir, artifact.path),
     allowedRoots
   )
   const manifestUids = new Set(manifest.tests.map(({ uid }) => uid))
@@ -152,7 +163,7 @@ async function zipOf(
       title: test.title,
       specFile: test.specFile,
       attempt,
-      state: test.state,
+      state: stateOf(test, attempt),
       sharedZip: sharesTraceArtifact(artifact, test, manifestUids)
     }
   }

@@ -77,7 +77,7 @@ async function openLocal(
   const found = (await fs.stat(real)).isDirectory()
     ? await traceInFolder(real, target, roots)
     : { zipPath: real }
-  const file = await checkedFile(found.zipPath)
+  const file = await checkedFile(found.zipPath, roots)
   const maxZipBytes = options.maxZipBytes ?? DEFAULT_MAX_ZIP_BYTES
   if (file.size > maxZipBytes) {
     throw new Error(

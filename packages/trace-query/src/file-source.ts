@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import type { ZipSource } from '@wdio/devtools-trace/trace-reader'
+import { guardedRealPath } from './local-paths.js'
 
 /** The file a path named when it was checked; a later read refuses any other file found under that path. */
 export interface CheckedFile {
@@ -10,8 +11,16 @@ export interface CheckedFile {
   mtimeMs: number
 }
 
-/** Stats a checked path and refuses anything but a regular file, which a FIFO or device under a root would otherwise hang or flood. */
-export async function checkedFile(file: string): Promise<CheckedFile> {
+function sameFile(a: CheckedFile, b: CheckedFile): boolean {
+  return (
+    a.dev === b.dev &&
+    a.ino === b.ino &&
+    a.size === b.size &&
+    a.mtimeMs === b.mtimeMs
+  )
+}
+
+async function identityOf(file: string): Promise<CheckedFile> {
   const stat = await fs.stat(file)
   if (!stat.isFile()) {
     throw new Error(`Cannot open ${file}: it is not a regular file`)
@@ -23,6 +32,20 @@ export async function checkedFile(file: string): Promise<CheckedFile> {
     ino: stat.ino,
     mtimeMs: stat.mtimeMs
   }
+}
+
+/** The regular file a path names, checked against the roots: it is stated, its real path is checked, and that real path is stated again, so a swap anywhere in between changes the identity and is refused. FIFOs and devices are refused too, since they would hang or flood a read. */
+export async function checkedFile(
+  file: string,
+  allowedRoots: readonly string[]
+): Promise<CheckedFile> {
+  const before = await identityOf(file)
+  const real = await guardedRealPath(file, allowedRoots)
+  const after = await identityOf(real)
+  if (!sameFile(before, after)) {
+    throw new Error(`Cannot open ${file}: it changed while it was checked`)
+  }
+  return after
 }
 
 /** A zip on disk, read a range at a time. The file is opened per read, so a handle never holds a descriptor, and each open is checked to be the same file the path guard approved. */
