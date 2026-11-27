@@ -1,6 +1,6 @@
 import type { Context } from '@opentelemetry/api'
 import type { CommandLog, TracePlayerData } from '@wdio/devtools-shared'
-import type { ManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
+import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import type { PinnedSpanIds } from './span-ids.js'
 
 export const STATE_PASSED = 'passed'
@@ -49,7 +49,7 @@ export interface PreparedRoot {
 }
 
 export interface PreparedTest {
-  test: ManifestTest
+  test: ParsedManifestTest
   roots: PreparedRoot[]
 }
 

@@ -4,9 +4,9 @@ import {
   type TestAttemptRecord
 } from '@wdio/devtools-shared'
 import type {
-  Manifest,
-  ManifestArtifact,
-  ManifestTest
+  ParsedManifest,
+  ParsedManifestArtifact,
+  ParsedManifestTest
 } from '../src/artifacts-manifest-reader.js'
 import {
   holdsEarlierAttempts,
@@ -17,7 +17,7 @@ const UID = 'uid-login'
 const TRACE_ID = '0af7651916cd43dd8448eb211c80319c'
 const SPAN_ID = 'b7ad6b7169203331'
 
-function traceZip(path: string, key?: string): ManifestArtifact {
+function traceZip(path: string, key?: string): ParsedManifestArtifact {
   return { kind: 'trace', path, key, testUids: [UID], retained: true }
 }
 
@@ -26,9 +26,9 @@ function record(attempt: number, final?: boolean): TestAttemptRecord {
 }
 
 function manifestOf(
-  artifacts: ManifestArtifact[],
-  test: Partial<ManifestTest> & Pick<ManifestTest, 'attempt'>
-): Manifest {
+  artifacts: ParsedManifestArtifact[],
+  test: Partial<ParsedManifestTest> & Pick<ParsedManifestTest, 'attempt'>
+): ParsedManifest {
   return {
     manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 's1',
@@ -45,7 +45,7 @@ function manifestOf(
   }
 }
 
-function linkedPath(manifest: Manifest): string | undefined {
+function linkedPath(manifest: ParsedManifest): string | undefined {
   return traceArtifactsByUid(manifest).get(UID)?.path
 }
 
@@ -211,8 +211,8 @@ describe('traceArtifactsByUid', () => {
 describe('holdsEarlierAttempts', () => {
   function scoped(
     path: string,
-    scope: ManifestArtifact['scope']
-  ): ManifestArtifact {
+    scope: ParsedManifestArtifact['scope']
+  ): ParsedManifestArtifact {
     return { ...traceZip(path), scope }
   }
 

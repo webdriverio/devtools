@@ -13,7 +13,7 @@ import type {
   TracePlayerData
 } from '@wdio/devtools-shared'
 import { normalizeSelector } from '@wdio/devtools-trace/action-key'
-import type { ManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
+import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import * as attr from './attributes.js'
 import {
   actionStart,
@@ -179,7 +179,7 @@ function addTestEvents(
 
 function emitRoot(
   sink: TelemetrySink,
-  test: ManifestTest,
+  test: ParsedManifestTest,
   root: PreparedRoot,
   consoleMessages: boolean
 ): void {

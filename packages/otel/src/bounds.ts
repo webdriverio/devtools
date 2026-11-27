@@ -1,5 +1,5 @@
 import type { TraceActionChild } from '@wdio/devtools-shared'
-import type { ManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
+import type { ParsedManifestTest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { actionStart, type ActionInfo, type Bounds } from './prepared.js'
 
 function actionBounds(action: ActionInfo): Bounds {
@@ -43,7 +43,7 @@ function union(a: Bounds, b: Bounds): Bounds {
 }
 
 /** The test's own timing, for a manifest that predates `attempts`. */
-export function testBounds(test: ManifestTest): Bounds | undefined {
+export function testBounds(test: ParsedManifestTest): Bounds | undefined {
   const endMs =
     test.endTime ??
     (test.startTime !== undefined && test.durationMs !== undefined

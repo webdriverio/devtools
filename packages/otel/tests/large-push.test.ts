@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
-import type { Manifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
+import type { ParsedManifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { createTelemetry } from '../src/providers.js'
 import { planPush } from '../src/to-telemetry.js'
 
@@ -52,7 +52,7 @@ function startCollector(): Promise<Collector> {
   })
 }
 
-function syntheticManifest(count: number): Manifest {
+function syntheticManifest(count: number): ParsedManifest {
   return {
     manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 'large',

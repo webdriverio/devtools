@@ -9,36 +9,36 @@ import {
 } from '@wdio/devtools-shared'
 
 // `scope` is optional: an artifact without it takes the folder rule for its attempt. `format` is not read.
-export type ManifestArtifact = Omit<TraceArtifact, 'scope'> & {
+export type ParsedManifestArtifact = Omit<TraceArtifact, 'scope'> & {
   scope?: TraceArtifact['scope']
 }
 
-export type ManifestAttempt = TestAttemptRecord & { error?: string }
+export type ParsedManifestAttempt = TestAttemptRecord & { error?: string }
 
 // `state` is absent for a test the run started and never finished.
-export type ManifestTest = Omit<
+export type ParsedManifestTest = Omit<
   ArtifactManifestTest,
   'state' | 'attempt' | 'attempts'
 > & {
   state?: string
   attempt: number
-  attempts?: ManifestAttempt[]
+  attempts?: ParsedManifestAttempt[]
 }
 
-export type Manifest = Pick<
+export type ParsedManifest = Pick<
   ArtifactsManifest,
   'manifestVersion' | 'sessionId' | 'runId' | 'parent'
 > & {
-  artifacts: ManifestArtifact[]
-  tests: ManifestTest[]
+  artifacts: ParsedManifestArtifact[]
+  tests: ParsedManifestTest[]
   browserName?: string
   browserVersion?: string
   platformName?: string
 }
 
-type TestEntry = Omit<ManifestTest, 'attempt'> & { attempt?: number }
+type TestEntry = Omit<ParsedManifestTest, 'attempt'> & { attempt?: number }
 
-interface ManifestFile extends Omit<Manifest, 'tests'> {
+interface ManifestFile extends Omit<ParsedManifest, 'tests'> {
   tests: unknown[]
 }
 
@@ -54,7 +54,7 @@ function isArtifactKind(value: unknown): boolean {
   return ARTIFACT_KINDS.some((kind) => kind === value)
 }
 
-function isArtifact(value: unknown): value is ManifestArtifact {
+function isArtifact(value: unknown): value is ParsedManifestArtifact {
   return (
     isRecord(value) &&
     isArtifactKind(value.kind) &&
@@ -102,7 +102,7 @@ function isTraceFlags(value: unknown): boolean {
   )
 }
 
-function isAttempt(value: unknown): value is ManifestAttempt {
+function isAttempt(value: unknown): value is ParsedManifestAttempt {
   return (
     isRecord(value) &&
     isAttemptNumber(value.attempt) &&
@@ -317,7 +317,10 @@ function manifestProblem(json: unknown): string {
 }
 
 /** Validates at the file boundary; throws naming the first problem it can name. */
-export function parseManifest(json: unknown, source: string): Manifest {
+export function parseArtifactsManifest(
+  json: unknown,
+  source: string
+): ParsedManifest {
   if (!isManifestFile(json)) {
     throw new Error(
       `${source} is not an artifacts manifest: ${manifestProblem(json)}`

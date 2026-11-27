@@ -1,14 +1,14 @@
 import { ARTIFACTS_MANIFEST_VERSION } from '@wdio/devtools-shared'
 import { describe, expect, it } from 'vitest'
 import {
-  parseManifest,
-  type Manifest
+  parseArtifactsManifest,
+  type ParsedManifest
 } from '../src/artifacts-manifest-reader.js'
 
 const TRACE_ID = '4bf92f3577b34da6a3ce929d0e0e4736'
 const SPAN_ID = '00f067aa0ba902b7'
 
-const valid: Manifest = {
+const valid: ParsedManifest = {
   manifestVersion: ARTIFACTS_MANIFEST_VERSION,
   sessionId: 's1',
   artifacts: [
@@ -25,14 +25,14 @@ const valid: Manifest = {
   ]
 }
 
-describe('parseManifest', () => {
+describe('parseArtifactsManifest', () => {
   it('accepts a well-formed manifest', () => {
-    expect(parseManifest(valid, 'm.json')).toEqual(valid)
+    expect(parseArtifactsManifest(valid, 'm.json')).toEqual(valid)
   })
 
   it('throws naming the keys it found when the shape is wrong', () => {
     expect(() =>
-      parseManifest(
+      parseArtifactsManifest(
         {
           manifestVersion: ARTIFACTS_MANIFEST_VERSION,
           sessionId: 's1',
@@ -47,7 +47,7 @@ describe('parseManifest', () => {
 
   it('drops a key it does not know rather than passing it through', () => {
     expect(
-      parseManifest({ ...valid, cwd: '/somewhere' }, 'm.json')
+      parseArtifactsManifest({ ...valid, cwd: '/somewhere' }, 'm.json')
     ).not.toHaveProperty('cwd')
   })
 
@@ -62,7 +62,7 @@ describe('parseManifest', () => {
       final: true
     }
     expect(() =>
-      parseManifest(
+      parseArtifactsManifest(
         { ...valid, tests: [{ ...valid.tests[0], attempts: [attempt] }] },
         'm.json'
       )
@@ -73,7 +73,7 @@ describe('parseManifest', () => {
 
   it('rejects a test that ends before it starts, naming it', () => {
     expect(() =>
-      parseManifest(
+      parseArtifactsManifest(
         { ...valid, tests: [{ ...valid.tests[0], startTime: 5, endTime: 2 }] },
         'm.json'
       )
@@ -87,7 +87,7 @@ describe('parseManifest', () => {
       ...valid,
       artifacts: [{ kind: 'trace', path: 'a.zip', testUids: [] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -97,7 +97,7 @@ describe('parseManifest', () => {
       ...valid,
       artifacts: [{ ...valid.artifacts[0], kind: 'har' }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest'
     )
   })
@@ -110,7 +110,7 @@ describe('parseManifest', () => {
         kind
       }))
     }
-    expect(parseManifest(media, 'm.json').artifacts).toHaveLength(2)
+    expect(parseArtifactsManifest(media, 'm.json').artifacts).toHaveLength(2)
   })
 
   it('keeps a test with no state, with attempt 0', () => {
@@ -118,7 +118,7 @@ describe('parseManifest', () => {
       ...valid,
       tests: [{ uid: 'u2', title: 'b', specFile: 'b.spec.ts' }]
     }
-    expect(parseManifest(stateless, 'm.json').tests).toEqual([
+    expect(parseArtifactsManifest(stateless, 'm.json').tests).toEqual([
       { uid: 'u2', title: 'b', specFile: 'b.spec.ts', attempt: 0 }
     ])
   })
@@ -128,7 +128,7 @@ describe('parseManifest', () => {
       ...valid,
       tests: [{ uid: 'u9:step:0', title: 'Given', specFile: 'a.feature' }]
     }
-    expect(parseManifest(orphan, 'm.json').tests).toHaveLength(1)
+    expect(parseArtifactsManifest(orphan, 'm.json').tests).toHaveLength(1)
   })
 
   it('names the index and keys of a malformed test entry', () => {
@@ -139,15 +139,15 @@ describe('parseManifest', () => {
         { uid: 'step-1', specFile: 'a.feature', state: 5 }
       ]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: expected sessionId, artifacts, tests (artifacts and tests with their fields); found manifestVersion, sessionId, artifacts, tests; tests[1] is not a test (keys: uid, specFile, state)'
     )
   })
 })
 
-describe('parseManifest timing and keys', () => {
+describe('parseArtifactsManifest timing and keys', () => {
   it('keeps the optional timing, error and artifact key fields', () => {
-    const timed: Manifest = {
+    const timed: ParsedManifest = {
       ...valid,
       artifacts: [{ ...valid.artifacts[0], key: 'u1' }],
       tests: [
@@ -160,7 +160,7 @@ describe('parseManifest timing and keys', () => {
         }
       ]
     }
-    expect(parseManifest(timed, 'm.json')).toEqual(timed)
+    expect(parseArtifactsManifest(timed, 'm.json')).toEqual(timed)
   })
 
   it('rejects a non-numeric timing field', () => {
@@ -168,13 +168,13 @@ describe('parseManifest timing and keys', () => {
       ...valid,
       tests: [{ ...valid.tests[0], endTime: '2025-01-01' }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'tests[0] is not a test'
     )
   })
 })
 
-describe('parseManifest run identity and attempts', () => {
+describe('parseArtifactsManifest run identity and attempts', () => {
   const attempt = {
     attempt: 0,
     state: 'passed',
@@ -197,11 +197,11 @@ describe('parseManifest run identity and attempts', () => {
   }
 
   it('accepts a manifest with a run id, a parent and per-attempt ids', () => {
-    expect(parseManifest(stamped, 'm.json')).toEqual(stamped)
+    expect(parseArtifactsManifest(stamped, 'm.json')).toEqual(stamped)
   })
 
   it('accepts a manifest from before attempts existed', () => {
-    expect(parseManifest(valid, 'm.json')).toEqual(valid)
+    expect(parseArtifactsManifest(valid, 'm.json')).toEqual(valid)
   })
 
   it('rejects a trace id that is not 32 lowercase hex characters', () => {
@@ -209,7 +209,7 @@ describe('parseManifest run identity and attempts', () => {
       ...stamped,
       tests: [{ ...valid.tests[0], attempts: [{ ...attempt, traceId: 'abc' }] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -222,7 +222,7 @@ describe('parseManifest run identity and attempts', () => {
       ...stamped,
       tests: [{ ...valid.tests[0], attempts: [{ ...attempt, spanId }] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -235,7 +235,7 @@ describe('parseManifest run identity and attempts', () => {
       ...stamped,
       tests: [{ ...valid.tests[0], attempts: [{ ...attempt, ...ids }] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -245,7 +245,7 @@ describe('parseManifest run identity and attempts', () => {
     ['two', [attempt, { ...attempt, attempt: 1 }]]
   ])('rejects attempts with %s stamped final', (_, attempts) => {
     const broken = { ...stamped, tests: [{ ...valid.tests[0], attempts }] }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -256,7 +256,7 @@ describe('parseManifest run identity and attempts', () => {
       ...stamped,
       tests: [{ ...valid.tests[0], attempts: [rest] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'is not an artifacts manifest'
     )
   })
@@ -266,19 +266,19 @@ describe('parseManifest run identity and attempts', () => {
       ...stamped,
       parent: { ...stamped.parent, traceFlags: 256 }
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: parent.traceFlags must be an integer 0-255, found 256 (number)'
     )
   })
 
   it('rejects a non-string run id', () => {
-    expect(() => parseManifest({ ...valid, runId: 7 }, 'm.json')).toThrow(
-      'is not an artifacts manifest'
-    )
+    expect(() =>
+      parseArtifactsManifest({ ...valid, runId: 7 }, 'm.json')
+    ).toThrow('is not an artifacts manifest')
   })
 })
 
-describe('parseManifest specific reasons', () => {
+describe('parseArtifactsManifest specific reasons', () => {
   const ok = valid.tests[0]
   const attempt = {
     attempt: 0,
@@ -299,7 +299,7 @@ describe('parseManifest specific reasons', () => {
       ...valid,
       parent: { traceId: TRACE_ID, spanId: SPAN_ID, traceFlags: '01' }
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: parent.traceFlags must be an integer 0-255, found "01" (string)'
     )
   })
@@ -309,7 +309,7 @@ describe('parseManifest specific reasons', () => {
       ...ok,
       attempts: [{ ...attempt, final: undefined }]
     })
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: tests[3].attempts has no record marked final'
     )
   })
@@ -319,7 +319,7 @@ describe('parseManifest specific reasons', () => {
       ...ok,
       attempts: [attempt, { ...attempt, attempt: 1 }]
     })
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: tests[3].attempts has 2 records marked final'
     )
   })
@@ -332,7 +332,7 @@ describe('parseManifest specific reasons', () => {
         { ...attempt, attempt: 1, final: false, traceId: 'abc' }
       ]
     })
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: tests[3].attempts[1].traceId is not a 32-hex trace id'
     )
   })
@@ -345,20 +345,20 @@ describe('parseManifest specific reasons', () => {
         { ...attempt, attempt: 1, final: false, spanId: SPAN_ID.toUpperCase() }
       ]
     })
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'm.json is not an artifacts manifest: tests[3].attempts[1].spanId is not a 16-hex span id'
     )
   })
 
   it('names a test entry with no string uid', () => {
     const { uid: _omitted, ...rest } = ok
-    expect(() => parseManifest(withFourTests(rest), 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(withFourTests(rest), 'm.json')).toThrow(
       'm.json is not an artifacts manifest: tests[3] has no string uid'
     )
   })
 })
 
-describe('parseManifest run environment', () => {
+describe('parseArtifactsManifest run environment', () => {
   it('accepts the browser and platform fields and an attempt error', () => {
     const environment = {
       ...valid,
@@ -382,17 +382,17 @@ describe('parseManifest run environment', () => {
         }
       ]
     }
-    expect(parseManifest(environment, 'm.json')).toEqual(environment)
+    expect(parseArtifactsManifest(environment, 'm.json')).toEqual(environment)
   })
 
   it('rejects a browser name that is not a string', () => {
-    expect(() => parseManifest({ ...valid, browserName: 7 }, 'm.json')).toThrow(
-      'is not an artifacts manifest'
-    )
+    expect(() =>
+      parseArtifactsManifest({ ...valid, browserName: 7 }, 'm.json')
+    ).toThrow('is not an artifacts manifest')
   })
 })
 
-describe('parseManifest version', () => {
+describe('parseArtifactsManifest version', () => {
   it.each([
     ['none', { manifestVersion: undefined }],
     ['1', { manifestVersion: 1 }]
@@ -400,7 +400,9 @@ describe('parseManifest version', () => {
     'rejects a manifest of version %s, naming the version it reads',
     (found, version) => {
       const { manifestVersion: _omitted, ...rest } = valid
-      expect(() => parseManifest({ ...rest, ...version }, 'm.json')).toThrow(
+      expect(() =>
+        parseArtifactsManifest({ ...rest, ...version }, 'm.json')
+      ).toThrow(
         `m.json is not an artifacts manifest: manifest version ${found}, expected version 2; record the run with a current devtools adapter`
       )
     }
@@ -418,7 +420,7 @@ describe('parseManifest version', () => {
       }
     ]
     expect(() =>
-      parseManifest(
+      parseArtifactsManifest(
         { ...rest, tests: [{ ...valid.tests[0], attempts }] },
         'm.json'
       )
@@ -429,7 +431,7 @@ describe('parseManifest version', () => {
 
   it('reports the version before a version-1 manifest whose attempts are malformed', () => {
     expect(() =>
-      parseManifest(
+      parseArtifactsManifest(
         {
           ...valid,
           manifestVersion: 1,
@@ -441,7 +443,7 @@ describe('parseManifest version', () => {
   })
 })
 
-describe('parseManifest attempt numbers and testUids', () => {
+describe('parseArtifactsManifest attempt numbers and testUids', () => {
   const attempt = {
     attempt: 0,
     startTime: 1,
@@ -457,14 +459,14 @@ describe('parseManifest attempt numbers and testUids', () => {
         { ...valid.tests[0], attempts: [{ ...attempt, attempt: number }] }
       ]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       `tests[0].attempts[0].attempt must be a non-negative integer, found ${number} (number)`
     )
   })
 
   it.each([-1, 1.5])('rejects a test whose attempt is %s', (number) => {
     const broken = { ...valid, tests: [{ ...valid.tests[0], attempt: number }] }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       `tests[0].attempt must be a non-negative integer, found ${number} (number)`
     )
   })
@@ -474,7 +476,7 @@ describe('parseManifest attempt numbers and testUids', () => {
       ...valid,
       artifacts: [{ ...valid.artifacts[0], testUids: ['u1', 7] }]
     }
-    expect(() => parseManifest(broken, 'm.json')).toThrow(
+    expect(() => parseArtifactsManifest(broken, 'm.json')).toThrow(
       'artifacts[0].testUids must hold only strings'
     )
   })

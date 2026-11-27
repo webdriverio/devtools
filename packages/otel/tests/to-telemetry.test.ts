@@ -13,7 +13,7 @@ import {
 import { buildTraceZip } from '@wdio/devtools-trace'
 import { describe, expect, it } from 'vitest'
 import * as attr from '../src/attributes.js'
-import type { Manifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
+import type { ParsedManifest } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import { derivedSpanId, PinnedIdGenerator } from '../src/span-ids.js'
 import { SPAN_LIMITS, telemetryWith } from '../src/providers.js'
 import {
@@ -120,7 +120,7 @@ async function zipOf(
   )
 }
 
-function manifestOf(overrides: Partial<Manifest> = {}): Manifest {
+function manifestOf(overrides: Partial<ParsedManifest> = {}): ParsedManifest {
   return {
     manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 's1',
@@ -146,7 +146,7 @@ function manifestOf(overrides: Partial<Manifest> = {}): Manifest {
 }
 
 interface PushOptions {
-  manifests?: { file: string; manifest: Manifest }[]
+  manifests?: { file: string; manifest: ParsedManifest }[]
   runId?: string | null
   zips?: Map<string, Uint8Array>
   artifactBaseUrl?: string
@@ -812,7 +812,7 @@ describe('pushRun root spans', () => {
   })
 
   it('groups tests from several manifests under the one run id', async () => {
-    const second: Manifest = manifestOf({
+    const second: ParsedManifest = manifestOf({
       sessionId: 's2',
       artifacts: [],
       tests: [
@@ -856,9 +856,9 @@ const passingLogin = loginEvents.map((event) =>
 )
 
 function retriedManifest(
-  artifacts: Manifest['artifacts'],
-  overrides: Partial<Manifest['tests'][number]> = {}
-): Manifest {
+  artifacts: ParsedManifest['artifacts'],
+  overrides: Partial<ParsedManifest['tests'][number]> = {}
+): ParsedManifest {
   return {
     manifestVersion: ARTIFACTS_MANIFEST_VERSION,
     sessionId: 's1',
@@ -877,7 +877,7 @@ function retriedManifest(
 }
 
 describe('pushRun attempt selection', () => {
-  const keyedArtifacts: Manifest['artifacts'] = [
+  const keyedArtifacts: ParsedManifest['artifacts'] = [
     {
       kind: 'trace',
       path: 'a/trace.zip',
@@ -921,7 +921,7 @@ describe('pushRun attempt selection', () => {
   })
 
   it('links the keyless zip of the final attempt folder when the manifest has no keys', async () => {
-    const unkeyed: Manifest['artifacts'] = keyedArtifacts.map(
+    const unkeyed: ParsedManifest['artifacts'] = keyedArtifacts.map(
       ({ path: artifactPath, testUids, kind, retained }) => ({
         kind,
         path: artifactPath,
@@ -968,7 +968,7 @@ describe('pushRun attempt selection', () => {
   ] as const)(
     'links a flat %s zip to a retried test without reading its actions',
     async (scope, zipPath, key) => {
-      const flat: Manifest['artifacts'] = [
+      const flat: ParsedManifest['artifacts'] = [
         {
           kind: 'trace',
           path: zipPath,
@@ -996,7 +996,7 @@ describe('pushRun attempt selection', () => {
   )
 
   it('never stands an earlier attempt zip in for a final attempt that has none', async () => {
-    const firstOnly: Manifest['artifacts'] = [keyedArtifacts[0]]
+    const firstOnly: ParsedManifest['artifacts'] = [keyedArtifacts[0]]
     const { spans, warnings } = await push({
       manifests: [
         { file: MANIFEST_FILE, manifest: retriedManifest(firstOnly) }
@@ -1081,12 +1081,12 @@ describe('pushRun timing', () => {
   })
 
   it('names the trace as the source when the manifest gives a start but no end', async () => {
-    const startOnly = (artifacts: Manifest['artifacts']) => {
+    const startOnly = (artifacts: ParsedManifest['artifacts']) => {
       const record = finalRecord(0, 'failed', 'c0ffee0123456789')
       delete record.endTime
       return stampedManifest([record], { artifacts })
     }
-    const timing = async (manifest: Manifest) => {
+    const timing = async (manifest: ParsedManifest) => {
       const { spans } = await push({
         manifests: [{ file: MANIFEST_FILE, manifest }]
       })
@@ -1250,8 +1250,8 @@ const finalRecord = (
 
 const stampedManifest = (
   attempts: TestAttemptRecord[],
-  overrides: Partial<Manifest> = {}
-): Manifest =>
+  overrides: Partial<ParsedManifest> = {}
+): ParsedManifest =>
   manifestOf({
     artifacts: [],
     tests: [
@@ -1277,7 +1277,7 @@ describe('pushRun across specFileRetries workers', () => {
     spanId: string,
     traceId: string,
     offsetMs: number
-  ): Manifest =>
+  ): ParsedManifest =>
     manifestOf({
       sessionId,
       artifacts: [],
@@ -1300,7 +1300,7 @@ describe('pushRun across specFileRetries workers', () => {
       ]
     })
 
-  const pushWorkers = (manifests: Manifest[]) =>
+  const pushWorkers = (manifests: ParsedManifest[]) =>
     push({
       manifests: manifests.map((manifest) => ({
         file: path.join(
@@ -1720,7 +1720,7 @@ describe('pushRun opt-in zips', () => {
 })
 
 describe('pushRun final attempt marker', () => {
-  const failThenPass = (): Manifest =>
+  const failThenPass = (): ParsedManifest =>
     manifestOf({
       artifacts: [],
       tests: [
@@ -1864,7 +1864,7 @@ describe('planPush unreadable zips', () => {
   }
 
   const planOf = (
-    manifest: Manifest,
+    manifest: ParsedManifest,
     zips: Map<string, Uint8Array>,
     traceZips = true
   ) =>
@@ -1939,16 +1939,16 @@ describe('planPush unreadable zips', () => {
 })
 
 describe('pushRun manifest context', () => {
-  const contextOf = (overrides: Partial<Manifest>) =>
+  const contextOf = (overrides: Partial<ParsedManifest>) =>
     manifestOf({ artifacts: [], ...overrides })
-  const rootAttributes = async (manifest: Manifest) => {
+  const rootAttributes = async (manifest: ParsedManifest) => {
     const { spans } = await push({
       manifests: [{ file: MANIFEST_FILE, manifest }],
       traceZips: false
     })
     return byName(spans, 'logs in').attributes
   }
-  const withSpec = (specFile: string): Manifest =>
+  const withSpec = (specFile: string): ParsedManifest =>
     contextOf({
       tests: [
         {
@@ -2068,7 +2068,7 @@ describe('pushRun manifest context', () => {
 })
 
 describe('pushRun trace per test', () => {
-  const sameTrace = (): Manifest =>
+  const sameTrace = (): ParsedManifest =>
     stampedManifest([
       attemptRecord(0, 'failed', '000000000000aaa1', TRACE_A),
       finalRecord(1, 'passed', 'bbbbbbbbbbbbbbb2', TRACE_A)
@@ -2224,7 +2224,7 @@ describe('pushRun superseded finals across runs', () => {
 })
 
 describe('pushRun unsampled parent through the telemetry sampler', () => {
-  const unsampledManifest = (): Manifest =>
+  const unsampledManifest = (): ParsedManifest =>
     stampedManifest([finalRecord(0, 'passed', '000000000000aaa1', TRACE_A)], {
       parent: { traceId: TRACE_A, spanId: PARENT_SPAN, traceFlags: 0 }
     })

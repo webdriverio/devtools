@@ -13,8 +13,8 @@ import {
 } from '@wdio/devtools-shared'
 import { actionKey } from '@wdio/devtools-trace/action-key'
 import type {
-  Manifest,
-  ManifestTest
+  ParsedManifest,
+  ParsedManifestTest
 } from '@wdio/devtools-trace/artifacts-manifest-reader'
 import {
   holdsEarlierAttempts,
@@ -39,11 +39,11 @@ import {
 import { runIdOf, unsampledParent } from './run-identity.js'
 import { supersededFinals } from './superseded-finals.js'
 
-type ManifestParent = NonNullable<Manifest['parent']>
+type ManifestParent = NonNullable<ParsedManifest['parent']>
 
 export interface ManifestInput {
   file: string
-  manifest: Manifest
+  manifest: ParsedManifest
   mtimeMs: number
 }
 
@@ -88,7 +88,7 @@ interface TestSource {
 }
 
 interface PreparedFacts {
-  test: ManifestTest
+  test: ParsedManifestTest
   run: RunContext
   span: Bounds | undefined
   evidence: TraceEvidence | undefined
@@ -150,7 +150,7 @@ function browserAttributes(run: RunContext): Record<string, string> {
 }
 
 function testAttributes(
-  test: ManifestTest,
+  test: ParsedManifestTest,
   run: RunContext,
   state: string | undefined,
   attempt: number,
@@ -173,7 +173,7 @@ function testAttributes(
 
 // The test's own timing describes its final attempt only, so an earlier attempt reads its record alone.
 function timingAttributes(
-  test: ManifestTest,
+  test: ParsedManifestTest,
   view: AttemptView,
   span: Bounds | undefined
 ): Record<string, string | number> {
@@ -203,7 +203,7 @@ function timingAttributes(
   }
 }
 
-function attemptViews(test: ManifestTest): AttemptView[] {
+function attemptViews(test: ParsedManifestTest): AttemptView[] {
   if (!test.attempts?.length) {
     return [
       {
@@ -301,7 +301,7 @@ function prepareRoot(
 
 /** A passing test's erroring command is one it caught or retried, not its failure. */
 function failedActionOf(
-  test: ManifestTest,
+  test: ParsedManifestTest,
   actions: ActionInfo[]
 ): ActionInfo | undefined {
   if (test.state !== STATE_FAILED) {
@@ -313,7 +313,7 @@ function failedActionOf(
 }
 
 function prepareTest(
-  test: ManifestTest,
+  test: ParsedManifestTest,
   source: TestSource,
   run: RunContext,
   superseded: boolean
@@ -356,7 +356,7 @@ function prepareTest(
 function runContextOf(
   input: PushInput,
   runId: string,
-  manifest: Manifest,
+  manifest: ParsedManifest,
   mtimeMs: number
 ): RunContext {
   return {
@@ -377,7 +377,7 @@ function planManifest(
   { file, manifest, mtimeMs }: ManifestInput,
   runId: string,
   readTrace: (zipPath: string, dir: string) => TracePlayerData | undefined,
-  isSuperseded: (test: ManifestTest) => boolean
+  isSuperseded: (test: ParsedManifestTest) => boolean
 ): Array<() => PreparedTest> {
   const dir = path.dirname(file)
   const testUids = new Set(manifest.tests.map((test) => test.uid))
