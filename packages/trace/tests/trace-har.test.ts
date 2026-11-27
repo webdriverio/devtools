@@ -70,3 +70,30 @@ describe('networkRequestToHar: a Resource Timing entry', () => {
     })
   })
 })
+
+describe('networkRequestToHar: a collector fetch/XHR row with no response.mimeType', () => {
+  it('takes the mime type from the content-type header, so the player shows the body', () => {
+    const { snapshot } = networkRequestToHar(
+      entry({
+        responseHeaders: { 'content-type': 'application/json; charset=utf-8' },
+        responseBody: '{"ok":1}'
+      })
+    )
+    expect(snapshot.response.content.mimeType).toBe('application/json')
+    expect(snapshot.response.content.text).toBe('{"ok":1}')
+  })
+
+  it('keeps a mime type the capture stated', () => {
+    const { snapshot } = networkRequestToHar(
+      entry({
+        response: {
+          fromCache: false,
+          headers: { 'content-type': 'application/json' },
+          mimeType: 'text/plain',
+          status: 200
+        }
+      })
+    )
+    expect(snapshot.response.content.mimeType).toBe('text/plain')
+  })
+})

@@ -3,6 +3,7 @@
 import {
   getRequestType,
   isNativeAppSession,
+  mimeTypeFromHeaders,
   type NetworkRequest
 } from '@wdio/devtools-shared'
 import { errorMessage } from './error.js'
@@ -75,7 +76,7 @@ export function interceptedToNetworkRequest(
     response: {
       fromCache: false,
       headers: responseHeaders,
-      mimeType: responseHeaders['content-type']?.split(';')[0]?.trim() ?? '',
+      mimeType: mimeTypeFromHeaders(responseHeaders),
       status: entry.statusCode
     },
     requestBody: interceptedBodyText(entry.requestBody),

@@ -52,3 +52,21 @@ export function getRequestType(url: string, mimeType?: string): RequestType {
   }
   return 'xhr'
 }
+
+/**
+ * The bare media type of a response's `content-type` header (`application/json`
+ * for `application/json; charset=utf-8`), or `''` when there is none. Header
+ * names are matched case-insensitively, because not every producer lowercases
+ * them.
+ */
+export function mimeTypeFromHeaders(
+  headers: Record<string, string> | undefined
+): string {
+  if (!headers) {
+    return ''
+  }
+  const name = Object.keys(headers).find(
+    (key) => key.toLowerCase() === 'content-type'
+  )
+  return name ? (headers[name].split(';')[0]?.trim() ?? '') : ''
+}

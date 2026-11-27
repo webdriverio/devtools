@@ -1,11 +1,12 @@
 // Convert the existing NetworkRequest shape into trace format
 // `resource-snapshot` NDJSON entries (HAR-flavoured) for trace.zip.
 
-import type {
-  NetworkCaptureSource,
-  NetworkRequest,
-  NetworkTimings,
-  RequestType
+import {
+  mimeTypeFromHeaders,
+  type NetworkCaptureSource,
+  type NetworkRequest,
+  type NetworkTimings,
+  type RequestType
 } from '@wdio/devtools-shared'
 
 /** Bodies below this inline as plain `text`; larger ones rely on `_sha1` only. */
@@ -135,8 +136,11 @@ export function networkRequestToHar(
   const duration =
     entry.time ?? (entry.endTime ?? entry.startTime) - entry.startTime
   const status = entry.response?.status ?? entry.status ?? 0
-  const mimeType = entry.response?.mimeType ?? ''
   const responseHeaders = entry.response?.headers ?? entry.responseHeaders
+  // The page collector's fetch/XHR rows (Safari, Appium) carry headers but no
+  // `response.mimeType`; the player reads a body only for a textual mime type.
+  const mimeType =
+    entry.response?.mimeType || mimeTypeFromHeaders(responseHeaders)
   return {
     type: 'resource-snapshot',
     snapshot: {

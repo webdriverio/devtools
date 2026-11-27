@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { getRequestType } from '../src/request-type.js'
+import { getRequestType, mimeTypeFromHeaders } from '../src/request-type.js'
 import { REQUEST_TYPES, isRequestType } from '../src/types.js'
 
 describe('getRequestType', () => {
@@ -82,5 +82,26 @@ describe('isRequestType', () => {
     expect(isRequestType(undefined)).toBe(false)
     expect(isRequestType(null)).toBe(false)
     expect(isRequestType(7)).toBe(false)
+  })
+})
+
+describe('mimeTypeFromHeaders', () => {
+  it('strips parameters from the content-type', () => {
+    expect(
+      mimeTypeFromHeaders({
+        'content-type': 'application/json; charset=utf-8'
+      })
+    ).toBe('application/json')
+  })
+
+  it('matches the header name case-insensitively', () => {
+    expect(mimeTypeFromHeaders({ 'Content-Type': 'text/html' })).toBe(
+      'text/html'
+    )
+  })
+
+  it('is empty without headers or without a content-type', () => {
+    expect(mimeTypeFromHeaders(undefined)).toBe('')
+    expect(mimeTypeFromHeaders({ 'content-length': '7' })).toBe('')
   })
 })
