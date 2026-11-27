@@ -239,12 +239,23 @@ describe('openTrace refusals inside a folder', () => {
     }
   )
 
-  it('refuses to read a zip replaced after it was opened', async () => {
+  it('refuses to read a zip swapped for a symlink out of the root after it was opened', async () => {
     const zipPath = put(path.join(root, 'swap', 'trace.zip'))
     const { handle } = await openTrace(zipPath, OPTIONS)
     const { archive, data } = traceStateOf(handle)
     fs.rmSync(zipPath)
-    put(zipPath)
+    fs.symlinkSync(path.join(outside, 'secret.zip'), zipPath)
+    await expect(archive.read(data.frames[0]!.entry)).rejects.toThrow(
+      'changed since the trace was opened'
+    )
+  })
+
+  it('refuses to read a zip rewritten in place after it was opened', async () => {
+    const zipPath = put(path.join(root, 'rewrite', 'trace.zip'))
+    const { handle } = await openTrace(zipPath, OPTIONS)
+    const { archive, data } = traceStateOf(handle)
+    const later = new Date(fs.statSync(zipPath).mtimeMs + 60_000)
+    fs.utimesSync(zipPath, later, later)
     await expect(archive.read(data.frames[0]!.entry)).rejects.toThrow(
       'changed since the trace was opened'
     )
