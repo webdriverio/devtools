@@ -10,7 +10,7 @@ import { INLINE_PRIVATE_TYPES } from '../../tsup.dts.js'
 //     (PLUGIN_GLOBAL_KEY) is inlined and no longer needs a sibling in dist; keep
 //     `@cucumber/cucumber` external so the hooks share the user project's
 //     Cucumber singleton at runtime. Without this entry the .cjs never exists
-//     and Cucumber registers no devtools hooks (see CLAUDE.md known debt).
+//     and Cucumber registers no devtools hooks (see packages/nightwatch-devtools/CLAUDE.md known debt).
 export default defineConfig([
   {
     entry: ['src/index.ts'],

@@ -1,11 +1,11 @@
 // Trace-format transforms: captured events in, trace zip out. The reader
 // (`trace-reader.ts`) is left out of this index so `core` never inlines it. See
-// ARCHITECTURE.md §2 and CLAUDE.md §2.2.
+// ARCHITECTURE.md § Packages and CLAUDE.md § Layering.
 //
 // Split out of `core` because two layers need it and `core` is reachable from
 // only one of them: adapters build their own trace, while the backend builds
 // one on behalf of an adapter that cannot (the Python adapter ships no Node),
-// and CLAUDE.md §2.2 bars the backend from importing `core`. Everything here
+// and CLAUDE.md § Layering bars the backend from importing `core`. Everything here
 // is a pure transform over shared types — no framework API, no driver, no
 // capture. Adapter-side policy and orchestration stay in `core`
 // (`trace-finalizer`, `spec-trace-helpers`, `trace-retention`).

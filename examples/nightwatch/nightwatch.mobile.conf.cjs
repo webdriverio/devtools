@@ -108,7 +108,7 @@ module.exports = {
           mode: MODE,
           // The BDD describe/it interface fires the plugin's beforeEach once per
           // MODULE, so per-test slicing collapses to one session-scoped slice
-          // here regardless — see CLAUDE.md § Known debt.
+          // here regardless — see packages/nightwatch-devtools/CLAUDE.md § Known debt.
           // Live and telemetry modes warn that they ignore this, so set it only for trace.
           ...(MODE === 'trace' ? { traceGranularity: 'session' } : {}),
           // Appium serves no BiDi, so leave it off rather than have the attach
