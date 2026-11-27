@@ -92,13 +92,19 @@ def _form_encode(text: str) -> str:
     return "".join(out)
 
 
+def _xml_escape(text: str) -> str:
+    # Both Appium drivers' serializers escape these four in a page-source attribute and leave `'` as it is.
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
 def secret_variants(secret: str) -> List[str]:
-    """Every form a secret takes in captured text: as typed, inside a JSON string, in a URL and in a form body."""
+    """Every form a secret takes in captured text: as typed, inside a JSON string, in a URL, in a form body and in an XML attribute."""
     forms = [
         secret,
         json.dumps(secret, ensure_ascii=False)[1:-1],
         _uri_component(secret),
         _form_encode(secret),
+        _xml_escape(secret),
     ]
     return _longest_first([f for f in forms if f])
 

@@ -1005,7 +1005,7 @@
         "ts": "shared/secret-redaction.ts createSecretRedactor(...).redact (walk: shared/redaction-walk.ts)",
         "py": "secret_redaction.py create_secret_redactor(...).redact (walk: redaction_walk.py)"
       },
-      "notes": "Every string in a JSON-shaped value has each secret (listed or typed) replaced by the fixed placeholder, in four forms: as typed, JSON-escaped, encodeURIComponent and form-encoded (space as +, only alphanumerics and *-._ kept). Typed passwords are redacted exactly like listed secrets; a keystroke prefix of either is never replaced, since the page collector already masks a password field's own value keystroke by keystroke. An array of 4 or more one-character strings (a W3C Send Keys value) is redacted as the text it spells and split back into characters, so it takes the placeholder's length. A data: URI or a base64 run of 256+ characters is left alone unless it equals a form of a secret, and so is any string under `screenshot`, or under `data` beside a `mimeType`. With `authHeaders` (on whenever input masking is), the values of Authorization, Proxy-Authorization, Cookie and Set-Cookie in any object under `headers`, `requestHeaders` or `responseHeaders` are replaced, a string under `cookies` has each cookie's value replaced, and a cookie object (string name and value plus a W3C cookie field) has its value replaced. Keys are kept. A value that changes nothing is returned as it is.",
+      "notes": "Every string in a JSON-shaped value has each secret (listed or typed) replaced by the fixed placeholder, in five forms: as typed, JSON-escaped, encodeURIComponent, form-encoded (space as +, only alphanumerics and *-._ kept) and XML-escaped (& < > \" as &amp; &lt; &gt; &quot;, ' left as it is, the way a native page source carries an attribute). Typed passwords are redacted exactly like listed secrets; a keystroke prefix of either is never replaced, since the page collector already masks a password field's own value keystroke by keystroke. An array of 4 or more one-character strings (a W3C Send Keys value) is redacted as the text it spells and split back into characters, so it takes the placeholder's length. A data: URI or a base64 run of 256+ characters is left alone unless it equals a form of a secret, and so is any string under `screenshot`, or under `data` beside a `mimeType`. With `authHeaders` (on whenever input masking is), the values of Authorization, Proxy-Authorization, Cookie and Set-Cookie in any object under `headers`, `requestHeaders` or `responseHeaders` are replaced, a string under `cookies` has each cookie's value replaced, and a cookie object (string name and value plus a W3C cookie field) has its value replaced. Keys are kept. A value that changes nothing is returned as it is.",
       "cases": [
         {
           "name": "a secret inside a longer string is replaced",
@@ -1029,6 +1029,20 @@
               "\u2022\u2022\u2022\u2022"
             ],
             "result": "typed \u2022\u2022\u2022\u2022 into #password"
+          }
+        },
+        {
+          "name": "a secret escaped in a native page-source attribute is replaced",
+          "secrets": [
+            "token&<1234>\"x'"
+          ],
+          "typed": [],
+          "authHeaders": false,
+          "value": {
+            "pageSource": "<hierarchy><android.widget.EditText text=\"token&amp;&lt;1234&gt;&quot;x'\"/></hierarchy>"
+          },
+          "expect": {
+            "pageSource": "<hierarchy><android.widget.EditText text=\"••••\"/></hierarchy>"
           }
         },
         {

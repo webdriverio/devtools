@@ -381,7 +381,8 @@ console lines and stdout, network URLs, headers and bodies, the DOM and its
 mutations, the A11y captures, the test source and the suite tree. The backend
 builds the trace archive from those frames, so the archive carries none of them
 either. A value inside a longer string is replaced, as are its JSON-escaped,
-URL-encoded and form-encoded forms. A prefix of a value is never replaced: a
+URL-encoded, form-encoded and XML-escaped forms (the last is how a native
+app's page source carries it). A prefix of a value is never replaced: a
 password field's own keystrokes are already masked by the page collector. The test and the driver still see
 the real value.
 
