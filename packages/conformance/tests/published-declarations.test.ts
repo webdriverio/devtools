@@ -16,7 +16,8 @@ const PUBLISHED = [
   'service',
   'backend',
   'selenium-devtools',
-  'nightwatch-devtools'
+  'nightwatch-devtools',
+  'trace-query'
 ]
 
 // A private workspace package by name, or any path back into `packages/`: neither exists where a consumer installs the package.

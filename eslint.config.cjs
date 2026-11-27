@@ -440,5 +440,45 @@ module.exports = [
         }
       ]
     }
+  },
+  // CLAUDE.md § Layering: trace-query is a published reader of a run's output. It reads zips through trace and nothing else, so @wdio/mcp installs no capture, server or adapter code.
+  {
+    files: ['packages/trace-query/**/*.{ts,tsx,js,mjs,cjs}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@wdio/devtools-trace',
+              message:
+                'trace-query imports trace by subpath only (CLAUDE.md § Layering). The index re-exports the zip writer, whose CJS yazl would be inlined behind a require shim that throws on import.'
+            }
+          ],
+          patterns: [
+            {
+              group: [
+                '@wdio/devtools-core',
+                '@wdio/devtools-core/*',
+                '@wdio/devtools-backend',
+                '@wdio/devtools-backend/*',
+                '@wdio/devtools-service',
+                '@wdio/devtools-service/*',
+                '@wdio/nightwatch-devtools',
+                '@wdio/nightwatch-devtools/*',
+                '@wdio/selenium-devtools',
+                '@wdio/selenium-devtools/*',
+                '@wdio/opentelemetry',
+                '@/*',
+                '@components/*',
+                '@core/*'
+              ],
+              message:
+                'trace-query imports only shared and trace (CLAUDE.md § Layering). Shared reading logic belongs in trace, so otel and trace-query inline one copy.'
+            }
+          ]
+        }
+      ]
+    }
   }
 ]
