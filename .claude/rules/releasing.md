@@ -21,7 +21,8 @@ Scope: npm changesets, Python-adapter release fragments, and the release workflo
 - Never hand-edit the npm or Python version. Why: the release assembles the version and changelog from changesets and fragments.
 - A direct `CHANGELOG.md` edit satisfies `python.yml` only before the first release (a `py-v*` tag exists after one, `packages/selenium-devtools-py/scripts/changes.py`). Why: after it, a direct edit documents without bumping, so the release finds no fragment and republishes an existing version.
 - Publish npm before Python; the order is manual, since `python-release.yml` is `workflow_dispatch` with no `needs:` link to `release.yml`. Why: `BACKEND_NPM_VERSION` (`packages/selenium-devtools-py/src/selenium_devtools/constants.py`) names the backend a `pip install` user runs.
-- Name every backend feature the Python adapter depends on in `scripts/check_backend_pin.py` `REQUIRED_BACKEND_NAMES`, by a contract literal the backend bundle carries only when it serves the feature (for page-source parsing, `ACTION_SNAPSHOT_PAGE_SOURCE_KEY`). Why: the release order is manual, and a PyPI release against an older backend ships the feature dead with the run still green.
+- Name every backend feature the Python adapter depends on in `scripts/check_backend_pin.py` `REQUIRED_BACKEND_NAMES`, by a contract literal the backend bundle carries only when it serves the feature, and add the name in the pin-bump PR rather than the feature PR. Why: the release order is manual, so a PyPI release against an older backend ships the feature dead with the run still green; and the check runs on every PR, so the feature PR, whose backend is not published yet, would fail it.
+- Pending for the next pin bump: `ACTION_SNAPSHOT_PAGE_SOURCE_KEY` (page-source parsing for native element trees).
 - Tag `py-v<version>` only after a successful publish. Why: the tag then names the published tree rather than a version nothing has computed yet.
 
 ## Accepted residuals

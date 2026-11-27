@@ -641,7 +641,7 @@ export interface ActionSnapshot {
   platform?: NativePlatform
 }
 
-/** The field a backend that parses native page sources reads; the Python adapter's pin check looks for this literal in the published backend. */
+/** The field a backend that parses native page sources reads; a backend carries this literal only when it parses them, which the Python adapter's pin check can require. */
 export const ACTION_SNAPSHOT_PAGE_SOURCE_KEY =
   'pageSource' as const satisfies keyof ActionSnapshot
 
