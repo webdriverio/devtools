@@ -11,9 +11,9 @@
 
 import {
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_LOCATOR_DELIM,
+  SNAPSHOT_LOCATOR_SEPARATOR,
   SNAPSHOT_PAGE_HEADER,
-  SNAPSHOT_PURPOSE_TOKEN,
+  SNAPSHOT_PURPOSE_OPEN,
   snapshotNativeHeader
 } from '@wdio/devtools-shared'
 import type { CommandLog } from '@wdio/devtools-shared'
@@ -53,15 +53,14 @@ export function a11yLine({
   purpose,
   selector
 }: NodeLine): string {
-  const parts = [`${SNAPSHOT_INDENT_UNIT.repeat(depth + 1)}${role}`]
+  let line = `${SNAPSHOT_INDENT_UNIT.repeat(depth + 1)}${role}`
   if (name !== undefined) {
-    parts.push(`"${name}"`)
+    line += ` "${name}"`
   }
   if (purpose) {
-    parts.push(`${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"`)
+    line += `${SNAPSHOT_PURPOSE_OPEN}${purpose}"`
   }
-  const line = parts.join(' ')
-  return selector ? `${line}  ${SNAPSHOT_LOCATOR_DELIM}  ${selector}` : line
+  return selector ? `${line}${SNAPSHOT_LOCATOR_SEPARATOR}${selector}` : line
 }
 
 /** Login page: two nameless containers, three locator-bearing controls, one

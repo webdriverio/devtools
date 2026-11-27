@@ -1,5 +1,7 @@
 import type {
   CommandLog,
+  ImageMime,
+  ImageSize,
   TraceActionGroupNode,
   TraceOutcome
 } from '@wdio/devtools-shared'
@@ -376,3 +378,67 @@ export interface TraceNetworkRequestDetail extends NetworkRow {
   /** Why no body came back, when one was asked for. */
   bodyUnavailable?: string
 }
+
+/** The capture a page state was read from, and the action it belongs to. */
+export interface CaptureSource {
+  /** When the capture was stamped, in ms from the trace start. */
+  timeMs: number
+  /** The action the capture was taken for; absent for a screencast frame, which is recorded on a timer rather than for an action. */
+  callId?: string
+  title?: string
+  /** False when the asked action took no capture of its own and shows the latest earlier one, as the player does. */
+  own: boolean
+}
+
+/** Narrows a snapshot to the subtrees of the nodes that match; when both are named, a node matches both. */
+export interface SnapshotScope {
+  /** A node's captured locator, exactly as the snapshot writes it after `→`. */
+  locator?: string
+  /** Text a node's role, name or purpose contains, ignoring case. */
+  text?: string
+}
+
+export interface TraceSnapshotRequest extends PageRequest, SnapshotScope {}
+
+/** The accessibility tree at an action: one page of its node lines, each indented two spaces per depth from the shallowest line of the result, an element's ending `→ <locator>`. */
+export interface TraceSnapshot extends Page<string> {
+  /** The action asked about. */
+  callId: string
+  capture: CaptureSource
+  /** The `[Page: ...]` line naming a web page's title and url, or `[android]` / `[ios]` for a native app. */
+  header?: string
+  /** Subtrees the scope matched; present only when scoped. */
+  matches?: number
+}
+
+export interface TraceScreenshotRequest {
+  /** Longest side, in pixels, of the size `fit` names; the image is never fitted larger than it is. */
+  maxEdge?: number
+}
+
+/** Where a screenshot at an action came from, whether or not its image could be read. */
+interface ScreenshotAt {
+  /** The action asked about. */
+  callId: string
+  capture: CaptureSource
+}
+
+/** The screenshot at an action, as the trace stores it, with the size to downscale it to before a model sees it. */
+export interface ScreenshotImage extends ScreenshotAt {
+  mimeType: ImageMime
+  bytes: Uint8Array
+  /** The stored image's pixel size. */
+  size: ImageSize
+  /** The size within `maxEdge` with the image's aspect ratio. */
+  fit: ImageSize
+  /** Roughly what Claude's API bills for the image at `fit`. */
+  tokens: number
+}
+
+/** A screenshot the trace names for an action but whose image did not come back. */
+export interface ScreenshotUnavailable extends ScreenshotAt {
+  /** Why: no declared size, over the read limit, unreadable, or not a PNG or JPEG. */
+  unavailable: string
+}
+
+export type TraceScreenshot = ScreenshotImage | ScreenshotUnavailable

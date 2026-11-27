@@ -16,6 +16,9 @@ export const NETWORK_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.network
 export const STACKS_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.stacks
 export const MUTATIONS_STREAM_SUFFIX = TRACE_STREAM_SUFFIXES.mutations
 
+/** Where this writer's frame-snapshots point their screenshot; `.invalid` never resolves (RFC 6761), so a viewer that ignores the override fetches nothing. */
+export const SCREENSHOT_URL_ORIGIN = 'https://screenshot.wdio-devtools.invalid'
+
 /** Foreign screencast refs may be a bare sha1; probe image extensions too. */
 export const FRAME_RESOURCE_SUFFIXES = ['', '.jpeg', '.png'] as const
 

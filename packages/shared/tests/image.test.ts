@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   hasScreenshot,
+  imageBytesMime,
   imageDimensions,
   imageExtension,
   imageMime
@@ -115,5 +116,20 @@ describe('imageDimensions', () => {
         'iVBORw0KGgoAAAANSUhEUgAAAAAAAAAaCAIAAAAMmCo2AAAAGElEQVR42mPQiDpBEDGMKhpVNKpocCoCABkvkkCF7UyEAAAAAElFTkSuQmCC'
       )
     ).toBeNull()
+  })
+})
+
+describe('imageBytesMime', () => {
+  const bytes = (base64: string) =>
+    Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+
+  it('names a PNG and a JPEG by their signatures', () => {
+    expect(imageBytesMime(bytes(PORTRAIT_PNG))).toBe('image/png')
+    expect(imageBytesMime(bytes(PORTRAIT_JPEG))).toBe('image/jpeg')
+  })
+
+  it('names nothing for bytes that are neither', () => {
+    expect(imageBytesMime(new TextEncoder().encode('GIF89a'))).toBe(null)
+    expect(imageBytesMime(new Uint8Array())).toBe(null)
   })
 })

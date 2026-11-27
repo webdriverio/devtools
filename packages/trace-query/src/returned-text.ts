@@ -15,6 +15,8 @@ export type TextKind =
   | { kind: 'header'; field: HeaderField; name: string }
   | { kind: 'body'; mimeType?: string }
   | { kind: 'body-unavailable' }
+  | { kind: 'accessibility-tree' }
+  | { kind: 'screenshot-unavailable' }
 
 export type TextContext = TextKind & {
   state: TraceState

@@ -15,9 +15,9 @@ import {
   INTERACTIVE_ROLES,
   isStatictextEchoedByParent,
   SNAPSHOT_INDENT_UNIT,
-  SNAPSHOT_LOCATOR_DELIM,
+  SNAPSHOT_LOCATOR_SEPARATOR,
   SNAPSHOT_PAGE_HEADER,
-  SNAPSHOT_PURPOSE_TOKEN
+  SNAPSHOT_PURPOSE_OPEN
 } from '@wdio/devtools-shared'
 import type { AccessibilityNode } from '@wdio/devtools-shared'
 
@@ -108,16 +108,16 @@ export function serializeWebSnapshot(
         // duplicate selectors like six "Add to Wishlist" buttons.
         lines.push(
           purpose
-            ? `${indent}${roleLabel} "${node.name}" ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
-            : `${indent}${roleLabel} "${node.name}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+            ? `${indent}${roleLabel} "${node.name}"${SNAPSHOT_PURPOSE_OPEN}${purpose}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
+            : `${indent}${roleLabel} "${node.name}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
         )
       } else if (purpose) {
         lines.push(
-          `${indent}${roleLabel} ${SNAPSHOT_PURPOSE_TOKEN} "${purpose}"  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+          `${indent}${roleLabel}${SNAPSHOT_PURPOSE_OPEN}${purpose}"${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
         )
       } else {
         lines.push(
-          `${indent}${roleLabel}  ${SNAPSHOT_LOCATOR_DELIM}  ${node.selector}`
+          `${indent}${roleLabel}${SNAPSHOT_LOCATOR_SEPARATOR}${node.selector}`
         )
       }
     } else {

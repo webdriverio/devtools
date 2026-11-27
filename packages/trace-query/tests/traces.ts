@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import {
   TraceType,
+  type ActionSnapshot,
   type CommandLog,
   type ConsoleLog,
   type NetworkRequest,
@@ -45,6 +46,8 @@ export interface WrittenRun {
   networkRequests?: NetworkRequest[]
   sources?: Record<string, string>
   testMetadata?: TestMetadataMap
+  /** Per-action captures, each stamped with the action whose result it is. */
+  actionSnapshots?: ActionSnapshot[]
   startTime: number
   /** Chrome unless named. */
   browserName?: string
@@ -60,6 +63,7 @@ export async function openWritten(run: WrittenRun): Promise<TraceHandle> {
       networkRequests: run.networkRequests ?? [],
       commands: run.commands,
       sources: run.sources ?? {},
+      actionSnapshots: run.actionSnapshots,
       metadata: {
         type: TraceType.Testrunner,
         sessionId: 'abc12345',

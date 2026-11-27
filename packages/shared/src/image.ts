@@ -16,6 +16,9 @@ const JPEG_SOS = 0xda
  *  may be 64 KB. */
 const HEADER_WINDOWS = [4096, 1_048_576]
 
+/** The image formats a trace stores captures in. */
+export type ImageMime = 'image/png' | 'image/jpeg'
+
 export interface ImageSize {
   width: number
   height: number
@@ -28,7 +31,7 @@ export function hasScreenshot(value: unknown): value is string {
 
 /** Detect image mime from a base64 string's magic bytes: trace screenshots may
  *  be PNG (polling capture) or JPEG (CDP). */
-export function imageMime(base64: string): string {
+export function imageMime(base64: string): ImageMime {
   return base64.startsWith(PNG_BASE64_MAGIC) ? 'image/png' : 'image/jpeg'
 }
 
@@ -55,6 +58,18 @@ export function imageDimensions(base64: string): ImageSize | null {
     }
   }
   return null
+}
+
+/** The format of an image's raw bytes, as a zip entry holds them, read from its signature rather than its name: older traces stored PNG captures under `.jpeg` names. Null for neither PNG nor JPEG. */
+export function imageBytesMime(bytes: Uint8Array): ImageMime | null {
+  if (hasPrefix(bytes, PNG_SIGNATURE)) {
+    return 'image/png'
+  }
+  return hasPrefix(bytes, JPEG_SOI) ? 'image/jpeg' : null
+}
+
+function hasPrefix(bytes: Uint8Array, prefix: readonly number[]): boolean {
+  return prefix.every((byte, i) => bytes[i] === byte)
 }
 
 /** `imageDimensions` for an image's raw bytes, as a zip entry holds them. */
@@ -89,10 +104,7 @@ function headerBytes(base64: string, limit: number): Uint8Array {
 }
 
 function pngSize(bytes: Uint8Array): ImageSize | null {
-  if (
-    bytes.length < PNG_IHDR_END ||
-    PNG_SIGNATURE.some((byte, i) => bytes[i] !== byte)
-  ) {
+  if (bytes.length < PNG_IHDR_END || !hasPrefix(bytes, PNG_SIGNATURE)) {
     return null
   }
   return {
@@ -104,7 +116,7 @@ function pngSize(bytes: Uint8Array): ImageSize | null {
 /** Walk the segment chain to the frame header. JPEG puts the size there rather
  *  than at a fixed offset, and any number of metadata segments may precede it. */
 function jpegSize(bytes: Uint8Array): ImageSize | null {
-  if (JPEG_SOI.some((byte, i) => bytes[i] !== byte)) {
+  if (!hasPrefix(bytes, JPEG_SOI)) {
     return null
   }
   let at = JPEG_SOI.length

@@ -558,6 +558,76 @@ describe('a written trace stores each screenshot once', () => {
     expect(data.trace.commands[1]!.snapshotText).toBe('- button "Go"')
   })
 
+  it('reads back which capture each row shows and whose it is, an inherited one included', async () => {
+    const data = parseTraceZip((await written()).zip)
+    expect(data.snapshotSources).toEqual({
+      'call@1': {
+        timestamp: 1000,
+        ownerCallId: 'call@1',
+        entry: 'resources/page@abc12345-1000.png'
+      },
+      'call@2': {
+        timestamp: 2000,
+        ownerCallId: 'call@2',
+        entry: 'resources/page@abc12345-2000.jpeg'
+      },
+      'call@3': {
+        timestamp: 2000,
+        ownerCallId: 'call@2',
+        entry: 'resources/page@abc12345-2000.jpeg'
+      }
+    })
+  })
+
+  it('credits a capture to its action when zero-length rows before it shift every later row', async () => {
+    const assertAt = (args: string[]) => ({
+      command: 'assert.ok',
+      args,
+      startTime: 1200,
+      timestamp: 1200
+    })
+    const zip = await exportTraceZip(
+      {
+        mutations: [],
+        logs: [],
+        consoleLogs: [],
+        networkRequests: [],
+        metadata: { type: TraceType.Standalone },
+        commands: [
+          {
+            command: 'url',
+            args: ['https://example.test'],
+            startTime: 900,
+            timestamp: 1000
+          },
+          assertAt(['a']),
+          assertAt(['b']),
+          assertAt(['c']),
+          { command: 'click', args: ['#y'], startTime: 1200, timestamp: 1201 },
+          { command: 'getText', args: ['#y'], startTime: 1300, timestamp: 1300 }
+        ],
+        sources: {},
+        actionSnapshots: [
+          { timestamp: 1000, command: 'url', screenshot: PNG },
+          { timestamp: 1201, command: 'click', screenshot: JPEG }
+        ]
+      },
+      { sessionId: 'abc12345' }
+    )
+    const data = parseTraceZip(zip)
+    const click = data.trace.commands.find(
+      (c) => c.args[0] === '#y' && c.command === 'click'
+    )!
+    // The writer floors each start at the previous end, so the click's span no longer holds its own capture.
+    expect(click.startTime).toBeGreaterThan(1201)
+    expect(data.snapshotSources).toMatchObject({
+      'call@2': { timestamp: 1000, ownerCallId: 'call@1' },
+      'call@4': { timestamp: 1000, ownerCallId: 'call@1' },
+      [click.callId!]: { timestamp: 1201, ownerCallId: click.callId },
+      'call@6': { timestamp: 1201, ownerCallId: click.callId }
+    })
+  })
+
   it('still reads a zip written when every screenshot was named .jpeg', async () => {
     const { files } = await written()
     const legacy: Record<string, Uint8Array> = {}

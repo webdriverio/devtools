@@ -1,3 +1,7 @@
+export type {
+  ImageMime as ScreenshotMimeType,
+  ImageSize as PixelSize
+} from '@wdio/devtools-shared'
 export {
   bytesZipSource,
   type ZipSource
@@ -10,6 +14,7 @@ export {
   DEFAULT_MAX_CHARS,
   DEFAULT_MAX_INFLATED_BYTES,
   DEFAULT_MAX_ZIP_BYTES,
+  SCREENSHOT_MAX_EDGE,
   TRACE_ERROR_KIND
 } from './constants.js'
 export { traceConsole } from './console.js'
@@ -18,6 +23,8 @@ export { traceNetwork } from './network.js'
 export { traceNetworkRequest } from './network-request.js'
 export { openTrace, openTraceSource } from './open-trace.js'
 export { traceSummary } from './summary.js'
+export { traceScreenshot } from './trace-screenshot.js'
+export { traceSnapshot } from './trace-snapshot.js'
 export { traceTranscript } from './transcript.js'
 export { TRACE_OUTCOME, type TraceOutcome } from '@wdio/devtools-shared'
 export type {
@@ -28,6 +35,7 @@ export type {
   ActionRow,
   ActionStatus,
   ActionWindow,
+  CaptureSource,
   ConsoleLevel,
   ConsoleLine,
   ConsolePage,
@@ -44,13 +52,20 @@ export type {
   PageRequest,
   RequestStatusKind,
   RequestType,
+  SnapshotScope,
   TestNode,
   TraceError,
   TraceErrorKind,
   TraceHandle,
   TraceNetworkRequestDetail,
   TraceNetworkRequestOptions,
+  ScreenshotImage,
+  ScreenshotUnavailable,
+  TraceScreenshot,
+  TraceScreenshotRequest,
   TraceSelection,
+  TraceSnapshot,
+  TraceSnapshotRequest,
   TraceSummary,
   TraceTarget,
   TruncatedText
